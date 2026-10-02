@@ -1,0 +1,37 @@
+# Specimen Handling, Scope Boundaries, and Tube Sequencing Rules
+# Solves Gap 11 (Unscoped Tool Output) by enforcing sequential protocols.
+
+domain: "laboratory_medicine"
+version: "1.0.0"
+
+panels:
+  csf_emergency_panel:
+    name: "CSF Emergency Panel"
+    specimen: "Cerebrospinal Fluid (Lumbar Puncture)"
+    tube_rules:
+      - tube: 1
+        department: "Clinical Biochemistry"
+        description: "Primary aliquot for chemical quantification (Protein, Glucose)"
+        tests:
+          - uri: "loinc:2880-3"
+            test_name: "Protein [Mass/volume] in CSF"
+          - uri: "loinc:2342-4"
+            test_name: "Glucose [Mass/volume] in CSF"
+
+      - tube: 2
+        department: "Microbiology"
+        description: "Microbiology culture and gram stain (avoids skin flora contamination)"
+        tests:
+          - uri: "loinc:14357-8"
+            test_name: "Microscopic observation [Identifier] in CSF by Gram stain"
+          - uri: "loinc:606-4"
+            test_name: "Bacteria identified in CSF by culture"
+
+      - tube: 3
+        department: "Hematology"
+        description: "Cell count & differential (cleared of traumatic puncture peripheral blood)"
+        tests:
+          - uri: "loinc:26465-5"
+            test_name: "Leukocytes [#/volume] in CSF"
+          - uri: "loinc:26512-4"
+            test_name: "Neutrophils/Leukocytes in CSF"

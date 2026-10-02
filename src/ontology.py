@@ -3,9 +3,15 @@ Ontology definitions and semantic knowledge bases for laboratory medicine retrie
 Covers controlled vocabularies, thesaurus alternate labels, LOINC concept mappings,
 reference protocols, and CSF tube sequencing as described in:
 'Information Retrieval, Part III: When the Retriever Has to Decide'
+
+Dynamically populated from declarative YAML configurations (config/domains/laboratory_medicine/).
 """
 
 from typing import Any, Dict, List
+from src.core.config import get_default_registry
+
+# Initialize registry from YAML configs
+_registry = get_default_registry()
 
 # -------------------------------------------------------------------------
 # Scenario A (Gap 2 & Gap 8): Unstructured Mock Notes (Naive KB)
@@ -30,106 +36,51 @@ LAB_KB: List[Dict[str, str]] = [
 # -------------------------------------------------------------------------
 # Scenario A (Gap 2 & Gap 8): Controlled Vocabulary & Thesaurus (CONCEPTS)
 # -------------------------------------------------------------------------
-# Jessica Talisman's Ontology Pipeline:
-# Controlled Vocabulary -> Metadata -> Taxonomy -> Thesaurus -> Ontology
 CONCEPTS: Dict[str, Dict[str, Any]] = {
-    "loinc:718-7": {
-        "label": "Hemoglobin [Mass/volume] in Blood",
-        "alt_labels": [
-            "hb",
-            "hgb",
-            "hemoglobin",
-            "total hemoglobin",
-            "cbc hemoglobin",
-        ],
-        "department": "Hematology",
-        "units": ["g/dL", "g/L"],
-    },
-    "loinc:4548-4": {
-        "label": "Hemoglobin A1c/Hemoglobin.total in Blood",
-        "alt_labels": [
-            "hb",
-            "hemoglobin",
-            "hba1c",
-            "hb a1c",
-            "a1c",
-            "glycated hemoglobin",
-        ],
-        "department": "Clinical Biochemistry",
-        "units": ["%"],  # IFCC results in mmol/mol belong to LOINC 59261-8
-    },
+    uri: {
+        "label": c.label,
+        "alt_labels": c.alt_labels,
+        "department": c.department,
+        "units": c.units,
+    }
+    for uri, c in _registry.concepts.items()
 }
 
 # -------------------------------------------------------------------------
 # Scenario A: Grounded Protocols Keyed by Canonical Concept URI
 # -------------------------------------------------------------------------
 PROTOCOLS: Dict[str, Dict[str, str]] = {
-    "loinc:718-7": {
-        "reference_range": "Adult male 13.8-17.2 g/dL; adult female 12.1-15.1 g/dL",
-        "panic_limits": "Low < 7.0 g/dL; high > 20.0 g/dL",
-    },
-    "loinc:4548-4": {
-        "reference_range": "Normal < 5.7%; prediabetes 5.7-6.4%; diabetes >= 6.5%",
-        "panic_limits": "Values far above target need urgent review of glycemic control",
-    },
+    uri: {
+        "reference_range": p.reference_range,
+        "panic_limits": p.panic_limits,
+    }
+    for uri, p in _registry.protocols.items()
 }
 
 # -------------------------------------------------------------------------
 # Scenario B (Gap 11): CSF Emergency Panel Taxonomy & Department Ownership
 # -------------------------------------------------------------------------
-# Single Lumbar Puncture specimen distributed across three departments:
-# Tube 1: Biochemistry (Protein, Glucose)
-# Tube 2: Microbiology (Gram stain, Culture)
-# Tube 3: Hematology (Cell count: Leukocytes, Neutrophils)
-CSF_TESTS: Dict[str, Dict[str, Any]] = {
-    "loinc:2880-3": {
-        "test": "Protein [Mass/volume] in CSF",
-        "department": "Clinical Biochemistry",
-        "tube": 1,
-    },
-    "loinc:2342-4": {
-        "test": "Glucose [Mass/volume] in CSF",
-        "department": "Clinical Biochemistry",
-        "tube": 1,
-    },
-    "loinc:14357-8": {
-        "test": "Microscopic observation [Identifier] in CSF by Gram stain",
-        "department": "Microbiology",
-        "tube": 2,
-    },
-    "loinc:606-4": {
-        "test": "Bacteria identified in CSF by culture",
-        "department": "Microbiology",
-        "tube": 2,
-    },
-    "loinc:26465-5": {
-        "test": "Leukocytes [#/volume] in CSF",
-        "department": "Hematology",
-        "tube": 3,
-    },
-    "loinc:26512-4": {
-        "test": "Neutrophils/Leukocytes in CSF",
-        "department": "Hematology",
-        "tube": 3,
-    },
-}
+CSF_TESTS: Dict[str, Dict[str, Any]] = {}
+_csf_panel = _registry.get_panel("csf_emergency_panel")
+if _csf_panel:
+    for _rule in _csf_panel.tube_rules:
+        for _test in _rule.tests:
+            CSF_TESTS[_test["uri"]] = {
+                "test": _test["test_name"],
+                "department": _rule.department,
+                "tube": _rule.tube,
+            }
 
 # -------------------------------------------------------------------------
 # Scenario C (Look-Alike Tests & Range Collisions): Total vs Ionized Calcium
 # -------------------------------------------------------------------------
 RANGES: Dict[str, Dict[str, Any]] = {
-    "loinc:17861-6": {
-        "name": "Total calcium",
-        "ref": (8.5, 10.5),
-        "crit_low": 6.0,
-        "crit_high": 13.0,
-        "unit": "mg/dL",
-    },
-    "loinc:17864-0": {
-        "name": "Ionized calcium",
-        "ref": (4.5, 5.6),
-        "crit_low": 3.0,
-        "crit_high": 6.5,
-        "unit": "mg/dL",
-    },
+    assay.uri: {
+        "name": assay.name,
+        "ref": (assay.ref_low, assay.ref_high),
+        "crit_low": assay.crit_low,
+        "crit_high": assay.crit_high,
+        "unit": assay.unit,
+    }
+    for assay in _registry.assays.values()
 }

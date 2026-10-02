@@ -138,3 +138,9 @@ def build_lab_workflow(
 
 # Default workflow using the single-turn synthesize agent
 root_agent = build_lab_workflow()
+
+# Re-export multi-agent orchestrator workflow
+from src.orchestration.a2a_orchestrator import (
+    build_multiagent_workflow,
+    parse_clinician_input,
+)

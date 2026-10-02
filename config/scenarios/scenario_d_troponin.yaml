@@ -1,0 +1,64 @@
+# Scenario D: Cardiac Troponin Look-Alike & Unit Hazard (Extensibility Demonstration)
+# Demonstrates how new retrieval gaps and scenarios are plugged in via pure configuration.
+
+id: "scenario_d_troponin"
+name: "Troponin I vs Troponin T Look-Alike & Unit Collision"
+domain: "laboratory_medicine"
+description: >
+  Clinician orders 'Troponin 15'. Troponin I is typically measured in ng/mL (upper reference < 0.04 ng/mL,
+  critical > 0.40 ng/mL). High-sensitivity Troponin T is measured in ng/L (upper reference < 14 ng/L,
+  critical > 52 ng/L). An ungrounded retriever interpreting 15 ng/L as ng/mL would trigger a false-alarm
+  emergency cath lab activation; conversely, 15 ng/mL interpreted as ng/L would miss a massive MI.
+
+# Dynamic concept additions registered on-the-fly when scenario is active
+extension_concepts:
+  "loinc:10839-9":
+    label: "Troponin I.cardiac [Mass/volume] in Serum or Plasma"
+    alt_labels: ["troponin", "trop", "tn-i", "ctni", "troponin i"]
+    department: "Clinical Biochemistry"
+    units: ["ng/mL"]
+    specimen: "Serum"
+
+  "loinc:6598-7":
+    label: "Troponin T.cardiac [Mass/volume] in Serum or Plasma"
+    alt_labels: ["troponin", "trop", "tn-t", "ctnt", "troponin t", "hs-ctnt"]
+    department: "Clinical Biochemistry"
+    units: ["ng/L"]
+    specimen: "Serum"
+
+extension_protocols:
+  "loinc:10839-9":
+    reference_range: "< 0.04 ng/mL"
+    panic_limits: "High > 0.40 ng/mL"
+    clinical_guideline: "High-sensitivity Troponin I elevation indicates myocardial necrosis. Serial delta testing recommended."
+
+  "loinc:6598-7":
+    reference_range: "< 14 ng/L"
+    panic_limits: "High > 52 ng/L"
+    clinical_guideline: "High-sensitivity Troponin T elevation suggests acute coronary syndrome or myocardial strain."
+
+test_cases:
+  - id: "tc_unqualified_troponin"
+    input_text: "Troponin 15"
+    expected_gap: "AMBIGUOUS"
+    expected_route: "CLARIFY"
+    expected_candidates:
+      - "loinc:10839-9"
+      - "loinc:6598-7"
+
+  - id: "tc_troponin_t_with_unit"
+    input_text: "Troponin 15 | ng/L"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:6598-7"
+
+  - id: "tc_troponin_i_with_unit"
+    input_text: "Troponin 0.02 | ng/mL"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:10839-9"
+
+  - id: "tc_troponin_invalid_unit"
+    input_text: "Troponin 15 | mg/dL"
+    expected_gap: "UNIT_MISMATCH"
+    expected_route: "CLARIFY"

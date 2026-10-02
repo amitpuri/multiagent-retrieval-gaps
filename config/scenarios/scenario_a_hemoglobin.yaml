@@ -1,0 +1,52 @@
+# Scenario A: Hemoglobin Ambiguity & Unit Mismatch (Gap 8 & Gap 2)
+# Demonstrates how unqualified 'Hb' can match both CBC Hemoglobin and HbA1c,
+# and how a reported unit of 'mg/dL' triggers explicit UNIT_MISMATCH rather than silent guessing.
+
+id: "scenario_a_hemoglobin"
+name: "Hb Ambiguity & Unit Mismatch"
+domain: "laboratory_medicine"
+description: >
+  Clinician enters 'Hb 13.5'. Without a unit, 'Hb' is a valid abbreviation for both:
+  - Hemoglobin [Mass/volume] in Blood (LOINC 718-7, Hematology, units: g/dL, g/L)
+  - Hemoglobin A1c/Hemoglobin.total in Blood (LOINC 4548-4, Clinical Biochemistry, unit: %)
+  The retriever must NOT guess. The ADK workflow pauses via RequestInput and asks the clinician.
+  When 'g/dL' is provided, it uniquely resolves to loinc:718-7.
+  When 'mg/dL' is submitted (not a valid unit for either Hb concept), UNIT_MISMATCH is returned.
+
+gaps_addressed:
+  - id: "gap_8"
+    name: "Ambiguous Retrieval (Semantic Blurring)"
+    description: >
+      'Hb' without context triggers multi-concept ambiguity. A naive retriever returns both
+      hematology and endocrinology notes without distinction — dangerous conflation.
+  - id: "gap_2"
+    name: "Unit Mismatch"
+    description: >
+      'mg/dL' is not a valid unit for Hemoglobin (g/dL) or HbA1c (%). The ontology gate
+      must reject this rather than silently mapping to the nearest guess.
+
+test_cases:
+  - id: "tc_hb_no_unit"
+    input_text: "Hb 13.5"
+    expected_gap: "AMBIGUOUS"
+    expected_route: "CLARIFY"
+    expected_candidates:
+      - "loinc:718-7"
+      - "loinc:4548-4"
+
+  - id: "tc_hb_valid_unit_gdl"
+    input_text: "Hb 13.5 | g/dL"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:718-7"
+
+  - id: "tc_hb_valid_unit_percent"
+    input_text: "Hb 7.8 | %"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:4548-4"
+
+  - id: "tc_hb_invalid_unit"
+    input_text: "Hb 13.5 | mg/dL"
+    expected_gap: "UNIT_MISMATCH"
+    expected_route: "CLARIFY"

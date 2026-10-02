@@ -1,9 +1,5 @@
 """
-Google ADK agent definitions for laboratory medicine.
-Includes:
-1. Naive agent (pure keyword retrieval, demonstrating Gap 2 & Gap 8)
-2. Grounded agent v1 (tool-equipped with resolver, demonstrating Gap 9)
-3. Synthesis agent (single-turn agent used within the deterministic graph)
+Google ADK agent definitions and multi-agent roles for laboratory medicine.
 """
 
 from typing import Optional
@@ -29,8 +25,6 @@ naive_agent = Agent(
 # -------------------------------------------------------------------------
 # Agent 2: Ontology-Grounded Agent v1 (Prompt-governed safety)
 # -------------------------------------------------------------------------
-# Where it still fails (Gap 9): Instructions are probabilistic.
-# The model might guess, skip the resolver, or interpret ambiguous results anyway.
 grounded_agent_v1 = Agent(
     name="grounded_lab_agent_v1",
     model=MODEL,
@@ -45,21 +39,30 @@ grounded_agent_v1 = Agent(
 )
 
 # -------------------------------------------------------------------------
-# Agent 3: Single-Turn Synthesis Agent (Used in ADK Workflow Graph)
+# Specialized Multi-Agent Factory Exports
 # -------------------------------------------------------------------------
-def create_synthesize_agent(model: str = MODEL) -> Agent:
-    """Create a single-turn agent for synthesizing interpretations from grounded protocols."""
-    return Agent(
-        name="synthesize",
-        model=model,
-        mode="single_turn",
-        instruction=(
-            "You are a clinical laboratory specialist. Interpret the patient's value "
-            "using ONLY the protocol data provided in the input. Name the resolved LOINC "
-            "concept, cite the reference range and panic limits, and provide a calibrated, "
-            "cautious interpretation. Never speculate beyond the provided protocol."
-        ),
-    )
+from src.agents.ontology_agent import create_ontology_agent, ontology_resolver_node
+from src.agents.safety_guard_agent import create_safety_guard_agent, safety_guard_node
+from src.agents.protocol_agent import create_protocol_agent, protocol_retriever_node
+from src.agents.synthesis_agent import create_synthesize_agent
+from src.agents.clarification_agent import create_clarification_node
+from src.agents.triage_agent import create_triage_agent, make_triage_envelope
 
+synthesize = create_synthesize_agent(MODEL)
 
-synthesize = create_synthesize_agent()
+__all__ = [
+    "MODEL",
+    "naive_agent",
+    "grounded_agent_v1",
+    "synthesize",
+    "create_synthesize_agent",
+    "create_triage_agent",
+    "make_triage_envelope",
+    "create_ontology_agent",
+    "ontology_resolver_node",
+    "create_safety_guard_agent",
+    "safety_guard_node",
+    "create_protocol_agent",
+    "protocol_retriever_node",
+    "create_clarification_node",
+]

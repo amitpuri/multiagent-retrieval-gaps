@@ -1,0 +1,69 @@
+# Scenario C: Calcium 4.8 mg/dL — Look-Alike Test Range Collision
+# Demonstrates the lethal hazard of Total Calcium vs. Ionized Calcium
+# when an unqualified numeric value is submitted.
+
+id: "scenario_c_calcium_collision"
+name: "Calcium Look-Alike Range Collision"
+domain: "laboratory_medicine"
+description: >
+  Clinician reports 'Calcium 4.8 mg/dL' without specifying Total or Ionized.
+  Both tests use mg/dL but have completely different clinical reference ranges:
+  
+  - Total Calcium (loinc:17861-6): ref 8.5-10.5 mg/dL, critical low < 6.0
+    → 4.8 mg/dL = CRITICAL_LOW (triggers IV calcium emergency protocol)
+  
+  - Ionized Calcium (loinc:17864-0): ref 4.5-5.6 mg/dL, critical low < 3.0
+    → 4.8 mg/dL = NORMAL
+  
+  The range collision detector prevents a false-alarm CRITICAL_LOW response
+  by routing to CLARIFY until the qualifier 'total' or 'ionized' is provided.
+  A wrong action (IV calcium bolus for a normal ionized result) could cause
+  fatal cardiac arrhythmia.
+
+gaps_addressed:
+  - id: "range_collision"
+    name: "Look-Alike Assay Range Collision"
+    description: >
+      Two assays with the same term and unit but divergent clinical classifications.
+      The safety gate must detect this collision deterministically in code (not LLM).
+
+collision_family: "calcium_lookalike"
+assays_involved:
+  - assay_id: "total_calcium"
+    uri: "loinc:17861-6"
+    ref_range: [8.5, 10.5]
+    crit_range: [6.0, 13.0]
+    
+  - assay_id: "ionized_calcium"
+    uri: "loinc:17864-0"
+    ref_range: [4.5, 5.6]
+    crit_range: [3.0, 6.5]
+
+test_cases:
+  - id: "tc_calcium_unqualified_collision"
+    input_text: "Calcium 4.8"
+    expected_gap: "RANGE_COLLISION"
+    expected_route: "CLARIFY"
+    expected_readings:
+      "Total calcium": "CRITICAL_LOW"
+      "Ionized calcium": "NORMAL"
+
+  - id: "tc_calcium_qualified_total"
+    input_text: "Calcium 4.8 | total"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_readings:
+      "Total calcium": "CRITICAL_LOW"
+
+  - id: "tc_calcium_qualified_ionized"
+    input_text: "Calcium 4.8 | ionized"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_readings:
+      "Ionized calcium": "NORMAL"
+
+  - id: "tc_calcium_normal_both"
+    input_text: "Calcium 9.0"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    note: "9.0 mg/dL is NORMAL for Total Calcium — no collision detected"

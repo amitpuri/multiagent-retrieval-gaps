@@ -1,0 +1,53 @@
+# Scenario B: CSF Emergency Panel — Governed Tube Ordering (Gap 11)
+# Demonstrates how unscoped tool output (returning all CSF tests with no ordering)
+# is corrected by enforcing department ownership and strict tube sequencing.
+
+id: "scenario_b_csf_panel"
+name: "CSF Emergency Panel — Governed Tube Ordering"
+domain: "laboratory_medicine"
+description: >
+  When a clinician orders a CSF Emergency Panel, a naive retriever would dump all tests
+  without enforcing tube ordering or department ownership. This can cause specimen
+  contamination: if Microbiology aliquot is drawn before Biochemistry, skin flora
+  introduced during puncture are carried forward. 
+  
+  The governed workup enforces:
+  - Tube 1: Clinical Biochemistry (Protein, Glucose) — chemical quantification
+  - Tube 2: Microbiology (Gram stain, Culture) — avoids skin flora contamination
+  - Tube 3: Hematology (WBC count, Differential) — cleared of traumatic blood
+
+gaps_addressed:
+  - id: "gap_11"
+    name: "Tool Output Trusted, Unscoped"
+    description: >
+      A flat list of all CSF tests returned without department or tube order
+      information can lead to clinical errors. The retriever must scope output
+      to the correct department and enforce the governed sequence.
+
+test_cases:
+  - id: "tc_full_csf_workup"
+    input_text: "CSF Emergency Panel"
+    expected_departments:
+      - "Clinical Biochemistry"
+      - "Microbiology"
+      - "Hematology"
+    expected_tube_order:
+      - tube: 1
+        department: "Clinical Biochemistry"
+      - tube: 2
+        department: "Microbiology"
+      - tube: 3
+        department: "Hematology"
+
+  - id: "tc_csf_hematology_only"
+    input_text: "CSF Panel | hemat"
+    expected_departments:
+      - "Hematology"
+    expected_tube_order:
+      - tube: 3
+        department: "Hematology"
+
+  - id: "tc_csf_unknown_department"
+    input_text: "CSF Panel | radiology"
+    expected_gap: "NOT_FOUND"
+    expected_route: "CLARIFY"

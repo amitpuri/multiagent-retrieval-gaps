@@ -1,0 +1,26 @@
+# Grounded Reference Protocols Keyed by Canonical Concept URI
+# Eliminates cross-concept contamination.
+
+domain: "laboratory_medicine"
+version: "1.0.0"
+
+protocols:
+  "loinc:718-7":
+    reference_range: "Adult male 13.8-17.2 g/dL; adult female 12.1-15.1 g/dL"
+    panic_limits: "Low < 7.0 g/dL; high > 20.0 g/dL"
+    clinical_guideline: "Values below 12.0 g/dL indicate anemia. Critical low (< 7.0 g/dL) requires immediate transfusion consideration."
+
+  "loinc:4548-4":
+    reference_range: "Normal < 5.7%; prediabetes 5.7-6.4%; diabetes >= 6.5%"
+    panic_limits: "Values far above target need urgent review of glycemic control"
+    clinical_guideline: "HbA1c reflects average glycemia over preceding 2-3 months. Levels > 10% indicate poor control; > 13% necessitate urgent endocrine escalation."
+
+  "loinc:17861-6":
+    reference_range: "8.5 to 10.5 mg/dL"
+    panic_limits: "Low < 6.0 mg/dL; high > 13.0 mg/dL"
+    clinical_guideline: "Total calcium includes albumin-bound and free fractions. Must be corrected for serum albumin if abnormal."
+
+  "loinc:17864-0":
+    reference_range: "4.5 to 5.6 mg/dL"
+    panic_limits: "Low < 3.0 mg/dL; high > 6.5 mg/dL"
+    clinical_guideline: "Ionized calcium reflects physiological free active calcium. Preferred in critically ill or acid-base altered patients."

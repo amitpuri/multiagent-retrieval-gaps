@@ -4,15 +4,22 @@ Runs the pure code test assertions first, followed by the scenario workflows.
 """
 
 import asyncio
+from pathlib import Path
 import sys
+
+# Ensure repository root is on sys.path
+root_dir = Path(__file__).resolve().parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
 from src.runner import main as run_scenarios
 
 
 def main():
-    print("================================================================================")
+    print("=" * 80)
     print("   Information Retrieval, Part III: When the Retriever Has to Decide")
-    print("   Google ADK 2.0 & Clinical Ontology Decision Support")
-    print("================================================================================\n")
+    print("   Generic & Reusable Multi-Agent Architecture with Google ADK 2.0 & A2A")
+    print("=" * 80 + "\n")
     asyncio.run(run_scenarios())
 
 

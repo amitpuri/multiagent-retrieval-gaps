@@ -1,0 +1,121 @@
+# Controlled Vocabulary and Concept Mappings for Laboratory Medicine
+# Maps terms, synonyms, and abbreviations to canonical LOINC identifiers.
+
+domain: "laboratory_medicine"
+version: "1.0.0"
+
+concepts:
+  "loinc:718-7":
+    label: "Hemoglobin [Mass/volume] in Blood"
+    alt_labels:
+      - "hb"
+      - "hgb"
+      - "hemoglobin"
+      - "total hemoglobin"
+      - "cbc hemoglobin"
+    department: "Hematology"
+    units:
+      - "g/dL"
+      - "g/L"
+    specimen: "Whole Blood"
+
+  "loinc:4548-4":
+    label: "Hemoglobin A1c/Hemoglobin.total in Blood"
+    alt_labels:
+      - "hb"
+      - "hemoglobin"
+      - "hba1c"
+      - "hb a1c"
+      - "a1c"
+      - "glycated hemoglobin"
+    department: "Clinical Biochemistry"
+    units:
+      - "%"
+    specimen: "Whole Blood"
+
+  "loinc:17861-6":
+    label: "Calcium [Mass/volume] in Serum or Plasma"
+    alt_labels:
+      - "calcium"
+      - "total calcium"
+      - "ca"
+      - "tca"
+      - "serum calcium"
+    department: "Clinical Biochemistry"
+    units:
+      - "mg/dL"
+      - "mmol/L"
+    specimen: "Serum"
+
+  "loinc:17864-0":
+    label: "Calcium.ionized [Mass/volume] in Serum or Plasma"
+    alt_labels:
+      - "calcium"
+      - "ionized calcium"
+      - "free calcium"
+      - "ica"
+      - "ca++"
+    department: "Clinical Biochemistry"
+    units:
+      - "mg/dL"
+      - "mmol/L"
+    specimen: "Serum"
+
+  "loinc:2880-3":
+    label: "Protein [Mass/volume] in CSF"
+    alt_labels:
+      - "csf protein"
+      - "spinal protein"
+    department: "Clinical Biochemistry"
+    units:
+      - "mg/dL"
+    specimen: "CSF"
+
+  "loinc:2342-4":
+    label: "Glucose [Mass/volume] in CSF"
+    alt_labels:
+      - "csf glucose"
+      - "spinal glucose"
+    department: "Clinical Biochemistry"
+    units:
+      - "mg/dL"
+    specimen: "CSF"
+
+  "loinc:14357-8":
+    label: "Microscopic observation [Identifier] in CSF by Gram stain"
+    alt_labels:
+      - "csf gram stain"
+      - "gram stain"
+    department: "Microbiology"
+    units: []
+    specimen: "CSF"
+
+  "loinc:606-4":
+    label: "Bacteria identified in CSF by culture"
+    alt_labels:
+      - "csf culture"
+      - "spinal culture"
+    department: "Microbiology"
+    units: []
+    specimen: "CSF"
+
+  "loinc:26465-5":
+    label: "Leukocytes [#/volume] in CSF"
+    alt_labels:
+      - "csf wbc"
+      - "csf leukocytes"
+      - "csf cell count"
+    department: "Hematology"
+    units:
+      - "/uL"
+    specimen: "CSF"
+
+  "loinc:26512-4":
+    label: "Neutrophils/Leukocytes in CSF"
+    alt_labels:
+      - "csf neutrophils"
+      - "csf diff"
+    department: "Hematology"
+    units:
+      - "%"
+    specimen: "CSF"

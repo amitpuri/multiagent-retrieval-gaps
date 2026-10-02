@@ -41,15 +41,23 @@ def stub_synthesize(node_input: Any) -> Event:
     return Event(output=output_text)
 
 
+def is_live_mode() -> bool:
+    """Check if a Gemini API key is configured and not forced offline."""
+    if "--offline" in os.sys.argv:
+        return False
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    return bool(key)
+
+
 async def run_scenario_a_workflow():
     """Execute Scenario A (Q5): Ambiguity resolution with ADK graph & live Gemini synthesis."""
     print("=" * 80)
     print("SCENARIO A: Q5 ('Hb 13.5') - ADK DETERMINISTIC WORKFLOW GRAPH")
     print("=" * 80)
 
-    has_api_key = bool(os.environ.get("GEMINI_API_KEY"))
-    target = None if has_api_key else stub_synthesize
-    mode_str = f"Live Gemini ({MODEL})" if has_api_key else "Offline Stub"
+    live = is_live_mode()
+    target = None if live else stub_synthesize
+    mode_str = f"Live Gemini ({MODEL})" if live else "Offline Stub"
     print(f"[*] Synthesis Mode: {mode_str}")
 
     workflow = build_lab_workflow(name="lab_demo", synthesize_target=target)
@@ -159,10 +167,118 @@ def run_scenario_c_calcium():
     print(f"  Readings: {qualified_ionized['readings']}")
 
 
+async def run_scenario_d_multiagent_troponin():
+    """Execute Scenario D: Config-driven Cardiac Troponin look-alike test case via Multi-Agent A2A."""
+    print("\n" + "=" * 80)
+    print("SCENARIO D: DYNAMIC CONFIG-DRIVEN EXTENSION (Cardiac Troponin via Multi-Agent A2A)")
+    print("=" * 80)
+
+    # 1. Dynamically load scenario D from YAML into default registry
+    from src.core.config import get_default_registry, load_scenario_extension
+    from src.orchestration.a2a_orchestrator import build_multiagent_workflow
+
+    registry = get_default_registry()
+    scenario_path = Path(__file__).resolve().parent.parent / "config" / "scenarios" / "scenario_d_troponin.yaml"
+    load_scenario_extension(scenario_path, registry)
+    print(f"[*] Dynamically loaded scenario extension from: {scenario_path.name}")
+
+    live = is_live_mode()
+    target = None if live else stub_synthesize
+    mode_str = f"Live Gemini ({MODEL})" if live else "Offline Stub"
+    print(f"[*] Multi-Agent Orchestration Mode: {mode_str}")
+
+    workflow = build_multiagent_workflow(name="multiagent_troponin_demo", synthesize_target=target)
+    runner = Runner(
+        app_name="multiagent_lab_app",
+        agent=workflow,
+        session_service=InMemorySessionService(),
+        auto_create_session=True,
+    )
+
+    user_id = "clinician_dr_puri"
+    session_id = "session_troponin_ext"
+
+    def make_msg(text: str) -> types.Content:
+        return types.Content(role="user", parts=[types.Part(text=text)])
+
+    test_turns = [
+        ("Troponin 15", "Turn 1: Ambiguous order 'Troponin 15' without unit (I vs T hazard)"),
+        ("Troponin 15 | ng/L", "Turn 2: Clinician clarifies unit 'ng/L' (resolves to hs-cTnT)"),
+        ("Troponin 15 | mg/dL", "Turn 3: Clinician submits incompatible unit 'mg/dL'"),
+    ]
+
+    for user_input, description in test_turns:
+        print(f"\n--- {description} ---")
+        print(f"Clinician message: '{user_input}'")
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=make_msg(user_input),
+        ):
+            node_name = event.node_info.path if event.node_info else "unknown"
+
+            # Check for HITL Pause
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        if fc.name == "adk_request_input":
+                            msg = fc.args.get("message", "")
+                            print(f"\n  [A2A PAUSED: RequestInput to Clinician]")
+                            print(f"  --> Gate Route: CLARIFY")
+                            print(f"  --> Prompt: \"{msg}\"\n")
+                    elif hasattr(part, "text") and part.text:
+                        print(f"\n  [{node_name}] Multi-Agent Clinical Synthesis:\n")
+                        for line in part.text.strip().splitlines():
+                            print(f"    {line}")
+
+            if event.actions and event.actions.route:
+                print(f"  [A2A Event] route={event.actions.route}")
+
+            if event.output and isinstance(event.output, dict):
+                # Inspect A2A envelopes
+                if "a2a_triage_message" in event.output:
+                    m = event.output["a2a_triage_message"]
+                    sender = m["sender"] if isinstance(m["sender"], str) else m["sender"].value
+                    recip = m["recipient"] if isinstance(m["recipient"], str) else m["recipient"].value
+                    action = m["action"] if isinstance(m["action"], str) else m["action"].value
+                    print(f"  [A2A] {sender} --> {recip}: {action}")
+                if "a2a_message" in event.output:
+                    m = event.output["a2a_message"]
+                    sender = m["sender"] if isinstance(m["sender"], str) else m["sender"].value
+                    recip = m["recipient"] if isinstance(m["recipient"], str) else m["recipient"].value
+                    action = m["action"] if isinstance(m["action"], str) else m["action"].value
+                    status = m.get("status", "")
+                    if status and not isinstance(status, str):
+                        status = status.value
+                    print(f"  [A2A] {sender} --> {recip}: {action} (Status: {status})")
+                if "a2a_safety_message" in event.output:
+                    m = event.output["a2a_safety_message"]
+                    sender = m["sender"] if isinstance(m["sender"], str) else m["sender"].value
+                    recip = m["recipient"] if isinstance(m["recipient"], str) else m["recipient"].value
+                    action = m["action"] if isinstance(m["action"], str) else m["action"].value
+                    status = m.get("status", "")
+                    if status and not isinstance(status, str):
+                        status = status.value
+                    print(f"  [A2A] {sender} --> {recip}: {action} (Status: {status})")
+                if "a2a_protocol_message" in event.output:
+                    m = event.output["a2a_protocol_message"]
+                    sender = m["sender"] if isinstance(m["sender"], str) else m["sender"].value
+                    recip = m["recipient"] if isinstance(m["recipient"], str) else m["recipient"].value
+                    action = m["action"] if isinstance(m["action"], str) else m["action"].value
+                    print(f"  [A2A] {sender} --> {recip}: {action}")
+                if "protocol" in event.output:
+                    uri = event.output.get("resolved_uri")
+                    proto = event.output.get("protocol", {})
+                    print(f"  [{node_name}] Grounded Protocol fetched for {uri}")
+                    print(f"  [{node_name}] Reference range: {proto.get('reference_range')}")
+
+
 async def main():
     await run_scenario_a_workflow()
     run_scenario_b_csf()
     run_scenario_c_calcium()
+    await run_scenario_d_multiagent_troponin()
 
 
 if __name__ == "__main__":
