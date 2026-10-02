@@ -446,3 +446,296 @@ Giving an LLM agent more tools without a semantic layer simply multiplies its op
 4. **Agent-to-Agent Division of Labor:** Specialized agent roles communicating via typed contracts, ensuring models reason while deterministic code gates actions.
 
 When the retriever has to decide, the safest action it can take is knowing when to stop and ask.
+
+---
+
+## Production-Grade Architecture
+
+This section extends the reference implementation toward a production-ready clinical decision support system, drawing on two architectural frameworks: a **fourteen-part agent memory taxonomy** and a **healthcare GraphRAG & ontology-driven multi-agent architecture**.
+
+### Memory Architecture for Production Agents
+
+A single vector store is not a memory system. Production agents require distinct memory types, each solving a different class of failure:
+
+| # | Memory Type | Core Question | Agent Implementation |
+| :--- | :--- | :--- | :--- |
+| 1 | **Working / Context** | What is active right now? | Context window, scratchpad in ADK session |
+| 2 | **Semantic** | What do I know to be true? | `OntologyRegistry` (YAML-loaded concepts, LOINC, UCUM) |
+| 3 | **Episodic** | What happened before? | A2A trace log, trajectory store per `trace_id` |
+| 4 | **Procedural** | How do I do this? | `config/scenarios/*.yaml` — reusable gap detection playbooks |
+| 5 | **External / Retrieval** | What can I look up? | `ProtocolRetrieverAgent` — canonical URI grounding |
+| 6 | **Parametric** | What did training teach me? | Gemini model weights (synthesis only, gated by safety guard) |
+| 7 | **Prospective** | What must I do later? | ADK `RequestInput` — deferred clarification triggers |
+| 8 | **Spatial** | Where are things? | YAML config tree, department + tube-scope maps |
+| 9 | **Temporal** | When, in what order, how recent? | Bi-temporal records, `valid_from`/`valid_to` on recommendations |
+| 10 | **Associative / Relational** | How are entities connected? | Property graph: `Recommendation → Concept → Qualifier` |
+| 11 | **Social** | Who are the people? | Role-based ACLs on `DocumentVersion` and assertion tiers |
+| 12 | **Meta-memory** | What do I know, and how sure? | `ResolutionStatus` (AMBIGUOUS / RESOLVED / NOT\_FOUND), provenance on every gap finding |
+| 13 | **Collective / Organizational** | What does the group know? | Shared `OntologyRegistry`, governed Knowledge Release IDs |
+| 14 | **Sensory / Perceptual** | What did I just observe? | Short-lived order parse buffer in `TriageAgent` |
+
+The five memory types most critical for dependable agentic systems — and most often neglected — are:
+
+- **Temporal** — know *when*, and what is still current. Implemented via bi-temporal fields (`valid_from`/`valid_to`, `recorded_at`) on `Recommendation` nodes and TTLs on ephemeral order-parse facts.
+- **Spatial** — know *where* across physical and digital environments. Implemented via specimen tube maps and department scope boundaries in [`specimen_rules.yaml`](file:///c:/repositories/repos/multiagent-retrieval-gaps/config/domains/laboratory_medicine/specimen_rules.yaml).
+- **Associative / Relational** — know *how things connect*. Implemented via the property graph knowledge model (see §Knowledge Model below) and typed A2A contracts in [`src/a2a/contracts.py`](file:///c:/repositories/repos/multiagent-retrieval-gaps/src/a2a/contracts.py).
+- **Meta-memory** — know *what it knows, how well, and from where*. Implemented via `ResolutionStatus`, detector provenance, and fail-closed gating in [`src/core/detectors/engine.py`](file:///c:/repositories/repos/multiagent-retrieval-gaps/src/core/detectors/engine.py).
+- **Collective / Organizational** — know *what the group knows*, and share it safely. Implemented via governed `OntologyRegistry`, Knowledge Release IDs, and role-based ACLs.
+
+```mermaid
+flowchart TD
+    P[Perception: sensory buffer<br/><i>TriageAgent order parse</i>] --> W[Working memory: context window<br/><i>ADK session state</i>]
+    W <--> R[Retrieval layer<br/><i>ProtocolRetrieverAgent</i>]
+    R <--> E[Episodic store<br/><i>A2A trace log / trajectory</i>]
+    R <--> S[Semantic store<br/><i>OntologyRegistry + LOINC concepts</i>]
+    R <--> PR[Procedural store: skills<br/><i>config/scenarios YAML playbooks</i>]
+    R <--> G[Relational graph<br/><i>Recommendation → Concept → Qualifier</i>]
+    R <--> X[External sources<br/><i>Canonical URI protocols</i>]
+    R <--> C[Collective / org memory<br/><i>Knowledge Release ID</i>]
+    M[Meta layer: time · provenance · confidence<br/><i>ResolutionStatus + detector findings</i>] -.annotates.-> E
+    M -.annotates.-> S
+    M -.annotates.-> G
+    M -.annotates.-> C
+    W --> PM[Prospective memory: tasks, triggers<br/><i>ADK RequestInput / CLARIFY route</i>]
+    PM --> W
+```
+
+#### Common Memory Failure Modes — and How This Architecture Prevents Them
+
+| Failure | Root Cause | Prevention in This System |
+| :--- | :--- | :--- |
+| Agent follows an outdated instruction | No temporal validity / supersession | Bi-temporal `valid_from`/`valid_to` on `Recommendation` nodes; TTL on ephemeral facts |
+| Agent re-explores the same environment every run | No persistent layout model | `OntologyRegistry` cached in-memory; specimen tube maps in YAML |
+| Agent misses downstream impact of a change | Flat retrieval, no entity links | Property graph with typed edges (`EVIDENCED_BY`, `FOR_CONDITION`, `SUPERSEDES`) |
+| Agent states guesses as facts | No confidence / provenance tracking | `ResolutionStatus` + detector provenance; fail-closed `SafetyGateEngine` |
+| Agents give inconsistent answers to the same question | No shared, governed knowledge base | Governed `OntologyRegistry` + Knowledge Release IDs shared across agent fleet |
+| Agent leaks one user's information to another | Missing scope / access control | Role-based ACLs on `DocumentVersion`; department scope boundaries enforced by `SpecimenSequenceDetector` |
+| Memory grows without bound | No consolidation or forgetting policy | YAML config replaces ad-hoc state; TTLs and explicit supersession edges |
+
+---
+
+### Healthcare GraphRAG & Ontology-Driven System Architecture
+
+```mermaid
+flowchart TB
+    UI["Clinician UI (Open WebUI + custom adapter)"] --> GW["API Gateway / AuthN-AuthZ"]
+    GW --> ORCH["Query Orchestrator (ADK TriageAgent)"]
+
+    subgraph SERVE["Serving Plane (online)"]
+        ORCH --> TERM["Terminology Service (LOINC / SNOMED / UCUM)"]
+        ORCH --> RET["Retrieval Service<br/>(graph + hybrid search, ACL-filtered)"]
+        ORCH --> SYN["Synthesis Agent (Gemini)"]
+        SYN --> VER["Verification Pipeline"]
+        VER --> RULES["Clinical Rules Service<br/>(dose / interaction / contraindication)"]
+    end
+
+    subgraph INGEST["Ingestion Plane (offline, human-governed)"]
+        SRC["Source docs"] --> PARSE["Layout-aware Parsing Service"]
+        PARSE --> EXTR["Extraction Agent (proposes assertions)"]
+        EXTR --> NORM["Normalisation via Terminology Service"]
+        NORM --> CUR["Curation Queue (human review + conflict resolution)"]
+        CUR --> STG[("Staging Graph")]
+        STG --> EVAL["Evaluation Gate"]
+        EVAL --> REL["Promote: Knowledge Release ID"]
+    end
+
+    REL --> GDB[("Graph DB (property graph)")]
+    REL --> IDX[("OpenSearch: BM25 + vectors")]
+    REL --> PG[("PostgreSQL: provenance, ACLs, releases")]
+    RET --> GDB
+    RET --> IDX
+    RET --> PG
+    VER --> AUDIT[("Append-only Audit Log")]
+```
+
+#### Agents vs. Services
+
+| Component | Type | Rationale |
+| :--- | :--- | :--- |
+| Parsing (PDF, tables, OCR) | Service | Deterministic, testable |
+| Terminology lookup / LOINC mapping | Service | Shared by both planes; no cross-swarm coupling |
+| Extraction of candidate assertions | **Agent** (schema-constrained) | Needs language judgement; output is a *proposal* |
+| Curation / conflict resolution | Human + tooling | Clinical accountability |
+| Index writes | Service (outbox, idempotent) | No dual-write drift |
+| ACL enforcement | Service | Must not be model-dependent |
+| Query orchestration | **Agent** (ADK `TriageAgent`) | Decomposes multi-part questions |
+| Ontology resolution | **Agent** (`OntologyResolverAgent`) | Language judgement + LOINC normalization |
+| Safety gating | **Deterministic code** (`SafetyGateEngine`) | Must not be probabilistic |
+| Synthesis | **Agent** (`ClinicalSynthesizerAgent`) | Language judgement |
+| Entailment / verification check | **Agent** (separate model call) | Judgement against source spans |
+| Dose / interaction / contraindication | Service (licensed drug KB) | Must be deterministic |
+
+> [!IMPORTANT]
+> **Safety rules must live in deterministic code, not in prompts.** This is Gap 9 in this repository. The `SafetyGateEngine` and its five pluggable detectors are pure-code gates that run before any LLM synthesis occurs.
+
+---
+
+### Knowledge Model (Property Graph)
+
+#### Core Nodes
+
+| Node | Key Attributes |
+| :--- | :--- |
+| `DocumentVersion` | `doc_id`, `version`, `publisher`, `effective_date`, `retired_date`, `acl`, `checksum` |
+| `Chunk` | `text`, `span_offsets`, `section_path`, `page`, `embedding_ref` |
+| `Assertion` | `type`, `status` (`proposed`/`approved`/`retired`), `confidence`, `extractor_version`, `reviewer` |
+| `Recommendation` | `population`, `line_of_therapy`, `strength`, `evidence_level`, `status`, `valid_from`, `valid_to`, `recorded_at` |
+| `Concept` | `code_system` (LOINC/SNOMED/RxNorm), `code`, `label`, `level` |
+| `Qualifier` | `severity`, `laterality`, `stage`, `lab_threshold`, `ucum_unit` |
+
+**Illustrative graph pattern (not clinical guidance):**
+
+```
+(DocumentVersion)-[:HAS_CHUNK]->(Chunk)
+(Recommendation)-[:EVIDENCED_BY]->(Chunk)
+(Recommendation)-[:FOR_CONDITION]->(Concept: condition)
+(Recommendation)-[:FOR_POPULATION]->(Qualifier: population qualifier)
+(Recommendation)-[:RECOMMENDS]->(Concept: drug or drug class)
+(Concept: drug)-[:CAUTION_IN {qualifiers}]->(Concept: condition)
+(Recommendation)-[:SUPERSEDES]->(Recommendation)
+```
+
+> [!NOTE]
+> Bitemporal fields are mandatory: *valid time* (when guidance applies in the world) and *recorded time* (when the system learned it). Supersession is an explicit graph edge, not an overwrite.
+
+#### Trust Tiers
+
+| Tier | Content | Used For |
+| :--- | :--- | :--- |
+| **1** | Human-approved assertions | Answers, verification |
+| **2** | Auto-extracted, high confidence, low risk | Retrieval hints only |
+| **3** | Unreviewed proposals | **Never served** |
+
+High-risk assertion types (dosing, contraindications, numeric thresholds) always require human approval (Tier 1).
+
+---
+
+### Ontology Strategy
+
+| System | Role in This Architecture |
+| :--- | :--- |
+| **LOINC** | Primary backbone for lab test identity (currently implemented in `concepts.yaml`) |
+| **UCUM** | Units — `UnitMismatchDetector` enforces UCUM-valid units per concept |
+| **SNOMED CT** | Semantic backbone for conditions and findings (production extension) |
+| **RxNorm** | Drugs; each node states its level (ingredient / clinical drug / branded) |
+| **ICD-10 / ICD-10-CM** | Mapped, reporting-oriented view; not the backbone |
+| **ATC** | Drug classes |
+| **UMLS** | Cross-walk and synonym support |
+
+> [!WARNING]
+> All lookups must go through one **Terminology Service**. Agents must never invent codes. The current `OntologyResolverAgent` enforces this by rejecting any resolution not found in the governed `OntologyRegistry`.
+
+---
+
+### Ingestion Plane (Offline, Human-Governed)
+
+1. **Trigger:** Workflow (e.g., Airflow) detects a new or updated guideline document; creates a `DocumentVersion` with ACL and effective dates.
+2. **Parsing:** Layout-aware (multi-column, tables, footnotes, recommendation boxes, scanned pages with OCR). Low-confidence tables are routed to human review.
+3. **Extraction:** Schema-constrained agent proposes assertions with exact source spans and negation/uncertainty/experiencer/temporality flags. Validators reject unsupported spans.
+4. **Normalisation:** Codes assigned by the Terminology Service; unmapped terms go to a curation queue.
+5. **Curation:** Humans approve high-risk assertions and resolve cross-document conflicts and supersession.
+6. **Staging → Evaluation → Promote:** Run the gold-set evaluation gate; on pass, publish a **Knowledge Release ID**.
+7. **Publish:** Outbox pattern writes graph, index, and provenance idempotently. Indexes can be rebuilt from the evidence store.
+
+> [!CAUTION]
+> Treat ingested documents as **data, not instructions**. Isolate extraction agents, constrain outputs to schemas, and give tools least privilege to prevent prompt injection via document content.
+
+---
+
+### Serving Plane (Online)
+
+1. **AuthN/AuthZ:** User identity and document ACLs resolved before retrieval.
+2. **Orchestration:** Decompose the query; identify population, condition, assay, and which guideline "current" refers to. Ask for missing population details rather than guessing (Gap 8).
+3. **Entity Expansion:** Terminology Service returns codes and synonyms.
+4. **Retrieval:** Parameterised, read-only graph query templates for known patterns; exploratory LLM-generated queries run only in a sandboxed read-only role. Combine with hybrid search (BM25 + dense). **ACL filters apply inside every query.**
+5. **Synthesis:** Drafts an answer where each claim cites chunk/span IDs.
+6. **Verification Pipeline (all layers must pass):**
+   - **Citation integrity:** Cited spans exist and are in the stated document version
+   - **Entailment:** Each claim is supported by its cited span
+   - **Applicability:** Population/qualifiers match the question
+   - **Currency:** Documents and recommendations are valid and not superseded
+   - **Clinical rules:** Dose, interaction, contraindication via the Clinical Rules Service
+   - **Guardrails:** PII filter, contextual grounding, policy checks
+7. **Release after verify:** Stream only progress and evidence; release answer text once verification passes. On failure, return sources with a clear "could not verify" message.
+8. **Response contract:** `answer`, `claims`, `citations` (span-level), `knowledge_release_id`, `warnings`.
+
+---
+
+### Security, Privacy & Regulatory
+
+#### PHI
+- One BAA-covered inference path; map every processor that can see prompts (model host, gateway, tracing, logs).
+- PHI-safe telemetry: redact or hash prompts in traces; enforce retention limits; configure custom entities for MRNs and free-text identifiers.
+
+#### Authorisation
+- ACLs on `DocumentVersion`, propagated to chunks and assertions; enforced in graph queries, search filters, and citation rendering. UI-level RBAC is insufficient.
+
+#### Audit
+- Append-only, immutable audit log: `user`, `query`, `knowledge_release_id`, `retrieved_spans`, `verification_results`, `output_hash`. Observability tools (e.g., Langfuse) are for debugging, **not** the audit trail.
+
+#### Regulatory Positioning
+- Write an intended-use statement before build. Assess against FDA non-device CDS criteria (Section 520(o)(1)(E) FDCA; see updated FDA CDS guidance, **January 2026**). Design choices that matter: HCP-only audience, transparency of sources and basis, no directive single-answer outputs without review.
+- Take regional equivalents (EU MDR, etc.) to counsel and a regulatory specialist.
+
+---
+
+### Evaluation & Quality Gates
+
+| Gate | Check | Blocks Release If |
+| :--- | :--- | :--- |
+| **Extraction** | Gold set: entities, negation, tables, qualifiers | Below agreed precision/recall on high-risk types |
+| **Retrieval** | Gold queries with known correct spans | Recall regression |
+| **Verification** | Seeded false claims, wrong-population and superseded-guideline cases | Any unblocked unsafe claim |
+| **Safety** | Red-team: prompt injection, ACL bypass, PHI leakage | Any critical failure |
+| **Trajectory (Gap 10)** | 28 deterministic `pytest` invariants; no LLM calls | Any safety invariant regression (~2.3 s in CI) |
+| **Regression** | Model, prompt, or ontology change | Any metric drop vs. last release |
+
+> [!TIP]
+> Trajectory evaluation (Gap 10) is already implemented in this repository. Running `python -m pytest tests/ -v` covers 28 safety invariants in ~2.3 seconds without any LLM or network calls — closing the evaluation gap at zero cost in CI.
+
+---
+
+### Technology Stack
+
+| Layer | Production Choice | Notes |
+| :--- | :--- | :--- |
+| **Agent runtime** | Google ADK 2.0 (GA'd 2026) | Pin exact version; `Workflow` graph + A2A protocol |
+| **Inference** | Single BAA-covered gateway; model aliases in config | No hard-coded model names; upgrades gated by evaluation |
+| **Graph DB** | Property graph + openCypher/Cypher | Neptune (openCypher) *or* Neo4j (Cypher) |
+| **Search** | OpenSearch (BM25 + dense vectors) | Derived from graph/evidence store |
+| **Relational** | PostgreSQL | Provenance, ACLs, releases, sessions |
+| **Parsing** | Textract / Unstructured.io + table QA | Airflow orchestration |
+| **Terminology** | Terminology server over licensed SNOMED CT, RxNorm, LOINC, UCUM, ATC, ICD-10 | CI validates codes against terminology server |
+| **Clinical rules** | Licensed drug knowledge base behind a service | NLM RxNav API was retired 2024 |
+| **Guardrails** | Bedrock Guardrails (AWS) or equivalent as one layer | Not the verifier; does not validate dosage bounds |
+| **Observability** | Langfuse or similar, PHI-redacted | Separate from audit log |
+| **UI** | Open WebUI + custom adapter | Review current licence terms before productising |
+
+> [!WARNING]
+> Neptune supports Gremlin and openCypher on property graphs, and SPARQL on RDF graphs — these two models are **not cross-queryable**. Choose one and stay consistent. Neo4j uses Cypher, not Gremlin.
+
+---
+
+### Phased Roadmap
+
+| Phase | Scope |
+| :--- | :--- |
+| **0. Foundations** | Intended-use statement, PHI data-flow map, licensing, Terminology Service, gold-set seed, LOINC `concepts.yaml` |
+| **1. Single-domain pilot** | One specialty (lab medicine); ingestion with human curation; qualified `Recommendation` model; verification pipeline |
+| **2. Hardening** | Clinical Rules Service, ACL enforcement, red-team, append-only audit log, Knowledge Release ID management |
+| **3. Scale-out** | More domains (radiology, pharmacy), conflict resolution workflows, cost tiering (small models for routing/entailment), DR drills |
+
+---
+
+### Design Principles (Production Summary)
+
+1. **Evidence is the source of truth; the graph is a derived index.** Every assertion links to exact source spans in a specific document version.
+2. **Recommendations are first-class, qualified nodes** — not bare triples. Population, line of therapy, strength, evidence level, status, and validity windows are mandatory.
+3. **Agents only where judgement is needed.** Parsing, terminology lookup, ACL checks, dose/interaction checks, and index writes are deterministic services.
+4. **Humans gate the knowledge base.** Staging graph → evaluated release → promote. High-risk assertion types always require human approval.
+5. **Verify against source, not against the graph's own LLM output.** Block unverified clinical text; never stream it.
+6. **Never store a fact without its provenance.** Source, author, time of acquisition, and the chain of reasoning behind a derived fact are mandatory metadata.
+7. **Prefer supersession over overwriting.** Keep history; mark what is current. Supersession is an explicit graph edge.
+8. **Scope everything.** Decide whether each memory is private to a user, shared by a team, or organization-wide — and enforce it with ACLs, not UI conventions.
+9. **Make forgetting explicit.** Define retention, decay, and deletion rules up front, especially for personal data and ephemeral order-parse facts.
+10. **Evaluate memory directly.** Test recall, staleness handling, conflict resolution, and cross-session continuity — not just final task success.
