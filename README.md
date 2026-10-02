@@ -195,42 +195,46 @@ python -m pytest tests/ -v
 
 Output:
 ```text
-============================= test session starts =============================
-platform win32 -- Python 3.14.5, pytest-9.1.1, pluggy-1.6.0
+
+============================================================== test session starts ==============================================================
+platform win32 -- Python 3.14.5, pytest-9.1.1, pluggy-1.6.0 -- C:\repositories\venv\Scripts\python.exe
+cachedir: .pytest_cache
 rootdir: C:\repositories\repos\multiagent-retrieval-gaps
 configfile: pytest.ini
+plugins: anyio-4.15.1, jaxtyping-0.3.11, typeguard-4.6.0, zarr-3.3.0
 collected 28 items
 
-tests\test_gate.py::test_hb_without_unit_is_ambiguous PASSED             [  3%]
-tests\test_gate.py::test_hb_with_correct_unit_resolves PASSED            [  7%]
-tests\test_gate.py::test_hb_with_invalid_unit_triggers_mismatch PASSED   [ 10%]
-tests\test_gate.py::test_unknown_term_returns_not_found PASSED           [ 14%]
-tests\test_gate.py::test_calcium_collision PASSED                        [ 17%]
-tests\test_gate.py::test_calcium_with_qualifiers_resolves PASSED         [ 21%]
-tests\test_gate.py::test_gate_fails_closed PASSED                        [ 25%]
-tests\test_gate.py::test_csf_workup_grouping_and_tube_order PASSED       [ 28%]
-tests\test_gate.py::test_csf_workup_scoped_by_department PASSED          [ 32%]
-tests\test_gate.py::test_csf_workup_unknown_department PASSED            [ 35%]
-tests\test_gate.py::test_fetch_grounded_protocol PASSED                  [ 39%]
-tests\test_gate.py::test_parse_input_variations PASSED                   [ 42%]
-tests\test_multiagent_extensible.py::test_registry_loads_baseline_domain PASSED [ 46%]
-tests\test_multiagent_extensible.py::test_dynamic_scenario_extension_loading PASSED [ 50%]
-tests\test_multiagent_extensible.py::test_generic_ambiguity_detector PASSED [ 53%]
-tests\test_multiagent_extensible.py::test_generic_range_collision_detector PASSED [ 57%]
-tests\test_multiagent_extensible.py::test_generic_specimen_sequence_detector PASSED [ 60%]
-tests\test_multiagent_extensible.py::test_safety_gate_engine_fails_closed PASSED [ 64%]
-tests\test_multiagent_extensible.py::test_a2a_message_contract_serialization PASSED [ 67%]
-tests\test_multiagent_extensible.py::test_parse_clinician_input_qualifiers PASSED [ 71%]
-tests\test_multiagent_extensible.py::test_unit_mismatch_detector_invalid_unit PASSED [ 75%]
-tests\test_multiagent_extensible.py::test_unit_mismatch_detector_valid_unit_passes PASSED [ 78%]
-tests\test_multiagent_extensible.py::test_unit_mismatch_detector_no_unit_skips PASSED [ 82%]
-tests\test_multiagent_extensible.py::test_missing_qualifier_detector_flags_unqualified_numeric PASSED [ 85%]
-tests\test_multiagent_extensible.py::test_missing_qualifier_detector_passes_with_qualifier PASSED [ 89%]
-tests\test_multiagent_extensible.py::test_missing_qualifier_detector_passes_without_numeric PASSED [ 92%]
-tests\test_multiagent_extensible.py::test_all_scenario_yaml_files_exist PASSED [ 96%]
-tests\test_multiagent_extensible.py::test_triage_agent_make_envelope PASSED [100%]
+tests/test_gate.py::test_hb_without_unit_is_ambiguous PASSED                                                                               [  3%]
+tests/test_gate.py::test_hb_with_correct_unit_resolves PASSED                                                                              [  7%]
+tests/test_gate.py::test_hb_with_invalid_unit_triggers_mismatch PASSED                                                                     [ 10%]
+tests/test_gate.py::test_unknown_term_returns_not_found PASSED                                                                             [ 14%]
+tests/test_gate.py::test_calcium_collision PASSED                                                                                          [ 17%]
+tests/test_gate.py::test_calcium_with_qualifiers_resolves PASSED                                                                           [ 21%]
+tests/test_gate.py::test_gate_fails_closed PASSED                                                                                          [ 25%]
+tests/test_gate.py::test_csf_workup_grouping_and_tube_order PASSED                                                                         [ 28%]
+tests/test_gate.py::test_csf_workup_scoped_by_department PASSED                                                                            [ 32%]
+tests/test_gate.py::test_csf_workup_unknown_department PASSED                                                                              [ 35%]
+tests/test_gate.py::test_fetch_grounded_protocol PASSED                                                                                    [ 39%]
+tests/test_gate.py::test_parse_input_variations PASSED                                                                                     [ 42%]
+tests/test_multiagent_extensible.py::test_registry_loads_baseline_domain PASSED                                                            [ 46%]
+tests/test_multiagent_extensible.py::test_dynamic_scenario_extension_loading PASSED                                                        [ 50%]
+tests/test_multiagent_extensible.py::test_generic_ambiguity_detector PASSED                                                                [ 53%]
+tests/test_multiagent_extensible.py::test_generic_range_collision_detector PASSED                                                          [ 57%]
+tests/test_multiagent_extensible.py::test_generic_specimen_sequence_detector PASSED                                                        [ 60%]
+tests/test_multiagent_extensible.py::test_safety_gate_engine_fails_closed PASSED                                                           [ 64%]
+tests/test_multiagent_extensible.py::test_a2a_message_contract_serialization PASSED                                                        [ 67%]
+tests/test_multiagent_extensible.py::test_parse_clinician_input_qualifiers PASSED                                                          [ 71%]
+tests/test_multiagent_extensible.py::test_unit_mismatch_detector_invalid_unit PASSED                                                       [ 75%]
+tests/test_multiagent_extensible.py::test_unit_mismatch_detector_valid_unit_passes PASSED                                                  [ 78%]
+tests/test_multiagent_extensible.py::test_unit_mismatch_detector_no_unit_skips PASSED                                                      [ 82%]
+tests/test_multiagent_extensible.py::test_missing_qualifier_detector_flags_unqualified_numeric PASSED                                      [ 85%]
+tests/test_multiagent_extensible.py::test_missing_qualifier_detector_passes_with_qualifier PASSED                                          [ 89%]
+tests/test_multiagent_extensible.py::test_missing_qualifier_detector_passes_without_numeric PASSED                                         [ 92%]
+tests/test_multiagent_extensible.py::test_all_scenario_yaml_files_exist PASSED                                                             [ 96%]
+tests/test_multiagent_extensible.py::test_triage_agent_make_envelope PASSED                                                                [100%]
 
-============================= 28 passed in 2.34s ==============================
+============================================================== 28 passed in 2.82s ===============================================================
+
 ```
 
 ---
@@ -259,6 +263,7 @@ python src/main.py --offline
 ### Sample Output Trace
 
 ```text
+
 ================================================================================
    Information Retrieval, Part III: When the Retriever Has to Decide
    Generic & Reusable Multi-Agent Architecture with Google ADK 2.0 & A2A
@@ -267,7 +272,7 @@ python src/main.py --offline
 ================================================================================
 SCENARIO A: Q5 ('Hb 13.5') - ADK DETERMINISTIC WORKFLOW GRAPH
 ================================================================================
-[*] Synthesis Mode: Offline Stub
+[*] Synthesis Mode: Live Gemini (gemini-3.5-flash)
 
 --- Turn 1: Ambiguous test name without unit ---
 Clinician message: 'Hb 13.5'
@@ -279,28 +284,57 @@ Clinician message: 'Hb 13.5'
   --> Gate Route: CLARIFY
   --> Prompt to Clinician: "Status AMBIGUOUS. Candidates: Hemoglobin [Mass/volume] in Blood, Hemoglobin A1c/Hemoglobin.total in Blood. Which test and unit?"
 
+
 --- Turn 2: Follow-up providing unit 'g/dL' ---
 Clinician message: 'Hb 13.5 | g/dL'
   [lab_demo@1/resolve_node@1] status=RESOLVED
   [lab_demo@1/gate@1] route=PROCEED
+  [lab_demo@1/gate@1] status=RESOLVED
   [lab_demo@1/fetch_node@1] Protocol fetched for loinc:718-7
   [lab_demo@1/fetch_node@1] Reference range: Adult male 13.8-17.2 g/dL; adult female 12.1-15.1 g/dL
-  [lab_demo@1/stub_synthesize@1] [Synthesized Output - Grounded Interpretation]
-Resolved Concept: Hemoglobin [Mass/volume] in Blood (loinc:718-7)
-Department: Hematology
-Patient Value: 13.5
-Reference Range: Adult male 13.8-17.2 g/dL; adult female 12.1-15.1 g/dL
-Panic Limits: Low < 7.0 g/dL; high > 20.0 g/dL
-Summary: Verified protocol retrieved via canonical ontology.
+Direct use of automatic function calling (AFC) in AsyncModels.generate_content is not recommended. Instead, we recommend to use AFC in AsyncChat.send_message. Similarly, direct use of AFC in AsyncModels.generate_content_stream is not recommended. Instead, we recommend to use AFC in AsyncChat.send_message_stream.
+
+  [lab_demo@1/clinical_synthesizer@1] Live Gemini Clinical Synthesis:
+
+    **Resolved LOINC Concept:**
+    *   **LOINC Code:** 718-7
+    *   **Concept Label:** Hemoglobin [Mass/volume] in Blood (Hematology Department)
+
+    ---
+
+    **Protocol Parameters:**
+    *   **Reference Range:**
+        *   Adult male: 13.8 – 17.2 g/dL
+        *   Adult female: 12.1 – 15.1 g/dL
+    *   **Panic Limits:**
+        *   Low: < 7.0 g/dL
+        *   High: > 20.0 g/dL
+
+    ---
+
+    **Patient Value & Laboratory Interpretation:**
+    *   **Patient Value:** 13.5 g/dL
+
+    Because demographic information (biological sex) is not specified for this patient, the interpretation must be evaluated against both adult reference ranges:
+
+    1.  **If the patient is an adult female:** The value of 13.5 g/dL is **within** the established reference range of 12.1 – 15.1 g/dL, indicating a normal hemoglobin level.
+    2.  **If the patient is an adult male:** The value of 13.5 g/dL is **slightly below** the established reference range of 13.8 – 17.2 g/dL.
+
+    **Panic Limit Evaluation:**
+    Under both demographic protocols, the patient's value of 13.5 g/dL does not meet the criteria for a critical/panic value (it is well above the low panic limit of < 7.0 g/dL and well below the high panic limit of > 20.0 g/dL).
+
+    *Clinical correlation with the patient's specific demographic profile is required to determine the final clinical status.*
 
 --- Turn 3: Invalid unit 'mg/dL' submitted ---
 Clinician message: 'Hb 13.5 | mg/dL'
   [lab_demo@1/resolve_node@1] status=UNIT_MISMATCH
   [lab_demo@1/gate@1] route=CLARIFY
+  [lab_demo@1/gate@1] status=UNIT_MISMATCH
 
   [PAUSED: adk_request_input]
   --> Gate Route: CLARIFY
-  --> Prompt to Clinician: "Status UNIT_MISMATCH. Candidates: Hemoglobin [Mass/volume] in Blood, ..."
+  --> Prompt to Clinician: "Status UNIT_MISMATCH. Candidates: Hemoglobin [Mass/volume] in Blood, Hemoglobin A1c/Hemoglobin.total in Blood. Which test and unit?"
+
 
 ================================================================================
 SCENARIO B: Q6 (CSF Emergency Panel - Governed Tube Ordering, Closing Gap 11)
@@ -320,6 +354,11 @@ Full Emergency CSF Workup (Pre-scoped by department & tube order):
     - Tube 3: Leukocytes [#/volume] in CSF [loinc:26465-5]
     - Tube 3: Neutrophils/Leukocytes in CSF [loinc:26512-4]
 
+Department-Scoped Workup (Hematology only):
+  Department: Hematology
+    - Tube 3: Leukocytes [#/volume] in CSF [loinc:26465-5]
+    - Tube 3: Neutrophils/Leukocytes in CSF [loinc:26512-4]
+
 ================================================================================
 SCENARIO C: Q7 (Calcium 4.8 mg/dL - Look-Alike Tests & Deterministic Collision)
 ================================================================================
@@ -330,32 +369,69 @@ Unqualified result for Calcium 4.8 mg/dL:
     - Ionized calcium: NORMAL
   Outcome: Critical low vs Normal collision -> Routed to CLARIFY, prevents lethal IV calcium error.
 
+Qualified 'Total Calcium' 4.8 mg/dL:
+  Status: RESOLVED
+  Readings: {'Total calcium': 'CRITICAL_LOW'}
+
+Qualified 'Ionized Calcium' 4.8 mg/dL:
+  Status: RESOLVED
+  Readings: {'Ionized calcium': 'NORMAL'}
+
 ================================================================================
 SCENARIO D: DYNAMIC CONFIG-DRIVEN EXTENSION (Cardiac Troponin via Multi-Agent A2A)
 ================================================================================
 [*] Dynamically loaded scenario extension from: scenario_d_troponin.yaml
-[*] Multi-Agent Orchestration Mode: Offline Stub
+[*] Multi-Agent Orchestration Mode: Live Gemini (gemini-3.5-flash)
 
 --- Turn 1: Ambiguous order 'Troponin 15' without unit (I vs T hazard) ---
 Clinician message: 'Troponin 15'
   [A2A] triage_orchestrator --> ontology_resolver_agent: PARSE_REQUEST
   [A2A] ontology_resolver_agent --> safety_guard_agent: RESOLVE_CONCEPT (Status: AMBIGUOUS)
   [A2A Event] route=CLARIFY
+  [A2A] ontology_resolver_agent --> safety_guard_agent: RESOLVE_CONCEPT (Status: AMBIGUOUS)
   [A2A] safety_guard_agent --> clarification_coordinator_agent: REQUEST_CLARIFICATION (Status: AMBIGUOUS)
 
   [A2A PAUSED: RequestInput to Clinician]
   --> Gate Route: CLARIFY
-  --> Prompt: "Status AMBIGUOUS. Candidates: Troponin I.cardiac ..., Troponin T.cardiac ..."
+  --> Prompt: "Status AMBIGUOUS. Candidates: Troponin I.cardiac [Mass/volume] in Serum or Plasma, Troponin T.cardiac [Mass/volume] in Serum or Plasma. Which test and unit?"
+
 
 --- Turn 2: Clinician clarifies unit 'ng/L' (resolves to hs-cTnT) ---
 Clinician message: 'Troponin 15 | ng/L'
   [A2A] triage_orchestrator --> ontology_resolver_agent: PARSE_REQUEST
   [A2A] ontology_resolver_agent --> safety_guard_agent: RESOLVE_CONCEPT (Status: RESOLVED)
   [A2A Event] route=PROCEED
+  [A2A] ontology_resolver_agent --> safety_guard_agent: RESOLVE_CONCEPT (Status: RESOLVED)
   [A2A] safety_guard_agent --> protocol_retriever_agent: FETCH_PROTOCOL (Status: RESOLVED)
   [A2A] protocol_retriever_agent --> clinical_synthesizer_agent: SYNTHESIZE_INTERPRETATION
   [multiagent_troponin_demo@1/protocol_retriever_node@1] Grounded Protocol fetched for loinc:6598-7
   [multiagent_troponin_demo@1/protocol_retriever_node@1] Reference range: < 14 ng/L
+
+  [multiagent_troponin_demo@1/clinical_synthesizer@1] Multi-Agent Clinical Synthesis:
+
+    Based on the protocol data provided, here is the clinical interpretation:
+
+    *   **Resolved LOINC Concept:** Troponin T.cardiac [Mass/volume] in Serum or Plasma (LOINC: 6598-7)
+    *   **Reference Range:** < 14 ng/L
+    *   **Panic Limits:** High > 52 ng/L
+    *   **Patient Value:** 15.0 ng/L
+
+    ### Clinical Interpretation:
+    The patient's Troponin T level of 15.0 ng/L is minimally elevated above the standard reference range limit of < 14 ng/L. This value remains below the defined critical panic limit of > 52 ng/L.
+
+    According to the provided clinical guideline, an elevation in high-sensitivity Troponin T suggests acute coronary syndrome or myocardial strain. Because this result exceeds the normal reference threshold, it should be interpreted cautiously and correlated with the patient's clinical presentation, serial troponin measurements, and electrocardiogram findings.
+
+--- Turn 3: Clinician submits incompatible unit 'mg/dL' ---
+Clinician message: 'Troponin 15 | mg/dL'
+  [A2A] triage_orchestrator --> ontology_resolver_agent: PARSE_REQUEST
+  [A2A] ontology_resolver_agent --> safety_guard_agent: RESOLVE_CONCEPT (Status: UNIT_MISMATCH)
+  [A2A Event] route=CLARIFY
+  [A2A] ontology_resolver_agent --> safety_guard_agent: RESOLVE_CONCEPT (Status: UNIT_MISMATCH)
+  [A2A] safety_guard_agent --> clarification_coordinator_agent: REQUEST_CLARIFICATION (Status: UNIT_MISMATCH)
+
+  [A2A PAUSED: RequestInput to Clinician]
+  --> Gate Route: CLARIFY
+  --> Prompt: "Status UNIT_MISMATCH. Candidates: Troponin I.cardiac [Mass/volume] in Serum or Plasma, Troponin T.cardiac [Mass/volume] in Serum or Plasma. Which test and unit?"
 ```
 
 ---
