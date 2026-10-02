@@ -699,7 +699,7 @@ High-risk assertion types (dosing, contraindications, numeric thresholds) always
 
 | Layer | Production Choice | Notes |
 | :--- | :--- | :--- |
-| **Agent runtime** | Google ADK 2.0 (GA'd 2026) | Pin exact version; `Workflow` graph + A2A protocol |
+| **Agent framework** | **Google ADK 2.2** (this repo) *or* **AWS Strands SDK** | Multi-Agent Workflows + A2A Communication Protocols; pin exact version; upgrades gated by evaluation |
 | **Inference** | Single BAA-covered gateway; model aliases in config | No hard-coded model names; upgrades gated by evaluation |
 | **Graph DB** | Property graph + openCypher/Cypher | Neptune (openCypher) *or* Neo4j (Cypher) |
 | **Search** | OpenSearch (BM25 + dense vectors) | Derived from graph/evidence store |
