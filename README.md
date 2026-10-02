@@ -4,8 +4,7 @@
 
 By Dr. Amit Puri · October 2026
 
-> **In continuation to:** *Information Retrieval Part I*, *Part II: When Similarity Isn't Enough!*, and *Recap & Closing*.
-
+> **In continuation to:** *[Information Retrieval Part I](https://www.linkedin.com/pulse/information-retrieval-dr-amit-puri-ahcec/)*, *[Part II: When Similarity Isn't Enough!](https://www.linkedin.com/pulse/information-retrieval-when-similarity-isnt-enough-dr-amit-puri-2rnzc/)*, and *[Recap & Closing](https://www.linkedin.com/pulse/recap-where-retrieval-gaps-diagnose-fix-dr-amit-puri-fhlwf)*.
 ---
 
 ## Executive Summary & TL;DR
