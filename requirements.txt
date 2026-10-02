@@ -1,0 +1,9 @@
+# Google ADK 2.0 and GenAI SDK
+google-adk>=2.11.0
+google-genai>=2.27.0
+
+# Environment Configuration
+python-dotenv>=1.0.0
+
+# Testing & Verification
+pytest>=8.0.0
