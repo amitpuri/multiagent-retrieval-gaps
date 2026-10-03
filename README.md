@@ -99,14 +99,21 @@ multiagent-retrieval-gaps/
 │   │   ├── env.example
 │   │   ├── a2a/contracts.py             # Shared A2A contracts (parity with ADK & Strands)
 │   │   ├── core/                        # Namespace shim importing shared Pydantic models
-│   │   ├── tools/                       # 5 plain Python tools bound via YAML bindings
+│   │   ├── harness/                     # MAF Agent Harness
+│   │   │   ├── agent.py                 # ClinicalHarnessAgent + create_clinical_harness_agent()
+│   │   │   ├── session.py               # HarnessSession — per-turn history & state
+│   │   │   ├── providers.py             # ClinicalTodoProvider, ClinicalModeProvider,
+│   │   │   │                            #   SafetyGateApprovalPolicy
+│   │   │   └── console.py               # Terminal UX — /todos /mode /scenario /status
+│   │   ├── tools/                       # 6 plain Python tools bound via YAML bindings
 │   │   ├── models/provider.py           # Credential auto-detection (Foundry, Azure OpenAI, OpenAI)
 │   │   ├── orchestration/workflow_runner.py # Live MAF workflow + offline fast path
 │   │   ├── runner.py                    # Scenarios A–D runner
-│   │   └── main.py                      # CLI entrypoint
+│   │   └── main.py                      # CLI entrypoint (--harness, --harness-scenario)
 │   └── tests/
 │       ├── test_gate.py                 # 23 deterministic safety invariant tests
-│       └── test_offline_pipeline.py     # 10 offline pipeline & fail-closed tests
+│       ├── test_offline_pipeline.py     # 10 offline pipeline & fail-closed tests
+│       └── test_harness.py              # 11 harness: session, todos, modes, approval, pipeline
 │
 ├── docs/
 │   ├── ai-agent-memory-architecture.md
@@ -362,13 +369,25 @@ python src/main.py
 # 4. Offline mode (no API key needed, deterministic mock)
 python src/main.py --offline
 
-# 5. Run a single scenario
+# 5. Run a single scenario via WorkflowFactory runner
 python src/main.py --scenario A   # Hb 13.5 — ambiguity, unit mismatch, resolution
 python src/main.py --scenario B   # CSF emergency panel — tube ordering (Gap 11)
 python src/main.py --scenario C   # Calcium 4.8 — look-alike collision
 python src/main.py --scenario D   # Troponin I vs T — dynamic extension
 
-# 6. Run test suite (33 deterministic safety invariants, ~1.1 s)
+# 6. Launch the interactive MAF Agent Harness console
+python src/main.py --harness
+# clinician> Hb 13.5 | g/dL    → [PROCEED] loinc:718-7 | Ref: 13.8–17.2 g/dL
+# clinician> /todos             → 4-step diagnostic workflow checklist
+# clinician> /mode plan         → switch to PLAN mode (analysis only, no protocol fetch)
+# clinician> /scenario A        → run Scenario A through the harness
+# clinician> /status            → session ID, mode, registered tools
+
+# 7. Run a scenario non-interactively through the Harness
+python src/main.py --harness-scenario A
+python src/main.py --harness-scenario all
+
+# 8. Run test suite (44 deterministic safety invariants, ~1.2 s)
 python -m pytest tests/ -v
 ```
 
@@ -407,10 +426,10 @@ cd google-adk-agents && python -m pytest tests/ -v
 # AWS Strands SDK — 50 tests (~1.7 s)
 cd strands-agents && python -m pytest tests/ -v
 
-# Microsoft Agent Framework (MAF) — 33 tests (~1.1 s)
+# Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 111 deterministic safety invariants verified across all 3 frameworks!
+# Total: 122 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
@@ -571,10 +590,11 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | :--- | :--- | :--- | :--- |
 | **Agent framework** | Google ADK 2.2 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
 | **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | `gpt-5` via Azure AI Foundry / OpenAI |
-| **Session memory** | ADK `InMemorySessionService` | Bedrock AgentCore managed sessions | MAF sessions / Local session manager |
+| **Session memory** | ADK `InMemorySessionService` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
+| **Agent Harness** | — | — | `ClinicalHarnessAgent` (todos, modes, approval) |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
 | **Knowledge config** | `config/` YAML (shared) | `config/` YAML (shared) | `config/` YAML (shared) |
-| **Tests** | 28 offline `pytest` tests | 50 offline `pytest` tests | 33 offline `pytest` tests (✅ Complete) |
+| **Tests** | 28 offline `pytest` tests | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

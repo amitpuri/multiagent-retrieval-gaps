@@ -1,7 +1,7 @@
 # agent-framework — Microsoft Agent Framework (MAF) Implementation
 
 *Framework 3 of the Multi-Agent Retrieval-Gap System (MARS)*
-*Laboratory Medicine Decision Support — Declarative Agents on Microsoft Agent Framework*
+*Laboratory Medicine Decision Support — Declarative Agents + Agent Harness on Microsoft Agent Framework*
 
 ---
 
@@ -61,19 +61,105 @@ clinical_synthesizer      (HITL pause)
 
 ---
 
+## Agent Harness
+
+Beyond the declarative workflow runner, the implementation includes a full
+**[MAF Agent Harness](https://learn.microsoft.com/en-us/agent-framework/concepts/harness?pivots=programming-language-python)**
+(`src/harness/`) — the runtime scaffolding that turns a language model into a long-running
+clinical decision agent with conversation state, planning todos, operating modes, and approval
+policies.
+
+### Harness Architecture
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                     MAF Terminal Harness Console UX                       │
+│  /todos · /mode [plan|execute] · /scenario <A-D> · /status · /clear      │
+└─────────────────────────────────────┬─────────────────────────────────────┘
+                                      │
+┌─────────────────────────────────────▼─────────────────────────────────────┐
+│              ClinicalHarnessAgent  (create_clinical_harness_agent)        │
+│  • Harness Instructions — clinical safety policies & fail-closed guards   │
+│  • Agent Instructions  — LOINC synthesis & clinical decision support      │
+├──────────────────────────────────────────┬────────────────────────────────┤
+│ Context & State Providers                │ Middleware & Approval Policy   │
+│  • ClinicalTodoProvider (4-step todos)   │  • SafetyGateApprovalPolicy    │
+│  • ClinicalModeProvider (Plan/Execute)   │  • Standing auto-approvals     │
+│  • HarnessSession (per-turn history)     │  • HITL gate on CLARIFY path   │
+├──────────────────────────────────────────┴────────────────────────────────┤
+│ Tool Pipeline (Plain Python — same bindings as YAML agents)               │
+│  parse_clinician_input() → resolve_ontology() → run_safety_gate()         │
+│  fetch_protocol()        → build_clarification_prompt()                   │
+├───────────────────────────────────────────────────────────────────────────┤
+│ Chat Client Layer (auto-detected)                                         │
+│  Azure AI Foundry · Azure OpenAI · OpenAI Agents SDK · Offline Mock       │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### Harness Capability Matrix
+
+| Capability | Behaviour in Clinical Harness |
+|:---|:---|
+| **Function invocation** | All 6 clinical tools auto-wired with approval policy |
+| **Per-turn history persistence** | `HarnessSession` persists each model call |
+| **Todo tracking** | `ClinicalTodoProvider` — 4-step diagnostic workflow checklist |
+| **Agent modes** | `ClinicalModeProvider` — `PLAN` (analysis only) and `EXECUTE` (full pipeline) |
+| **Tool approval** | `SafetyGateApprovalPolicy` — standing approvals for lookups; HITL on `CLARIFY` |
+| **Session isolation** | `agent.create_session()` — independent session IDs per clinical interaction |
+| **Terminal UX** | Interactive REPL with `/todos`, `/mode`, `/scenario`, `/status`, `/clear`, `/exit` |
+
+### Factory API (matches MAF `create_harness_agent`)
+
+```python
+from src.harness import create_clinical_harness_agent, AgentMode
+
+# Default — EXECUTE mode, all tools registered
+agent = create_clinical_harness_agent()
+
+# Custom instructions and context window
+agent = create_clinical_harness_agent(
+    name="clinical_decision_harness",
+    harness_instructions="Use tools deliberately. Never bypass the safety gate.",
+    agent_instructions="You are a laboratory medicine decision support specialist.",
+    max_context_window_tokens=128_000,
+)
+
+# Per-query session
+session = agent.create_session()
+response = await agent.run("Hb 13.5 | g/dL", session=session)
+print(response.text)   # [PROCEED] Standardized LOINC concept: Hemoglobin...
+print(response.route)  # PROCEED
+print(response.status) # RESOLVED
+```
+
+### Plan vs Execute Modes
+
+```python
+# PLAN mode — analyse gaps without executing protocol retrieval
+response = await agent.run("Calcium 4.8 | mg/dL", mode=AgentMode.PLAN)
+# → [PLAN MODE] Diagnostic Analysis: AMBIGUOUS | Recommend: Clarify with clinician
+
+# EXECUTE mode — run full pipeline
+response = await agent.run("Hb 13.5 | g/dL", mode=AgentMode.EXECUTE)
+# → [PROCEED] Hemoglobin [loinc:718-7] | Reference Range: 13.8–17.2 g/dL
+```
+
+---
+
 ## Technology Stack
 
 | Layer | Implementation |
 |:---|:---|
 | **Agent definitions** | `kind: Prompt` YAML in `declarative-agents/` |
 | **Workflow** | `WorkflowFactory` + `InvokeAgent / If` in `declarative-workflows/` |
+| **Agent Harness** | `ClinicalHarnessAgent` + `create_clinical_harness_agent()` factory in `src/harness/` |
 | **Agent loader** | `AgentFactory.create_agent_from_yaml_path()` (experimental) |
 | **Model** | `gpt-5` via Azure AI Foundry · Azure OpenAI · OpenAI Agents SDK (local) |
 | **Tool binding** | Plain Python functions — no `@tool` or `@kernel_function` decorator |
 | **Safety gate** | `SafetyGateEngine` (shared — identical to ADK and Strands) |
 | **Knowledge config** | `../config/` YAML (shared across all three frameworks) |
 | **A2A contracts** | `A2AMessage` Pydantic schema (identical across frameworks) |
-| **Tests** | 30 offline `pytest` invariants — 0 LLM calls, ~1 s |
+| **Tests** | 44 offline `pytest` invariants — 0 LLM calls, ~1.2 s |
 
 ---
 
@@ -134,7 +220,7 @@ python src/main.py
 python src/main.py --offline
 ```
 
-### 5. Run a single scenario
+### 5. Run a single scenario (via WorkflowFactory runner)
 
 ```bash
 python src/main.py --scenario A   # Hb 13.5 — ambiguity, unit mismatch, resolution
@@ -143,10 +229,37 @@ python src/main.py --scenario C   # Calcium 4.8 — look-alike collision (Gap 8)
 python src/main.py --scenario D   # Cardiac Troponin — config-driven extension
 ```
 
-### 6. Run the test suite
+### 6. Launch the interactive Agent Harness console
 
 ```bash
-# All 30 deterministic safety invariants — no LLM calls, ~1 s
+# Interactive REPL — accepts clinical queries and slash commands
+python src/main.py --harness
+
+# At the clinician> prompt:
+#   Hb 13.5              → submit a clinical query
+#   /todos               → show 4-step diagnostic workflow checklist
+#   /mode plan           → switch to PLAN mode (gap analysis only)
+#   /mode execute        → switch to EXECUTE mode (full pipeline)
+#   /scenario A          → run Scenario A through the harness
+#   /status              → session ID, active mode, registered tools
+#   /clear               → reset session memory
+#   /exit                → quit
+```
+
+### 7. Run scenarios through the Harness (non-interactive)
+
+```bash
+python src/main.py --harness-scenario A   # Hb — ambiguity, unit mismatch, resolution
+python src/main.py --harness-scenario B   # CSF emergency panel (Gap 11)
+python src/main.py --harness-scenario C   # Calcium look-alike collision (Gap 8)
+python src/main.py --harness-scenario D   # Cardiac Troponin extension
+python src/main.py --harness-scenario all # All four scenarios via harness
+```
+
+### 8. Run the test suite
+
+```bash
+# All 44 deterministic safety invariants — no LLM calls, ~1.2 s
 python -m pytest tests/ -v --rootdir=. -p no:logfire
 ```
 
@@ -179,20 +292,30 @@ agent-framework/
     ├── core/                            # Shim → google-adk-agents/src/core/ (shared)
     │   ├── __init__.py                  # sys.modules pre-registration (namespace shim)
     │   └── models.py                    # importlib.util loader for ADK models
+    ├── harness/                         # ← MAF Agent Harness (src/harness/)
+    │   ├── __init__.py                  # Public exports
+    │   ├── agent.py                     # ClinicalHarnessAgent + create_clinical_harness_agent()
+    │   ├── session.py                   # HarnessSession — per-turn history & state
+    │   ├── providers.py                 # ClinicalTodoProvider, ClinicalModeProvider,
+    │   │                                #   SafetyGateApprovalPolicy
+    │   └── console.py                   # Interactive terminal UX — /todos /mode /scenario
     ├── tools/                           # Plain Python functions — no decorator needed
-    │   ├── parse_tool.py                # parse_clinician_input()
+    │   ├── parse_tool.py                # parse_clinician_input() — multi-pipe aware
     │   ├── ontology_tool.py             # resolve_ontology()
     │   ├── safety_gate_tool.py          # run_safety_gate()  ← NEVER call LLM
     │   ├── protocol_tool.py             # fetch_protocol()
-    │   └── clarification_tool.py        # build_clarification_prompt()
+    │   ├── clarification_tool.py        # build_clarification_prompt()
+    │   └── csf_tool.py                  # csf_workup() — tube-scoped emergency panel
     ├── models/provider.py               # Credential auto-detection + AgentFactory builder
     ├── orchestration/workflow_runner.py # MAF live path + offline fast-path
     ├── runner.py                        # Scenarios A–D (matches ADK/Strands pattern)
-    └── main.py                          # CLI entry point
+    └── main.py                          # CLI entry point (--harness, --harness-scenario)
 
 tests/
-├── test_gate.py                         # 20 invariants: gate routing, parse, YAML, A2A
-└── test_offline_pipeline.py             # 10 invariants: full pipeline, schema, fail-closed
+├── test_gate.py                         # 23 invariants: gate routing, parse, YAML, A2A
+├── test_offline_pipeline.py             # 10 invariants: full pipeline, schema, fail-closed
+└── test_harness.py                      # 11 invariants: harness init, session, todos,
+                                         #   modes, approval policy, async pipeline runs
 ```
 
 ---
@@ -278,5 +401,6 @@ without duplicating any clinical logic.
 
 ---
 
-> **Status**: ✅ Implementation complete — 30/30 tests passing.
+> **Status**: ✅ Implementation complete — 44/44 tests passing.
+> Includes: WorkflowFactory declarative pipeline + MAF Agent Harness (session, todos, modes, approval policy, terminal UX).
 > Model: `gpt-5` via `OPENAI_API_KEY` (local) or Azure AI Foundry (production).
