@@ -3,7 +3,7 @@
 ENV_FILE="./src/.env"
 
 if [ ! -f "$ENV_FILE" ]; then
-    echo "Error: $ENV_FILE not found"
+    echo "Error: $ENV_FILE not found. Copy src/env.example to src/.env and fill in values."
     return 1
 fi
 

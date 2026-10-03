@@ -1,0 +1,52 @@
+name: clinical-decision-workflow
+description: >
+  Laboratory medicine multi-agent pipeline.
+  Routes via deterministic SafetyGateEngine — PROCEED to synthesis, CLARIFY to HITL.
+  Implements the Gap 2/5/8/9/11 safety invariants from the multiagent-retrieval-gaps project.
+
+inputs:
+  raw_query:
+    type: string
+    description: Raw clinician query (e.g. "Hb 13.5 | g/dL" or "Calcium 4.8 | mg/dL")
+
+actions:
+  # Step 1: Triage orchestrator — parse, resolve, gate, and route
+  - kind: InvokeAgent
+    id: triage
+    displayName: Triage Orchestrator
+    agent: triage_orchestrator
+    input: =inputs.raw_query
+
+  # Step 2: Conditional routing based on safety gate result
+  - kind: If
+    id: route_on_gate
+    displayName: Safety Gate Router
+    condition: =actions.triage.output.route == 'PROCEED'
+    then:
+      # Happy path: safety gate passed → fetch protocol → synthesize
+      - kind: InvokeAgent
+        id: protocol
+        displayName: Protocol Retriever
+        agent: protocol_retriever_agent
+        input: =actions.triage.output
+
+      - kind: InvokeAgent
+        id: synthesis
+        displayName: Clinical Synthesizer
+        agent: clinical_synthesizer_agent
+        input: =actions.protocol.output
+
+    else:
+      # Gap detected: HITL clarification — halt progression
+      - kind: InvokeAgent
+        id: clarify
+        displayName: Clarification Coordinator
+        agent: clarification_coordinator_agent
+        input: =actions.triage.output
+
+  # Step 3: Emit final output
+  - kind: SetValue
+    id: final_output
+    displayName: Set final result
+    path: outputs.result
+    value: =actions.synthesis.output ?? actions.clarify.output
