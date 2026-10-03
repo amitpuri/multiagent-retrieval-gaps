@@ -9,3 +9,8 @@ PyYAML>=6.0.0
 
 # Testing & Verification
 pytest>=8.0.0
+
+# Model Context Protocol (MCP) & Harness Deployment
+mcp>=1.0.0
+fastapi>=0.100.0
+uvicorn>=0.22.0

@@ -93,12 +93,77 @@ Deterministic range checker that attests numerical laboratory claims before gene
 
 ---
 
+## Agent Harness
+
+The `src/harness/` package wraps the ADK multi-agent fleet in a **4-step production harness** that manages inputs, MCP tool execution, context window state, and continuous deployment:
+
+```mermaid
+flowchart TD
+    PROMPT[Clinician Prompt] --> SESSION[Session & Context Manager]
+    SESSION --> LOOP[Step 1: Continuous Reasoning Loop]
+    LOOP -->|LLM Turn| MODEL[Gemini — ADK Runner]
+    MODEL -->|function_call| MCP[Step 2: FastMCP Tool Dispatcher]
+    MODEL -->|final text| OUT[Clinical Output]
+    MODEL -->|CLARIFY verdict| HITL[HITL Pause / RequestInput]
+    subgraph FastMCP ["MCP Server — 6 Clinical Tools"]
+        T1[resolve_lab_term]
+        T2[evaluate_safety_gate]
+        T3[fetch_grounded_protocol]
+        T4[csf_workup]
+        T5[check_calcium]
+        T6[attest_computation]
+    end
+    MCP --> FastMCP
+    FastMCP -->|tool result| CTX[Step 3: Context Window & History Append]
+    CTX --> SESSION
+```
+
+| Step | What it does | File |
+| :--- | :--- | :--- |
+| **1 — Core Loop** | `ClinicalADKHarness.run()` loops until model answers or safety gate pauses for HITL | `src/harness/agent.py` |
+| **2 — MCP Integration** | `FastMCP` server registers 6 clinical tools; `MCPToolBridge` intercepts `function_call` events | `src/harness/mcp_server.py` · `src/harness/mcp_client.py` |
+| **3 — Context Window** | Tool outputs caught → `types.Part.from_function_response` → appended to session; sliding-window pruning; OKF progressive disclosure | `src/harness/context.py` · `src/harness/session.py` |
+| **4 — Deploy** | FastAPI ASGI server (`/api/v1/query`, `/healthz`, `/readyz`, `/api/v1/mcp/tools`); interactive CLI console; `Dockerfile` | `src/harness/server.py` · `src/harness/console.py` · `Dockerfile` |
+
+### Harness Quick Start
+
+```bash
+# Offline harness demo — all 3 scenarios (no API key needed)
+python src/runner.py --harness --offline
+
+# Live Gemini harness demo
+python src/runner.py --harness
+
+# Interactive CLI console
+python -m src.harness.console --offline
+
+# Production ASGI server
+uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
+
+# Docker production container
+docker build -t adk-harness . && docker run -p 8000:8000 -e GEMINI_API_KEY=... adk-harness
+```
+
+### REST API Endpoints
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/sessions` | Create isolated clinician session |
+| `POST` | `/api/v1/query` | Execute harness turn; returns route, status, attestation |
+| `GET` | `/api/v1/sessions/{id}` | Retrieve turn history for a session |
+| `GET` | `/api/v1/mcp/tools` | List all registered MCP tool schemas |
+| `GET` | `/healthz` | Liveness probe |
+| `GET` | `/readyz` | Readiness probe (offline mode, model, tools) |
+
+---
+
 ## Directory Structure
 
 ```text
 google-adk-agents/
+├── Dockerfile                     # Cloud Run / GKE production container
 ├── pytest.ini                     # Pytest configuration
-├── requirements.txt               # Dependencies (google-adk, google-genai, pydantic, pyyaml)
+├── requirements.txt               # Dependencies (google-adk, google-genai, mcp, fastapi, uvicorn)
 ├── load_env.sh                    # Helper script for loading environment variables
 ├── src/
 │   ├── a2a/
@@ -124,17 +189,26 @@ google-adk-agents/
 │   │   ├── protocol_agent.py      # Reference protocol retriever
 │   │   ├── clarification_agent.py # HITL clinical clarification pause node
 │   │   └── synthesis_agent.py     # Trust-calibrated synthesis & attestation gate
+│   ├── harness/                   # ── Agent Harness (4-step MCP loop) ──────────────────
+│   │   ├── agent.py               # Step 1: ClinicalADKHarness continuous reasoning loop
+│   │   ├── mcp_server.py          # Step 2: FastMCP server (6 clinical tools)
+│   │   ├── mcp_client.py          # Step 2: Gemini function_call ↔ MCP bridge
+│   │   ├── context.py             # Step 3: Token budgeting & OKF progressive disclosure
+│   │   ├── session.py             # Step 3: Turn-by-turn conversation session state
+│   │   ├── server.py              # Step 4: FastAPI ASGI production server
+│   │   └── console.py             # Step 4: Interactive CLI debugging console
 │   ├── orchestration/
 │   │   └── a2a_orchestrator.py    # ADK Workflow definition & input parsing
 │   ├── tools.py                   # Pure code tools wrapped for standalone use
 │   ├── workflow.py                # Standalone deterministic workflow functions
-│   ├── runner.py                  # Multi-scenario evaluation runner
+│   ├── runner.py                  # Multi-scenario runner (supports --harness flag)
 │   └── main.py                    # Interactive CLI runner
 └── tests/
     ├── test_gate.py               # Deterministic safety gate tests (Gap 10)
     ├── test_multiagent_extensible.py # Registry, scenario extensions, detector tests
     ├── test_okf_refinement.py     # OKF Phases 1-4 tests (trust tiers, loader, resolver, synthesis)
-    └── test_okf_phases_5_8.py     # OKF Phases 5-8 tests (index, graph, writeback, attestation)
+    ├── test_okf_phases_5_8.py     # OKF Phases 5-8 tests (index, graph, writeback, attestation)
+    └── test_harness.py            # 35 harness tests: session, MCP, context window, scenario parity
 ```
 
 ---
@@ -171,10 +245,18 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ### Running Scenarios via CLI
 
-Execute the multi-scenario runner:
+Execute the multi-scenario runner (ADK workflow graph, A2A multi-agent fleet):
 
 ```bash
+# Live Gemini (all 4 scenarios)
 python -m src.runner
+
+# Offline / stub mode (no API key needed)
+python -m src.runner --offline
+
+# Run through the Agent Harness (FastMCP + continuous loop)
+python src/runner.py --harness
+python src/runner.py --harness --offline
 ```
 
 Run the interactive clinician entrypoint:
@@ -183,14 +265,31 @@ Run the interactive clinician entrypoint:
 python -m src.main
 ```
 
+Run the interactive Agent Harness console:
+
+```bash
+python -m src.harness.console
+python -m src.harness.console --offline
+```
+
+Start the production REST server:
+
+```bash
+uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
+```
+
 ---
 
 ## Test Suite & Verification
 
-The suite includes **98 comprehensive unit and trajectory tests** running deterministically in pure code:
+The suite includes **133 comprehensive unit and trajectory tests** running deterministically in pure code:
 
 ```bash
+# Full test suite
 python -m pytest tests/ -v
+
+# Harness tests only
+python -m pytest tests/test_harness.py -v
 ```
 
 ### Test Coverage Summary
@@ -201,4 +300,5 @@ python -m pytest tests/ -v
 | `tests/test_multiagent_extensible.py` | 18 tests | Baseline registry, dynamic scenario extensions (Troponin), and 5 safety detectors. |
 | `tests/test_okf_refinement.py` | 46 tests | OKF trust tier derivation, staleness filtering, lifecycle status, and calibrated synthesis instructions. |
 | `tests/test_okf_phases_5_8.py` | 24 tests | Progressive disclosure index, typed graph traversal, audit writeback log, and numeric attestation gate. |
-| **Total** | **98 tests** | **100% Passing** |
+| `tests/test_harness.py` | **35 tests** | Session state, MCP tool registry & dispatch, context window management, and end-to-end harness scenario parity (offline). |
+| **Total** | **133 tests** | **100% Passing** |

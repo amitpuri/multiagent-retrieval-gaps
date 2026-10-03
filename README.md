@@ -44,7 +44,8 @@ multiagent-retrieval-gaps/
 │       └── scenario_d_troponin.yaml          # Dynamic extension: Troponin I vs T (zero-code)
 │
 ├── google-adk-agents/                   # ── Framework 1: Google ADK 2.0 ──────────────────────
-│   ├── README.md                        # Framework 1 documentation & OKF v0.2 details
+│   ├── README.md                        # Framework 1 documentation, OKF v0.2 & Harness details
+│   ├── Dockerfile                       # Cloud Run / GKE production container
 │   ├── pytest.ini
 │   ├── src/
 │   │   ├── .env                         # GEMINI_API_KEY (gitignored)
@@ -59,16 +60,25 @@ multiagent-retrieval-gaps/
 │   │   │   ├── attestation.py           # Deterministic numeric range attestation (OKF §5.4, §9)
 │   │   │   └── detectors/               # 5 pluggable gap detectors + SafetyGateEngine
 │   │   ├── agents/                      # 6 specialized ADK agent roles (OKF trust-aware synthesis)
+│   │   ├── harness/                     # Agent Harness — 4-step MCP continuous loop
+│   │   │   ├── agent.py                 # Step 1: ClinicalADKHarness continuous reasoning loop
+│   │   │   ├── mcp_server.py            # Step 2: FastMCP server (6 clinical tools)
+│   │   │   ├── mcp_client.py            # Step 2: Gemini function_call ↔ MCP bridge
+│   │   │   ├── context.py               # Step 3: Token budgeting & OKF progressive disclosure
+│   │   │   ├── session.py               # Step 3: Turn-by-turn conversation session state
+│   │   │   ├── server.py                # Step 4: FastAPI ASGI server (REST + healthz + MCP tools)
+│   │   │   └── console.py               # Step 4: Interactive CLI debugging console
 │   │   ├── orchestration/a2a_orchestrator.py # ADK Workflow with OKF pre-scoping
-│   │   ├── runner.py                    # Scenarios A–D runner
+│   │   ├── runner.py                    # Scenarios A–D runner (supports --harness flag)
 │   │   └── main.py                      # CLI entrypoint
-│   ├── requirements.txt
+│   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
 │   └── tests/
 │       ├── test_gate.py                 # 10 deterministic safety invariant tests
 │       ├── test_multiagent_extensible.py# 18 multi-agent, A2A & YAML-extension tests
 │       ├── test_okf_refinement.py       # 46 OKF Phase 1–4 tests (trust tiers, loader, resolver, synthesis)
-│       └── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
+│       ├── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
+│       └── test_harness.py             # 35 harness tests: session, MCP dispatch, context, scenarios
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
@@ -197,13 +207,26 @@ pip install -r requirements.txt
 cp src/env.example src/.env
 # Edit src/.env: set GEMINI_API_KEY="..."
 
-# 3. Run all scenarios (live Gemini)
+# 3. Run all scenarios (live Gemini, ADK workflow)
 python src/main.py
 
 # 4. Offline / stub mode (no API key needed)
 python src/main.py --offline
 
-# 5. Run tests (98 deterministic safety invariants & OKF tests, ~4.5 s)
+# 5. Run all scenarios via Agent Harness (FastMCP + continuous loop)
+python src/runner.py --harness
+python src/runner.py --harness --offline
+
+# 6. Interactive Agent Harness CLI console
+python -m src.harness.console --offline
+# clinician> Hb 13.5 | g/dL    → [PROCEED] loinc:718-7 | Ref: 13.8–17.2 g/dL [Attested ✓]
+# clinician> Calcium 4.8 mg/dL → [CLARIFY] RANGE_COLLISION: Total vs. Ionized
+
+# 7. Start production REST server (FastAPI / ASGI)
+uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
+# POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
+
+# 8. Run tests (133 deterministic safety invariants, OKF & harness tests)
 python -m pytest tests/ -v
 ```
 
@@ -437,7 +460,7 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Google ADK 2.0 — 28 tests (~2.5 s)
+# Google ADK 2.0 — 133 tests (~12.7 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
 # AWS Strands SDK — 50 tests (~1.7 s)
@@ -446,7 +469,7 @@ cd strands-agents && python -m pytest tests/ -v
 # Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 122 deterministic safety invariants verified across all 3 frameworks!
+# Total: 227 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
@@ -607,10 +630,11 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | :--- | :--- | :--- | :--- |
 | **Agent framework** | Google ADK 2.2 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
 | **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | `gpt-5` via Azure AI Foundry / OpenAI |
-| **Session memory** | ADK `InMemorySessionService` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
-| **Agent Harness** | — | — | `ClinicalHarnessAgent` (todos, modes, approval) |
+| **Session memory** | ADK `InMemorySessionService` + `HarnessSession` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
+| **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | — | `ClinicalHarnessAgent` (todos, modes, approval) |
+| **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | — | — |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
-| **Tests** | 98 offline `pytest` tests (OKF v0.2 + Safety Gate) | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
+| **Tests** | **133 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

@@ -283,11 +283,139 @@ async def run_scenario_d_multiagent_troponin():
                     print(f"  [{node_name}] Reference range: {proto.get('reference_range')}")
 
 
+def _summarise(res) -> str:
+    """Build a rich one-line output summary from a HarnessResponse.
+
+    Priority order:
+      1. res.text      — model generated prose (direct Gemini output)
+      2. res.protocol  — grounded protocol fields (uri, reference_range, etc.)
+      3. tool results  — last tool call result dict surfaced as key=value pairs
+      4. res.clarification — HITL clarification question
+      5. generic fallback based on route/status
+    """
+    # 1. Model prose (first non-empty stripped line)
+    if res.text and res.text.strip():
+        lines = [line.strip() for line in res.text.splitlines() if line.strip()]
+        if lines:
+            first = lines[0]
+            # If the first line is just a status header like "[PROCEED]" or "[CLARIFY]",
+            # append the second line for richer context
+            if len(lines) > 1 and first in ("[PROCEED]", "[CLARIFY]", "[PROCEED [Attested ✓]]"):
+                return f"{first} {lines[1]}"[:220]
+            return first[:220]
+
+    # 2. Protocol fields
+    p = res.protocol or {}
+    p = p.get("protocol", p)
+    if p:
+        parts = []
+        if p.get("uri") or p.get("loinc_uri"):
+            parts.append(f"URI: {p.get('uri') or p.get('loinc_uri')}")
+        if p.get("reference_range"):
+            parts.append(f"Ref range: {p['reference_range']}")
+        if p.get("panic_limits"):
+            parts.append(f"Panic: {p['panic_limits']}")
+        elif p.get("panic_low") is not None or p.get("panic_high") is not None:
+            parts.append(f"Panic: {p.get('panic_low')}–{p.get('panic_high')}")
+        if p.get("unit"):
+            parts.append(f"Unit: {p['unit']}")
+        if parts:
+            badge = " [Attested ✓]" if getattr(res, "attested", False) else ""
+            return f"[{res.route}{badge}] " + " | ".join(parts)
+
+    # 3. Last tool call result (flatten to key=value pairs, skip large blobs)
+    if res.tool_calls:
+        last = res.tool_calls[-1]
+        result = last.result or {}
+        if isinstance(result, dict):
+            snippets = []
+            for k, v in result.items():
+                if k in ("candidates", "departments"):
+                    continue  # skip big lists
+                sv = str(v)
+                if len(sv) < 120:
+                    snippets.append(f"{k}={sv}")
+            if snippets:
+                return f"[{last.tool_name}] " + " | ".join(snippets[:4])
+
+    # 4. Clarification question
+    if res.clarification:
+        return f"[CLARIFY] {res.clarification}"
+
+    # 5. Generic fallback
+    return f"[{res.route}] {res.status}"
+
+
+async def run_harness_scenarios():
+    """Execute all clinical scenarios through the newly constructed FastMCP Agent Harness."""
+    from src.harness.agent import ClinicalADKHarness
+
+    print("\n" + "=" * 80)
+    print("  GOOGLE ADK AGENT HARNESS (FASTMCP PROTOCOL & CONTINUOUS REASONING LOOP)")
+    print("=" * 80)
+
+    live = is_live_mode()
+    mode_str = f"Live Gemini ({MODEL})" if live else "Offline Deterministic Harness"
+    print(f"[*] Harness Execution Mode: {mode_str}\n")
+
+    harness = ClinicalADKHarness(offline=not live)
+
+    # ── Scenario A via Harness: Hb Ambiguity Resolution ─────────────────────
+    print("-" * 80)
+    print("HARNESS SCENARIO A: 'Hb 13.5' Multi-turn Reasoning & Unit Disambiguation")
+    print("-" * 80)
+    session_a = harness.create_session("harness_session_a")
+    turns = [
+        ("Turn 1 (Ambiguous term without unit):", "Hb 13.5"),
+        ("Turn 2 (Clinician provides valid unit 'g/dL'):", "Hb 13.5 | g/dL"),
+        ("Turn 3 (Clinician submits invalid unit 'mg/dL'):", "Hb 13.5 | mg/dL"),
+    ]
+    for desc, query in turns:
+        print(f"\n{desc} '{query}'")
+        res = await harness.run(prompt=query, session=session_a)
+        print(f"  [Route]: {res.route} | [Status]: {res.status} | [HITL Paused]: {res.is_hitl_paused}")
+        if res.attested:
+            print("  --> [Attested ✓] Numeric range certified by authoritative protocol.")
+        if res.tool_calls:
+            print(f"  --> MCP Tools Executed ({len(res.tool_calls)}): {[t.tool_name for t in res.tool_calls]}")
+        print(f"  [Output Summary]: {_summarise(res)}")
+
+    # ── Scenario B via Harness: Emergency CSF Tube Sequence ─────────────────
+    print("\n" + "-" * 80)
+    print("HARNESS SCENARIO B: CSF Emergency Panel Governed Tube Ordering")
+    print("-" * 80)
+    session_b = harness.create_session("harness_session_b")
+    res_b = await harness.run(prompt="CSF workup | hematology", session=session_b)
+    print(f"  [Route]: {res_b.route} | [Status]: {res_b.status}")
+    print(f"  --> MCP Tools Executed: {[t.tool_name for t in res_b.tool_calls]}")
+    print(f"  [Output Summary]: {_summarise(res_b)}")
+
+    # ── Scenario C via Harness: Calcium Look-alike Collision ────────────────
+    print("\n" + "-" * 80)
+    print("HARNESS SCENARIO C: Calcium 4.8 mg/dL Look-alike Collision")
+    print("-" * 80)
+    session_c = harness.create_session("harness_session_c")
+    res_c1 = await harness.run(prompt="Calcium 4.8 mg/dL", session=session_c)
+    print(f"Unqualified Calcium 4.8 mg/dL:")
+    print(f"  [Route]: {res_c1.route} | [Status]: {res_c1.status} | [HITL Paused]: {res_c1.is_hitl_paused}")
+    print(f"  [Clarification]: {res_c1.clarification}")
+
+    res_c2 = await harness.run(prompt="Total Calcium 4.8 mg/dL | mg/dL", session=session_c)
+    print(f"\nQualified Total Calcium 4.8 mg/dL:")
+    print(f"  [Route]: {res_c2.route} | [Status]: {res_c2.status}")
+    if res_c2.attested:
+        print("  --> [Attested ✓] Certified against Total Calcium reference boundaries.")
+    print(f"  [Output Summary]: {_summarise(res_c2)}")
+
+
 async def main():
-    await run_scenario_a_workflow()
-    run_scenario_b_csf()
-    run_scenario_c_calcium()
-    await run_scenario_d_multiagent_troponin()
+    if "--harness" in sys.argv:
+        await run_harness_scenarios()
+    else:
+        await run_scenario_a_workflow()
+        run_scenario_b_csf()
+        run_scenario_c_calcium()
+        await run_scenario_d_multiagent_troponin()
 
 
 if __name__ == "__main__":
