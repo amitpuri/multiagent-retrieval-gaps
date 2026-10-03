@@ -2,16 +2,44 @@
 Abstract data models and typed schemas for the generic retrieval-gap framework.
 Provides typed definitions for concepts, protocols, assays, collision rules,
 specimen sequences, and gap evaluation outcomes.
+
+OKF Enhancement (Phase 1):
+Concepts and protocols now carry provenance (generated_by, sources),
+trust tiers (verified_by → TrustTier), lifecycle (status, stale_after),
+typed relationship links (ConceptLink), and an AttestatedComputation stub
+per the Open Knowledge Format v0.2 specification.
 """
 
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+# ---------------------------------------------------------------------------
+# OKF Trust Tier
+# ---------------------------------------------------------------------------
+
+class TrustTier(str, Enum):
+    """OKF-derived trust classification for concepts and protocols.
+
+    Derived automatically from ``verified_by``:
+    - ``unverified``        — no verification record.
+    - ``machine-confirmed`` — verified by a process or agent (non-human).
+    - ``human-reviewed``    — explicitly verified by a human reviewer.
+    """
+    UNVERIFIED = "unverified"
+    MACHINE_CONFIRMED = "machine-confirmed"
+    HUMAN_REVIEWED = "human-reviewed"
+
+
+# ---------------------------------------------------------------------------
+# Resolution Status
+# ---------------------------------------------------------------------------
+
 class ResolutionStatus(str, Enum):
     """Status flags emitted by ontology resolvers and safety gates.
-    
+
     Any status other than RESOLVED triggers fail-closed routing (CLARIFY).
     """
     RESOLVED = "RESOLVED"
@@ -24,8 +52,84 @@ class ResolutionStatus(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+# ---------------------------------------------------------------------------
+# OKF: Typed Relationship Links
+# ---------------------------------------------------------------------------
+
+class RelationshipKind(str, Enum):
+    """Controlled vocabulary of typed edges between OKF concepts.
+
+    Enables multi-hop graph traversal across the knowledge corpus.
+    """
+    COMPUTED_FROM = "computed_from"   # Metric ← Table or LabTest ← Source
+    JOINS_WITH = "joins_with"         # Table ↔ Table
+    GOVERNED_BY = "governed_by"       # LabTest → Protocol / Guideline
+    PART_OF = "part_of"               # LabTest → Panel
+    SEE_ALSO = "see_also"             # Look-alike hazard warning
+    SUPERSEDED_BY = "superseded_by"   # Deprecated concept → replacement
+
+
+class ConceptLink(BaseModel):
+    """A directed typed edge from one concept to another (OKF §5.2 links).
+
+    OKF markdown links are untyped; this model adds ``kind`` to enable
+    typed graph traversal and ontology-guided inference.
+    """
+    target_uri: str
+    kind: RelationshipKind
+    description: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# OKF: Source Provenance
+# ---------------------------------------------------------------------------
+
+class ConceptSource(BaseModel):
+    """Provenance record for a single source cited by a concept (OKF §5.2).
+
+    Maps directly to a ``sources[]`` entry in OKF YAML frontmatter.
+    ``usage_count`` is explicitly a coarse liveness signal, not a ranking score.
+    """
+    id: str
+    author: Optional[str] = None
+    last_modified: Optional[str] = None   # ISO date string; kept as str for YAML compat
+    usage_count: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# OKF: Attested Computation Stub
+# ---------------------------------------------------------------------------
+
+class AttestedComputation(BaseModel):
+    """Sanctioned computation descriptor (OKF §5.4).
+
+    The agent may only supply *values for declared parameters*; it must not
+    author or edit the computation itself.  A deterministic, no-LLM attester
+    checks that what actually ran equals the sanctioned computation bound with
+    the claimed parameters, and that the displayed value matches the
+    authoritative source.
+
+    Note: The full attestation runtime protocol (receipt/verdict wire formats,
+    attester ABI, sandboxing) is deferred to future OKF revisions.
+    """
+    runtime: str                              # e.g. "bigquery_sql", "python_formula"
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    executor: Optional[str] = None            # agent/service ID that runs it
+    attester: Optional[str] = None            # deterministic checker identity
+    last_attested_at: Optional[datetime] = None
+
+
+# ---------------------------------------------------------------------------
+# Core Domain Models
+# ---------------------------------------------------------------------------
+
 class ConceptDefinition(BaseModel):
-    """Canonical ontology concept representation."""
+    """Canonical ontology concept representation.
+
+    Extended with OKF provenance, trust, freshness, lifecycle, and typed
+    relationship links (Phase 1).
+    """
+    # ---- Identity ----
     uri: str
     label: str
     alt_labels: List[str] = Field(default_factory=list)
@@ -33,6 +137,44 @@ class ConceptDefinition(BaseModel):
     units: List[str] = Field(default_factory=list)
     specimen: Optional[str] = None
     attributes: Dict[str, Any] = Field(default_factory=dict)
+
+    # ---- OKF: Lifecycle ----
+    status: Literal["draft", "stable", "deprecated"] = "stable"
+    stale_after: Optional[datetime] = None
+
+    # ---- OKF: Provenance ----
+    generated_by: Optional[str] = None       # e.g. "reference_agent/gemini-2.5-pro"
+    generated_at: Optional[datetime] = None
+    verified_by: Optional[str] = None        # "human:<id>", "process:<id>", or agent id
+    sources: List[ConceptSource] = Field(default_factory=list)
+
+    # ---- OKF: Typed Relationship Links ----
+    links: List[ConceptLink] = Field(default_factory=list)
+
+    # ---- Derived Properties ----
+
+    @property
+    def trust_tier(self) -> TrustTier:
+        """Derive OKF trust tier from ``verified_by`` (OKF §5.2 trust tiers)."""
+        if not self.verified_by:
+            return TrustTier.UNVERIFIED
+        if self.verified_by.startswith("human:"):
+            return TrustTier.HUMAN_REVIEWED
+        return TrustTier.MACHINE_CONFIRMED
+
+    def is_stale(self, now: Optional[datetime] = None) -> bool:
+        """Return True if ``now >= stale_after`` (OKF §5.2 freshness)."""
+        if not self.stale_after:
+            return False
+        now = now or datetime.now(timezone.utc)
+        sa = self.stale_after
+        if sa.tzinfo is None:
+            sa = sa.replace(tzinfo=timezone.utc)
+        return now >= sa
+
+    def is_usable(self) -> bool:
+        """Return False for deprecated concepts (OKF §5.2 lifecycle)."""
+        return self.status != "deprecated"
 
     def matches(self, term: str) -> bool:
         """Case-insensitive lexical match against canonical label or alternate labels."""
@@ -49,21 +191,62 @@ class ConceptDefinition(BaseModel):
         return any(u == valid_u.lower() for valid_u in self.units)
 
     def to_view(self) -> Dict[str, Any]:
-        """Project view for agent and tool consumption."""
+        """Project view for agent and tool consumption, including OKF signals."""
         return {
             "uri": self.uri,
             "label": self.label,
             "department": self.department,
             "expected_units": self.units,
             "specimen": self.specimen,
+            # OKF signals surfaced to agents
+            "trust_tier": self.trust_tier.value,
+            "status": self.status,
+            "is_stale": self.is_stale(),
+            "generated_by": self.generated_by,
+            "verified_by": self.verified_by,
         }
 
 
 class ProtocolDefinition(BaseModel):
-    """Clinical protocol reference bound to canonical concept URI."""
+    """Clinical protocol reference bound to canonical concept URI.
+
+    Extended with OKF lifecycle, trust, and an optional AttestatedComputation
+    stub for sanctioned numeric claims (Phase 1).
+    """
     reference_range: str
     panic_limits: str
     clinical_guideline: Optional[str] = None
+
+    # ---- OKF: Lifecycle & Trust ----
+    status: Literal["draft", "stable", "deprecated"] = "stable"
+    stale_after: Optional[datetime] = None
+    verified_by: Optional[str] = None
+
+    # ---- OKF: Attested Computation (stub) ----
+    attested_computation: Optional[AttestedComputation] = None
+
+    @property
+    def trust_tier(self) -> TrustTier:
+        """Derive OKF trust tier from ``verified_by``."""
+        if not self.verified_by:
+            return TrustTier.UNVERIFIED
+        if self.verified_by.startswith("human:"):
+            return TrustTier.HUMAN_REVIEWED
+        return TrustTier.MACHINE_CONFIRMED
+
+    def is_stale(self, now: Optional[datetime] = None) -> bool:
+        """Return True if ``now >= stale_after``."""
+        if not self.stale_after:
+            return False
+        now = now or datetime.now(timezone.utc)
+        sa = self.stale_after
+        if sa.tzinfo is None:
+            sa = sa.replace(tzinfo=timezone.utc)
+        return now >= sa
+
+    def is_usable(self) -> bool:
+        """Return False for deprecated protocols."""
+        return self.status != "deprecated"
 
 
 class NumericAssay(BaseModel):

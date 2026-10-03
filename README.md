@@ -44,26 +44,34 @@ multiagent-retrieval-gaps/
 │       └── scenario_d_troponin.yaml          # Dynamic extension: Troponin I vs T (zero-code)
 │
 ├── google-adk-agents/                   # ── Framework 1: Google ADK 2.0 ──────────────────────
+│   ├── README.md                        # Framework 1 documentation & OKF v0.2 details
 │   ├── pytest.ini
 │   ├── src/
 │   │   ├── .env                         # GEMINI_API_KEY (gitignored)
 │   │   ├── env.example                  # Template
 │   │   ├── a2a/contracts.py             # A2AMessage, AgentRole, A2AAction, A2ATaskState
 │   │   ├── core/
-│   │   │   ├── models.py                # Pydantic schemas (ConceptDefinition, NumericAssay…)
+│   │   │   ├── models.py                # Pydantic schemas (TrustTier, ConceptDefinition...)
 │   │   │   ├── config.py                # YAML loader & OntologyRegistry
+│   │   │   ├── okf_index.py             # Progressive disclosure catalog index (OKF §7.1)
+│   │   │   ├── concept_graph.py         # Typed concept graph walk & look-alikes (OKF §4, §8.2)
+│   │   │   ├── okf_writer.py            # Knowledge writeback & log.md maintenance (OKF §5.2, §7.5)
+│   │   │   ├── attestation.py           # Deterministic numeric range attestation (OKF §5.4, §9)
 │   │   │   └── detectors/               # 5 pluggable gap detectors + SafetyGateEngine
-│   │   ├── agents/                      # 6 specialized ADK agent roles
-│   │   ├── orchestration/a2a_orchestrator.py
+│   │   ├── agents/                      # 6 specialized ADK agent roles (OKF trust-aware synthesis)
+│   │   ├── orchestration/a2a_orchestrator.py # ADK Workflow with OKF pre-scoping
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint
 │   ├── requirements.txt
 │   ├── load_env.sh
 │   └── tests/
-│       ├── test_gate.py                 # 12 deterministic safety invariant tests
-│       └── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
+│       ├── test_gate.py                 # 10 deterministic safety invariant tests
+│       ├── test_multiagent_extensible.py# 18 multi-agent, A2A & YAML-extension tests
+│       ├── test_okf_refinement.py       # 46 OKF Phase 1–4 tests (trust tiers, loader, resolver, synthesis)
+│       └── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
+│   ├── README.md                        # Framework 2 documentation & AgentCore memory details
 │   ├── pytest.ini
 │   ├── requirements.txt
 │   ├── .env.example                     # Bedrock / AgentCore template
@@ -117,7 +125,8 @@ multiagent-retrieval-gaps/
 │
 ├── docs/
 │   ├── ai-agent-memory-architecture.md
-│   └── healthcare_multi_agent_architecture.md
+│   ├── healthcare_multi_agent_architecture.md
+│   └── ontology-kg-okf-for-ai-agents.md # Open Knowledge Format (OKF v0.2) reference
 │
 └── .gitignore
 ```
@@ -182,7 +191,7 @@ flowchart TD
 ```bash
 # 1. Install dependencies
 cd google-adk-agents
-pip install -r ../requirements.txt
+pip install -r requirements.txt
 
 # 2. Configure API key
 cp src/env.example src/.env
@@ -194,9 +203,13 @@ python src/main.py
 # 4. Offline / stub mode (no API key needed)
 python src/main.py --offline
 
-# 5. Run tests (28 deterministic safety invariants, ~2.5 s)
+# 5. Run tests (98 deterministic safety invariants & OKF tests, ~4.5 s)
 python -m pytest tests/ -v
 ```
+
+> [!TIP]
+> See [`google-adk-agents/README.md`](google-adk-agents/README.md) for detailed documentation of the Google ADK 2.0 multi-agent implementation and Open Knowledge Format (OKF v0.2) enhancements.
+
 
 ---
 
@@ -271,6 +284,10 @@ python src/main.py --offline
 # 5. Run tests (50 deterministic offline invariants, ~1.7 s)
 python -m pytest tests/ -v
 ```
+
+> [!TIP]
+> See [`strands-agents/README.md`](strands-agents/README.md) for detailed documentation of the AWS Strands Agents SDK implementation, supervisor orchestration, and Amazon Bedrock AgentCore memory management.
+
 
 #### Option B: AWS Bedrock (cross-region inference profile)
 
@@ -593,8 +610,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **Session memory** | ADK `InMemorySessionService` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
 | **Agent Harness** | — | — | `ClinicalHarnessAgent` (todos, modes, approval) |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
-| **Knowledge config** | `config/` YAML (shared) | `config/` YAML (shared) | `config/` YAML (shared) |
-| **Tests** | 28 offline `pytest` tests | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
+| **Tests** | 98 offline `pytest` tests (OKF v0.2 + Safety Gate) | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

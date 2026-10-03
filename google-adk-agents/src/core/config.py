@@ -2,6 +2,11 @@
 Declarative configuration loader and registries.
 Reads domain YAML configurations for concepts, protocols, ranges, and specimen rules.
 Enables dynamic registration of new domains and scenarios without modifying source code.
+
+OKF Enhancement (Phase 2):
+The loader now parses OKF provenance and trust fields (status, stale_after,
+generated_by, generated_at, verified_by, sources, links) from YAML config files,
+populating the enriched ConceptDefinition and ProtocolDefinition models.
 """
 
 from pathlib import Path
@@ -9,11 +14,15 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from src.core.models import (
+    AttestedComputation,
     CollisionFamily,
     ConceptDefinition,
+    ConceptLink,
+    ConceptSource,
     NumericAssay,
     PanelDefinition,
     ProtocolDefinition,
+    RelationshipKind,
     SpecimenTubeRule,
 )
 
@@ -54,6 +63,58 @@ class OntologyRegistry:
         return self.panels.get(panel_id)
 
 
+# ---------------------------------------------------------------------------
+# OKF Helper: Parse typed links from YAML list
+# ---------------------------------------------------------------------------
+
+def _parse_links(raw_links: List[Dict[str, Any]]) -> List[ConceptLink]:
+    """Parse a YAML ``links:`` list into typed ConceptLink objects."""
+    result = []
+    for entry in raw_links:
+        try:
+            kind = RelationshipKind(entry.get("kind", "see_also"))
+        except ValueError:
+            kind = RelationshipKind.SEE_ALSO
+        result.append(
+            ConceptLink(
+                target_uri=entry.get("target_uri", ""),
+                kind=kind,
+                description=entry.get("description"),
+            )
+        )
+    return result
+
+
+def _parse_sources(raw_sources: List[Dict[str, Any]]) -> List[ConceptSource]:
+    """Parse a YAML ``sources:`` list into ConceptSource objects."""
+    return [
+        ConceptSource(
+            id=s.get("id", ""),
+            author=s.get("author"),
+            last_modified=s.get("last_modified"),
+            usage_count=s.get("usage_count"),
+        )
+        for s in raw_sources
+    ]
+
+
+def _parse_attested_computation(raw: Optional[Dict[str, Any]]) -> Optional[AttestedComputation]:
+    """Parse an optional ``attested_computation:`` block from YAML."""
+    if not raw:
+        return None
+    return AttestedComputation(
+        runtime=raw.get("runtime", ""),
+        parameters=raw.get("parameters", {}),
+        executor=raw.get("executor"),
+        attester=raw.get("attester"),
+        last_attested_at=raw.get("last_attested_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Domain Config Loader
+# ---------------------------------------------------------------------------
+
 def load_domain_config(domain_dir: Path) -> OntologyRegistry:
     """Load all YAML files from a domain configuration directory into an OntologyRegistry."""
     registry = OntologyRegistry()
@@ -72,6 +133,16 @@ def load_domain_config(domain_dir: Path) -> OntologyRegistry:
                     units=c_data.get("units", []),
                     specimen=c_data.get("specimen"),
                     attributes=c_data.get("attributes", {}),
+                    # OKF: Lifecycle
+                    status=c_data.get("status", "stable"),
+                    stale_after=c_data.get("stale_after"),
+                    # OKF: Provenance
+                    generated_by=c_data.get("generated_by"),
+                    generated_at=c_data.get("generated_at"),
+                    verified_by=c_data.get("verified_by"),
+                    sources=_parse_sources(c_data.get("sources", [])),
+                    # OKF: Typed links
+                    links=_parse_links(c_data.get("links", [])),
                 )
                 registry.register_concept(concept)
 
@@ -85,6 +156,14 @@ def load_domain_config(domain_dir: Path) -> OntologyRegistry:
                     reference_range=p_data.get("reference_range", ""),
                     panic_limits=p_data.get("panic_limits", ""),
                     clinical_guideline=p_data.get("clinical_guideline"),
+                    # OKF: Lifecycle & Trust
+                    status=p_data.get("status", "stable"),
+                    stale_after=p_data.get("stale_after"),
+                    verified_by=p_data.get("verified_by"),
+                    # OKF: Attested Computation stub
+                    attested_computation=_parse_attested_computation(
+                        p_data.get("attested_computation")
+                    ),
                 )
                 registry.register_protocol(uri, protocol)
 
@@ -157,6 +236,14 @@ def load_scenario_extension(scenario_path: Path, registry: OntologyRegistry):
             units=c_data.get("units", []),
             specimen=c_data.get("specimen"),
             attributes=c_data.get("attributes", {}),
+            # OKF fields — carry through from scenario extensions too
+            status=c_data.get("status", "stable"),
+            stale_after=c_data.get("stale_after"),
+            generated_by=c_data.get("generated_by"),
+            generated_at=c_data.get("generated_at"),
+            verified_by=c_data.get("verified_by"),
+            sources=_parse_sources(c_data.get("sources", [])),
+            links=_parse_links(c_data.get("links", [])),
         )
         registry.register_concept(concept)
 
@@ -165,6 +252,12 @@ def load_scenario_extension(scenario_path: Path, registry: OntologyRegistry):
             reference_range=p_data.get("reference_range", ""),
             panic_limits=p_data.get("panic_limits", ""),
             clinical_guideline=p_data.get("clinical_guideline"),
+            status=p_data.get("status", "stable"),
+            stale_after=p_data.get("stale_after"),
+            verified_by=p_data.get("verified_by"),
+            attested_computation=_parse_attested_computation(
+                p_data.get("attested_computation")
+            ),
         )
         registry.register_protocol(uri, protocol)
 
@@ -172,7 +265,6 @@ def load_scenario_extension(scenario_path: Path, registry: OntologyRegistry):
 _DEFAULT_REGISTRY: Optional[OntologyRegistry] = None
 
 
-# Find root config directory
 def get_default_registry(reload: bool = False) -> OntologyRegistry:
     """Return cached default registry loaded from standard config directory."""
     global _DEFAULT_REGISTRY

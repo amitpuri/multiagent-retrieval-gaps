@@ -44,7 +44,12 @@ grounded_agent_v1 = Agent(
 from src.agents.ontology_agent import create_ontology_agent, ontology_resolver_node
 from src.agents.safety_guard_agent import create_safety_guard_agent, safety_guard_node
 from src.agents.protocol_agent import create_protocol_agent, protocol_retriever_node
-from src.agents.synthesis_agent import create_synthesize_agent
+from src.agents.synthesis_agent import (
+    create_synthesize_agent,
+    create_synthesize_agent_from_payload,
+    synthesis_gate_node,
+    verify_attestation_for_payload,
+)
 from src.agents.clarification_agent import create_clarification_node
 from src.agents.triage_agent import create_triage_agent, make_triage_envelope
 
@@ -56,6 +61,9 @@ __all__ = [
     "grounded_agent_v1",
     "synthesize",
     "create_synthesize_agent",
+    "create_synthesize_agent_from_payload",
+    "synthesis_gate_node",
+    "verify_attestation_for_payload",
     "create_triage_agent",
     "make_triage_envelope",
     "create_ontology_agent",

@@ -8,6 +8,13 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Ensure repo and package root are in sys.path
+_strands_dir = Path(__file__).resolve().parent.parent
+_repo_root = _strands_dir.parent
+for p in (str(_repo_root), str(_strands_dir)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 # Load local .env
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)

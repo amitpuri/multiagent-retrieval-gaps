@@ -53,6 +53,20 @@ def parse_clinician_input(node_input: Any) -> Event:
     cleaned_term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str).strip()
     term = cleaned_term if cleaned_term else left_str
 
+    # OKF Phase 5: Progressive disclosure pre-scoping via concept index
+    department_scope = None
+    index_match_count = 0
+    try:
+        from src.core.config import get_default_registry
+        from src.core.okf_index import build_index, inspect_index_scope
+        reg = get_default_registry()
+        idx = build_index(reg)
+        scope = inspect_index_scope(idx, term)
+        department_scope = scope.get("department_scope")
+        index_match_count = scope.get("match_count", 0)
+    except Exception:
+        pass
+
     a2a_msg = A2AMessage(
         sender=AgentRole.TRIAGE,
         recipient=AgentRole.ONTOLOGY_RESOLVER,
@@ -63,6 +77,8 @@ def parse_clinician_input(node_input: Any) -> Event:
             "unit": unit,
             "qualifier": qualifier,
             "patient_value": patient_value,
+            "department_scope": department_scope,
+            "index_match_count": index_match_count,
         },
     )
 
@@ -73,6 +89,8 @@ def parse_clinician_input(node_input: Any) -> Event:
             "qualifier": qualifier,
             "patient_value": patient_value,
             "raw_text": text,
+            "department_scope": department_scope,
+            "index_match_count": index_match_count,
             "a2a_triage_message": a2a_msg.model_dump(mode="json"),
         }
     )

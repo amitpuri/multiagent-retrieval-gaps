@@ -1,8 +1,13 @@
 # Controlled Vocabulary and Concept Mappings for Laboratory Medicine
 # Maps terms, synonyms, and abbreviations to canonical LOINC identifiers.
+#
+# OKF Enhancement (Phase 2):
+# Each concept now carries provenance (generated_by, verified_by, sources),
+# lifecycle (status, stale_after), and typed relationship links (links[])
+# per the Open Knowledge Format v0.2 specification.
 
 domain: "laboratory_medicine"
-version: "1.0.0"
+version: "2.0.0"
 
 concepts:
   "loinc:718-7":
@@ -18,6 +23,26 @@ concepts:
       - "g/dL"
       - "g/L"
     specimen: "Whole Blood"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "human:dr_puri"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 412
+    # OKF: Typed links
+    links:
+      - target_uri: "loinc:4548-4"
+        kind: see_also
+        description: "Look-alike: HbA1c shares 'Hb' abbreviation — different LOINC, different department"
+      - target_uri: "loinc:718-7-protocol"
+        kind: governed_by
+        description: "WHO/ICSH adult hemoglobin reference protocol"
 
   "loinc:4548-4":
     label: "Hemoglobin A1c/Hemoglobin.total in Blood"
@@ -32,6 +57,23 @@ concepts:
     units:
       - "%"
     specimen: "Whole Blood"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "human:dr_puri"
+    sources:
+      - id: "ada-2026"
+        author: "American Diabetes Association"
+        last_modified: "2026-06-01"
+        usage_count: 389
+    # OKF: Typed links
+    links:
+      - target_uri: "loinc:718-7"
+        kind: see_also
+        description: "Look-alike: Hemoglobin (CBC) shares 'Hb' abbreviation — different LOINC, different department"
 
   "loinc:17861-6":
     label: "Calcium [Mass/volume] in Serum or Plasma"
@@ -46,6 +88,23 @@ concepts:
       - "mg/dL"
       - "mmol/L"
     specimen: "Serum"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "human:dr_puri"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 278
+    # OKF: Typed links
+    links:
+      - target_uri: "loinc:17864-0"
+        kind: see_also
+        description: "Look-alike: Ionized Calcium — same abbreviation 'Ca', overlapping value ranges, critical collision risk"
 
   "loinc:17864-0":
     label: "Calcium.ionized [Mass/volume] in Serum or Plasma"
@@ -60,6 +119,23 @@ concepts:
       - "mg/dL"
       - "mmol/L"
     specimen: "Serum"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "human:dr_puri"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 201
+    # OKF: Typed links
+    links:
+      - target_uri: "loinc:17861-6"
+        kind: see_also
+        description: "Look-alike: Total Calcium — overlapping value range; 4.8 mg/dL is CRITICAL_LOW for total but NORMAL for ionized"
 
   "loinc:2880-3":
     label: "Protein [Mass/volume] in CSF"
@@ -70,6 +146,18 @@ concepts:
     units:
       - "mg/dL"
     specimen: "CSF"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "process:automated-loinc-import"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 87
 
   "loinc:2342-4":
     label: "Glucose [Mass/volume] in CSF"
@@ -80,6 +168,18 @@ concepts:
     units:
       - "mg/dL"
     specimen: "CSF"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "process:automated-loinc-import"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 91
 
   "loinc:14357-8":
     label: "Microscopic observation [Identifier] in CSF by Gram stain"
@@ -89,6 +189,18 @@ concepts:
     department: "Microbiology"
     units: []
     specimen: "CSF"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "process:automated-loinc-import"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 44
 
   "loinc:606-4":
     label: "Bacteria identified in CSF by culture"
@@ -98,6 +210,18 @@ concepts:
     department: "Microbiology"
     units: []
     specimen: "CSF"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "process:automated-loinc-import"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 39
 
   "loinc:26465-5":
     label: "Leukocytes [#/volume] in CSF"
@@ -109,6 +233,18 @@ concepts:
     units:
       - "/uL"
     specimen: "CSF"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "process:automated-loinc-import"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 56
 
   "loinc:26512-4":
     label: "Neutrophils/Leukocytes in CSF"
@@ -119,3 +255,15 @@ concepts:
     units:
       - "%"
     specimen: "CSF"
+    # OKF: Lifecycle
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    # OKF: Provenance
+    generated_by: "reference_agent/gemini-2.5-pro"
+    generated_at: "2026-10-01T00:00:00Z"
+    verified_by: "process:automated-loinc-import"
+    sources:
+      - id: "loinc-2026"
+        author: "Regenstrief Institute"
+        last_modified: "2026-09-15"
+        usage_count: 48

@@ -1,6 +1,11 @@
 """
 Agent-to-Agent (A2A) message schemas, task envelopes, and role definitions.
 Standardizes communication between specialized agents in the ADK ecosystem.
+
+OKF Enhancement (Phase 1/3):
+A2ATaskState now carries OKF trust signals (trust_tier, concept_status,
+stale_signals, deprecated_dropped) propagated from the ontology resolver
+so every downstream agent can calibrate safely without re-deriving them.
 """
 
 import time
@@ -46,7 +51,12 @@ class A2AMessage(BaseModel):
 
 
 class A2ATaskState(BaseModel):
-    """Shared task state passed across multi-agent execution turns."""
+    """Shared task state passed across multi-agent execution turns.
+
+    OKF fields (trust_tier, concept_status, stale_signals, deprecated_dropped)
+    are propagated from the ontology resolver so every downstream agent can
+    calibrate its behaviour without re-deriving trust signals.
+    """
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     raw_query: str = ""
     parsed_term: str = ""
@@ -61,6 +71,12 @@ class A2ATaskState(BaseModel):
     clarification_prompt: Optional[str] = None
     synthesized_output: Optional[str] = None
     history: List[A2AMessage] = Field(default_factory=list)
+
+    # OKF: Trust & lifecycle signals propagated from OntologyResolver (Phase 3)
+    trust_tier: Optional[str] = None            # "human-reviewed" | "machine-confirmed" | "unverified"
+    concept_status: Optional[str] = None        # "draft" | "stable" | "deprecated"
+    stale_signals: List[str] = Field(default_factory=list)      # URIs dropped as stale
+    deprecated_dropped: List[str] = Field(default_factory=list) # URIs dropped as deprecated
 
     def log_message(self, msg: A2AMessage):
         self.history.append(msg)

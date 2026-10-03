@@ -6,9 +6,17 @@ Loads GEMINI_API_KEY from src/.env and executes the three scenarios from:
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 from typing import Any
 from dotenv import load_dotenv
+
+# Ensure repo and package root are in sys.path
+_adk_dir = Path(__file__).resolve().parent.parent
+_repo_root = _adk_dir.parent
+for p in (str(_repo_root), str(_adk_dir)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 # Ensure .env is loaded from src/.env or current working directory
 env_path = Path(__file__).resolve().parent / ".env"
