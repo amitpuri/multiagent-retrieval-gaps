@@ -3,9 +3,11 @@ Main CLI entry point for the Microsoft Agent Framework (MAF) laboratory decision
 Runs clinical decision scenarios A through D.
 
 Usage:
-    python src/main.py                 # Live (auto-detect credentials from src/.env)
-    python src/main.py --offline       # Offline deterministic mode (no API calls)
-    python src/main.py --scenario A    # Single scenario
+    python src/main.py                        # Live (auto-detect credentials from src/.env)
+    python src/main.py --offline              # Offline deterministic mode (no API calls)
+    python src/main.py --scenario A           # Single scenario via workflow runner
+    python src/main.py --harness              # Launch interactive MAF Harness console
+    python src/main.py --harness-scenario A   # Run a scenario through the MAF Harness
 
 The src/.env file is loaded automatically. Set OPENAI_API_KEY for local testing.
 """
@@ -53,6 +55,20 @@ async def _run(scenario: str):
         await run_scenario_d()
 
 
+async def _run_harness(scenario: str | None = None):
+    """Launch the MAF Harness runtime (interactive or single scenario)."""
+    from src.harness.agent import create_clinical_harness_agent
+    from src.harness.console import run_harness_console, run_scenario_through_harness
+
+    agent = create_clinical_harness_agent()
+
+    if scenario:
+        for scen in (["A", "B", "C", "D"] if scenario == "all" else [scenario]):
+            await run_scenario_through_harness(agent, scen)
+    else:
+        await run_harness_console(agent=agent)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="MAF Clinical Decision Support — Scenarios A–D"
@@ -66,7 +82,19 @@ def main():
         "--scenario",
         default="all",
         choices=["all", "A", "B", "C", "D"],
-        help="Which scenario to run (default: all)",
+        help="Which scenario to run via WorkflowFactory runner (default: all)",
+    )
+    parser.add_argument(
+        "--harness",
+        action="store_true",
+        help="Launch the interactive Microsoft Agent Framework Harness console",
+    )
+    parser.add_argument(
+        "--harness-scenario",
+        dest="harness_scenario",
+        choices=["all", "A", "B", "C", "D"],
+        default=None,
+        help="Run a specific scenario through the MAF Harness runtime (non-interactive)",
     )
     args = parser.parse_args()
 
@@ -77,7 +105,10 @@ def main():
     print(f"   Mode: {mode}")
     print("=" * 80 + "\n")
 
-    asyncio.run(_run(args.scenario))
+    if args.harness or args.harness_scenario:
+        asyncio.run(_run_harness(scenario=args.harness_scenario))
+    else:
+        asyncio.run(_run(args.scenario))
 
 
 if __name__ == "__main__":

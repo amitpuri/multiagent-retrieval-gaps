@@ -25,14 +25,15 @@ def parse_clinician_input(
         dict with keys: term, unit, qualifier, patient_value, raw_text, a2a_triage_message.
     """
     raw = raw_text or text or query or kwargs.get("input", "") or ""
-    left, _, right = raw.partition("|")
-    left_str, right_str = left.strip(), right.strip()
+    parts = [p.strip() for p in raw.split("|") if p.strip()]
+    left_str = parts[0] if parts else ""
 
     qualifier, unit = "", ""
-    if right_str.lower() in ("total", "tca", "ionized", "ica", "free", "i", "t"):
-        qualifier = right_str.lower()
-    else:
-        unit = right_str
+    for part in parts[1:]:
+        if part.lower() in ("total", "tca", "ionized", "ica", "free", "i", "t"):
+            qualifier = part.lower()
+        else:
+            unit = part
 
     val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
     patient_value = float(val_match.group(1)) if val_match else None
