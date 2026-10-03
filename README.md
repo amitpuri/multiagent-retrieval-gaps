@@ -18,7 +18,7 @@ By Dr. Amit Puri · October 2026
 | :--- | :--- | :--- | :--- |
 | **Google ADK 2.0** | `google-adk-agents/` | Gemini 3.5 Flash | ✅ Complete |
 | **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | ✅ Complete |
-| **Azure AI Foundry + Semantic Kernel** | `agent-framework/` | Azure OpenAI | 🔜 Coming soon |
+| **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | GPT-5 via Azure AI Foundry / OpenAI | ✅ Complete |
 
 > [!TIP]
 > The objective is not to find a universally "perfect" agent architecture, but to pinpoint **what failed**, **why it failed**, and **the smallest intervention that fixes it**.
@@ -81,13 +81,32 @@ multiagent-retrieval-gaps/
 │   └── tests/
 │       └── test_strands_agents.py       # 50 deterministic offline tests
 │
-├── agent-framework/                     # ── Framework 3: Azure AI Foundry (coming soon) ──────
-│   ├── README.md                        # Planned stack & structure
+├── agent-framework/                     # ── Framework 3: Microsoft Agent Framework (MAF) ────
+│   ├── pytest.ini
+│   ├── requirements.txt
+│   ├── load_env.sh
+│   ├── declarative-agents/              # 6 × kind: Prompt YAML agent definitions
+│   │   ├── triage_orchestrator.yaml     # Primary entrypoint — all 5 tools bound
+│   │   ├── ontology_resolver.yaml       # LOINC concept resolution
+│   │   ├── safety_guard.yaml            # Deterministic code gate (Gap 9)
+│   │   ├── protocol_retriever.yaml      # Reference range + panic limits
+│   │   ├── clinical_synthesizer.yaml    # Grounded LLM synthesis (only after PROCEED)
+│   │   └── clarification_coordinator.yaml # HITL pause — returns gap to clinician
+│   ├── declarative-workflows/
+│   │   └── clinical_decision_workflow.yaml # WorkflowFactory + InvokeAgent conditional routing
 │   ├── src/
-│   │   ├── .env                         # Azure OpenAI key + endpoint (gitignored)
-│   │   └── env.example
+│   │   ├── .env                         # Azure / OpenAI credentials (gitignored)
+│   │   ├── env.example
+│   │   ├── a2a/contracts.py             # Shared A2A contracts (parity with ADK & Strands)
+│   │   ├── core/                        # Namespace shim importing shared Pydantic models
+│   │   ├── tools/                       # 5 plain Python tools bound via YAML bindings
+│   │   ├── models/provider.py           # Credential auto-detection (Foundry, Azure OpenAI, OpenAI)
+│   │   ├── orchestration/workflow_runner.py # Live MAF workflow + offline fast path
+│   │   ├── runner.py                    # Scenarios A–D runner
+│   │   └── main.py                      # CLI entrypoint
 │   └── tests/
-│       └── pytest.ini
+│       ├── test_gate.py                 # 23 deterministic safety invariant tests
+│       └── test_offline_pipeline.py     # 10 offline pipeline & fail-closed tests
 │
 ├── docs/
 │   ├── ai-agent-memory-architecture.md
@@ -273,12 +292,85 @@ python src/main.py
 
 ---
 
-## Framework 3 — Azure AI Foundry + Semantic Kernel (`agent-framework/`)
+## Framework 3 — Microsoft Agent Framework (MAF) / Azure AI Foundry (`agent-framework/`)
 
-> [!NOTE]
-> **🔜 Coming soon.** Planned as the third framework port using Azure AI Foundry Agents API
-> and Semantic Kernel. Will share the same `config/` YAML knowledge base and `SafetyGateEngine`.
-> See [`agent-framework/README.md`](./agent-framework/README.md) for the planned stack and structure.
+### Multi-Agent Architecture (Declarative YAML + WorkflowFactory)
+
+```mermaid
+flowchart TD
+    Clinician([Clinician / Client Application]) -->|A2A Task Request| Workflow[clinical_decision_workflow.yaml<br/><i>WorkflowFactory / InvokeAgent</i>]
+
+    subgraph MAF_Fleet["Microsoft Agent Framework (MAF) Declarative Fleet"]
+        direction TB
+
+        Workflow -->|InvokeAgent| Triage["triage_orchestrator.yaml<br/><i>kind: Prompt (All 5 Tools Bound)</i>"]
+        Triage -->|parse_clinician_input| ParseTool["parse_tool.py (Plain Python)"]
+        Triage -->|resolve_ontology| OntologyTool["ontology_tool.py (LOINC Resolution)"]
+        Triage -->|run_safety_gate| SafetyGateTool["safety_gate_tool.py<br/><i>Deterministic Code Gate (No LLM)</i>"]
+
+        subgraph Gap_Detectors["SafetyGateEngine — 5 Pluggable Detectors"]
+            AmbiguityDet["AmbiguityDetector (Gap 8)"]
+            UnitMismatchDet["UnitMismatchDetector (Gap 2)"]
+            MissingQualDet["MissingQualifierDetector (Gap 5)"]
+            RangeCollisionDet["RangeCollisionDetector (Look-Alikes)"]
+            SpecimenSeqDet["SpecimenSequenceDetector (Gap 11)"]
+        end
+
+        SafetyGateTool -.-> Gap_Detectors
+
+        Triage -- "route == PROCEED (RESOLVED)" --> ProtocolAgent["protocol_retriever.yaml<br/><i>fetch_protocol()</i>"]
+        ProtocolAgent --> SynthesisAgent["clinical_synthesizer.yaml<br/><i>Grounded LLM Synthesis (gpt-5)</i>"]
+
+        Triage -- "route == CLARIFY (Uncertain / Collision)" --> ClarifyAgent["clarification_coordinator.yaml<br/><i>HITL Pause / RequestInput</i>"]
+    end
+
+    SynthesisAgent --> Deliver([Deliver Grounded Clinical Interpretation])
+    ClarifyAgent --> RequestInput([Prompt Clinician with Diagnosed Gap])
+    RequestInput -.->|Clinician Clarification| Workflow
+```
+
+### Key Design Highlights — Microsoft Agent Framework
+
+- **Declarative Agents (`kind: Prompt` YAML)**: 6 declarative agents defined entirely in `declarative-agents/*.yaml`, separating prompt instructions and tool declarations from execution logic.
+- **Declarative Workflows (`WorkflowFactory`)**: Structured in `declarative-workflows/clinical_decision_workflow.yaml` using MAF conditional routing (`InvokeAgent` + `If/Then/Else`).
+- **Plain Python Tools (Zero Decorator Overhead)**: Plain Python functions bound via YAML `bindings:` without mandatory `@tool` or `@kernel_function` decorators.
+- **Fail-Closed Code Safety Gate**: `SafetyGateEngine` runs pure deterministic Python before any synthesis model invocation (closing Gap 9).
+- **Namespace-Safe Core Shim**: Pre-registers shared ADK core modules via `importlib.util` in `sys.modules`, achieving zero-duplication code reuse across frameworks without namespace collisions.
+
+### Credential Modes & Priority
+
+| Priority | Mode | Environment Variable | Target Environment |
+| :--- | :--- | :--- | :--- |
+| **1** | **Azure AI Foundry** | `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` | Production cloud deployment (`gpt-5`) |
+| **2** | **Azure OpenAI Direct** | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` | Direct Azure tenant resource |
+| **3** | **OpenAI Agents SDK** | `OPENAI_API_KEY` | Local development & rapid prototyping |
+| **4** | **Deterministic Offline** | `MAF_OFFLINE_MODE=true` | Fast invariant CI/CD (0 API calls, ~1 s) |
+
+### Getting Started — Microsoft Agent Framework
+
+```bash
+# 1. Install dependencies
+cd agent-framework
+pip install -r requirements.txt
+
+# 2. Configure credentials (or use included local key in src/.env)
+cp src/env.example src/.env
+
+# 3. Run all scenarios (live gpt-5)
+python src/main.py
+
+# 4. Offline mode (no API key needed, deterministic mock)
+python src/main.py --offline
+
+# 5. Run a single scenario
+python src/main.py --scenario A   # Hb 13.5 — ambiguity, unit mismatch, resolution
+python src/main.py --scenario B   # CSF emergency panel — tube ordering (Gap 11)
+python src/main.py --scenario C   # Calcium 4.8 — look-alike collision
+python src/main.py --scenario D   # Troponin I vs T — dynamic extension
+
+# 6. Run test suite (33 deterministic safety invariants, ~1.1 s)
+python -m pytest tests/ -v
+```
 
 ---
 
@@ -314,13 +406,18 @@ cd google-adk-agents && python -m pytest tests/ -v
 
 # AWS Strands SDK — 50 tests (~1.7 s)
 cd strands-agents && python -m pytest tests/ -v
+
+# Microsoft Agent Framework (MAF) — 33 tests (~1.1 s)
+cd agent-framework && python -m pytest tests/ -v
+
+# Total: 111 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
 
 ## A2A Message Contracts
 
-Both ADK and Strands implementations exchange the same structured `A2AMessage` envelopes:
+All three implementations (ADK, Strands, and MAF) exchange the same structured `A2AMessage` envelopes:
 
 ```python
 class A2AMessage(BaseModel):
@@ -338,16 +435,146 @@ class A2AMessage(BaseModel):
 
 ## Production Architecture
 
+### Proposed End-to-End System Architecture
+
+The proposed production architecture integrates the **Offline Clinical Knowledge Ingestion & Governance Plane** ([`docs/healthcare_multi_agent_architecture.md`](./docs/healthcare_multi_agent_architecture.md)), the **Online Serving Plane with Deterministic Safety Gating**, and the **14-Part Memory Substrate** ([`docs/ai-agent-memory-architecture.md`](./docs/ai-agent-memory-architecture.md)).
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["Clinician & Client Layer"]
+        Clinician["Clinician / EHR Client"]
+        Gateway["API Gateway / AuthN & AuthZ<br/><i>Social Memory (Roles & ACLs)</i>"]
+        Clinician <-->|Query / Clarification| Gateway
+    end
+
+    subgraph INGESTION["1. Ingestion Plane (Offline & Human-Governed)"]
+        direction TB
+        Sources["Clinical Guidelines, Lab SOPs & Reference Protocols"] --> Parser["Layout-Aware Parsing Service<br/><i>(Textract / Unstructured + Table QA)</i>"]
+        Parser --> Extractor["Extraction Agent<br/><i>(Schema-Constrained Assertion Proposals)</i>"]
+        Extractor --> Normalizer["Normalization via Terminology Service<br/><i>(SNOMED CT, LOINC, UCUM, RxNorm)</i>"]
+        Normalizer --> Curator["Curation Queue<br/><i>(Human Review & Conflict Resolution)</i>"]
+        Curator --> StagingGraph[("Staging Graph")]
+        StagingGraph --> EvalGate{"Evaluation Gate<br/><i>(Gold-Set Invariants & Safety Regression)</i>"}
+        EvalGate -->|Pass & Promote| ReleaseMgr["Release Manager<br/><i>(Stamp Knowledge Release ID)</i>"]
+    end
+
+    subgraph SERVING["2. Serving Plane (Online Multi-Agent Fleet)"]
+        direction TB
+        Gateway -->|A2A Task Request| Triage["Triage Orchestrator Agent<br/><i>Working Memory (Context Window & A2A Scratchpad)</i>"]
+        
+        Triage -->|A2A: PARSE_REQUEST| Ontology["Ontology Resolver Agent<br/><i>Semantic Memory (Controlled Vocabularies)</i>"]
+        Ontology -->|Resolution State| SafetyGuard["Safety Guard Agent<br/><i>Deterministic Code Gate</i>"]
+
+        subgraph GATE_ENGINE["SafetyGateEngine (Procedural Memory: Pluggable Code Invariants)"]
+            AmbiguityDet["AmbiguityDetector (Gap 8)"]
+            UnitMismatchDet["UnitMismatchDetector (Gap 2)"]
+            MissingQualDet["MissingQualifierDetector (Gap 5)"]
+            RangeCollisionDet["RangeCollisionDetector (Look-Alikes)"]
+            SpecimenSeqDet["SpecimenSequenceDetector (Gap 11)"]
+        end
+        SafetyGuard -.-> GATE_ENGINE
+
+        SafetyGuard -->|UNRESOLVED / COLLISION| Clarify["Clarification Coordinator Agent<br/><i>Prospective Memory (Pending HITL Trigger)</i>"]
+        Clarify -->|RequestInput: Prompt Diagnosed Gap| Clinician
+
+        SafetyGuard -->|RESOLVED / PROCEED| Protocol["Protocol Retriever Agent<br/><i>External & Graph Retrieval Grounding</i>"]
+        Protocol -->|A2A: Grounded Protocol + Spans| Synthesizer["Clinical Synthesizer Agent<br/><i>Parametric Memory (LLM Language Judgement)</i>"]
+        
+        Synthesizer -->|Draft Answer with Span Citations| Verifier["Multi-Layer Verification Pipeline<br/><i>(Citation Integrity, Entailment Agent, Applicability)</i>"]
+        Verifier --> Rules["Clinical Rules Service<br/><i>(Deterministic Drug/Dose/Panic Limit Checks)</i>"]
+        Rules --> Delivery["Deliver Grounded Clinical Interpretation<br/><i>(Stamped with Knowledge Release ID)</i>"]
+    end
+
+    subgraph MEMORY_SUBSTRATE["3. 14-Part Memory & Knowledge Substrate"]
+        direction TB
+
+        subgraph GRAPH_LAYER["Associative, Relational & Spatial Memory"]
+            PropertyGraph[("Property Graph DB: Neptune / Neo4j<br/>• Concepts, Recommendations, Qualifiers<br/>• Associative: Look-Alike Range Collision Families<br/>• Spatial Memory: Lab Dept Scopes & CSF Tube Order")]
+        end
+
+        subgraph SEARCH_LAYER["External & Retrieval Memory"]
+            VectorSearch[("OpenSearch: BM25 + Dense Vectors<br/>• Chunk Spans, Document Text & Embeddings")]
+        end
+
+        subgraph RELATIONAL_LAYER["Temporal, Provenance, Meta & Collective Memory"]
+            RelationalDB[("PostgreSQL: Provenance, Metadata & Governance<br/>• Temporal: Bitemporal Dates & Supersession Edges<br/>• Meta-Memory: Confidence Scores, Provenance & Gap Flags<br/>• Collective: Domain YAML, Release Manifests & Institutional SOPs")]
+        end
+
+        subgraph AUDIT_LAYER["Episodic & Audit Memory"]
+            AuditLog[("Immutable Append-Only Audit Log<br/>• Episodic Memory: User, Query, Trajectories, Spans & Hashes")]
+        end
+    end
+
+    %% Ingestion Plane updates Memory Substrate
+    ReleaseMgr ==>|Publish Graph Model| PropertyGraph
+    ReleaseMgr ==>|Index Chunks & Vectors| VectorSearch
+    ReleaseMgr ==>|Record Release & Provenance| RelationalDB
+
+    %% Serving Plane interacts with Memory Substrate
+    Protocol <-->|Traverse Relationships & Topologies| PropertyGraph
+    Protocol <-->|Hybrid Search Retrieval| VectorSearch
+    Ontology <-->|Lookup Terminology & Rules| RelationalDB
+    Rules <-->|Verify Against Provenance & Ranges| RelationalDB
+    Verifier -->|Append Execution Trajectory| AuditLog
+    Delivery --> Clinician
+```
+
+---
+
+### 14-Part Memory Architecture in Healthcare Multi-Agent Systems
+
+Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`](./docs/ai-agent-memory-architecture.md) in this decision-support system:
+
+| # | Memory Type | Implementation in Decision Support System | Failure Mode Mitigated |
+|---|---|---|---|
+| **1** | **Working (Context)** | Single-turn context window + typed `A2AMessage` payload scratchpads across the fleet. | Context rot; loss of active lab session constraints. |
+| **2** | **Semantic** | Controlled clinical vocabularies, LOINC mappings, UCUM units, and approved concept definitions (`concepts.yaml`). | Semantic drift; inventing non-existent clinical codes. |
+| **3** | **Episodic** | Session event logs, execution trajectories, and historical query resolutions. | Repeating past diagnostic failures or re-asking answered questions. |
+| **4** | **Procedural** | Pluggable `SafetyGateEngine` detectors, A2A action contracts, skill recipes, and protocol resolution algorithms. | Blind replay of outdated runbooks or inconsistent gate execution. |
+| **5** | **External (Retrieval)** | OpenSearch hybrid search (BM25 + dense vectors) over document chunks and evidence spans. | Hallucinating clinical literature not present in guidelines. |
+| **6** | **Parametric** | Frozen weights of base foundation models (Gemini 3.5 Flash, Claude Sonnet 4.5, Azure OpenAI). | Answering changing clinical thresholds from stale training data. |
+| **7** | **Prospective** | Pending clarification triggers in `ClarificationCoordinatorAgent` awaiting clinician input (`RequestInput`), async lab result hooks. | Unresolved clinical ambiguities left hanging or forgotten. |
+| **8** | **Spatial** | Physical CSF lumbar puncture tube sequencing (Tubes 1–3) and owning laboratory department boundaries (Biochemistry, Microbiology, Haematology). | Specimen cross-contamination; dispatching tests to the wrong lab department. |
+| **9** | **Temporal** | Bitemporal records (`valid_from`/`valid_to` vs. `recorded_at`), explicit `[:SUPERSEDES]` graph edges, and guideline expiration dates. | Recommending obsolete or superseded clinical guidelines. |
+| **10** | **Associative / Relational** | Property graph (Neptune/Neo4j) linking Concepts, Recommendations, Qualifiers, Evidence Chunks, and Look-Alike Collision Families (Calcium, Troponin). | Treating numeric values in isolation without cross-assay collision awareness. |
+| **11** | **Social** | Clinician role, department credentials, patient-caregiver relationship, and granular Document ACLs. | Leaking restricted clinical trial data or bypassing role authorization. |
+| **12** | **Meta-Memory** | Confidence scores, span citation verification, gap detection status (`AMBIGUOUS`, `RANGE_COLLISION`), and retrievability gating. | Unearned certainty; guessing when information is incomplete (Gap 8). |
+| **13** | **Collective / Organizational** | Governed `config/domains/` YAML knowledge base, institutional SOPs, panic limit definitions, and immutable `KnowledgeReleaseID`. | Inconsistent recommendations across clinical teams or facilities. |
+| **14** | **Sensory (Perceptual)** | Short-lived raw multimodal buffers for lab instrument outputs, scanned PDF requisitions, and table OCR. | Prematurely discarding subtle assay flags or raw instrument metadata. |
+
+---
+
+### Architectural Planes & Interaction Flow
+
+1. **Ingestion Plane (Offline & Human-Governed):**
+   - Guidelines, SOPs, and manufacturer assay package inserts are processed through a layout-aware parsing pipeline.
+   - An isolated, schema-constrained **Extraction Agent** proposes candidate assertions linked to exact text spans.
+   - Assertions are normalized via the **Terminology Service** (SNOMED CT, LOINC, UCUM, RxNorm).
+   - Clinical governance reviews high-risk claims and conflicts in the **Curation Queue**.
+   - An **Evaluation Gate** runs gold-set regression invariants; on pass, a **`KnowledgeReleaseID`** is stamped and published across the graph, search index, and relational store.
+
+2. **Serving Plane (Online Multi-Agent Fleet):**
+   - Queries enter through the **API Gateway** where identity, role, and ACLs are established (Social Memory).
+   - The **Triage Orchestrator** parses the clinical request and coordinates the fleet via typed `A2AMessage` contracts.
+   - The **Ontology Resolver Agent** expands synonyms and maps clinical terms to canonical concepts.
+   - The **Safety Guard Agent** runs the deterministic `SafetyGateEngine` in code (closing Gap 9). If any gap is detected (e.g. unit mismatch, look-alike collision, tube order violation), the flow halts immediately and routes to the **Clarification Coordinator Agent** (closing Gap 8).
+   - Once validated, the **Protocol Retriever Agent** pulls grounded recommendations and evidence chunks from the knowledge substrate.
+   - The **Clinical Synthesizer Agent** drafts the clinical interpretation with span-level citations.
+   - The **Verification Pipeline & Clinical Rules Service** deterministically verifies citation integrity, entailment against source spans, population applicability, currency, and dose/panic thresholds.
+   - The verified output is stamped with the `KnowledgeReleaseID` and delivered to the clinician, with a complete trajectory recorded in the immutable **Audit Log**.
+
+---
+
 ### Technology Stack
 
-| Layer | Google ADK | AWS Strands | Azure (Planned) |
+| Layer | Google ADK | AWS Strands | Microsoft MAF / Azure AI Foundry |
 | :--- | :--- | :--- | :--- |
-| **Agent framework** | Google ADK 2.2 | AWS Strands SDK + Bedrock AgentCore | Azure AI Foundry + Semantic Kernel |
-| **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | Azure OpenAI (GPT-4o / o3) |
-| **Session memory** | ADK `InMemorySessionService` | Bedrock AgentCore managed sessions | Azure AI Foundry sessions |
+| **Agent framework** | Google ADK 2.2 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
+| **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | `gpt-5` via Azure AI Foundry / OpenAI |
+| **Session memory** | ADK `InMemorySessionService` | Bedrock AgentCore managed sessions | MAF sessions / Local session manager |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
 | **Knowledge config** | `config/` YAML (shared) | `config/` YAML (shared) | `config/` YAML (shared) |
-| **Tests** | 28 offline `pytest` tests | 50 offline `pytest` tests | Planned |
+| **Tests** | 28 offline `pytest` tests | 50 offline `pytest` tests | 33 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |
