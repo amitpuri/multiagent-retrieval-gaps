@@ -16,8 +16,8 @@ It is the third framework port alongside:
 
 | Framework | Directory | Model |
 |:---|:---|:---|
-| Google ADK | [`google-adk-agents/`](../google-adk-agents/) | Gemini 2.0 Flash |
-| AWS Strands | [`strands-agents/`](../strands-agents/) | Claude 3.5 on Bedrock |
+| Google ADK | [`google-adk-agents/`](../google-adk-agents/) | Gemini 3.5 Flash |
+| AWS Strands | [`strands-agents/`](../strands-agents/) | Claude Sonnet 4.5 on Bedrock |
 | **Microsoft MAF** | **`agent-framework/`** (this directory) | **gpt-5 via Azure AI Foundry / OpenAI** |
 
 All three frameworks share the same **deterministic `SafetyGateEngine`**, the same **A2A message
@@ -49,13 +49,14 @@ protocol_retriever    clarification_coordinator
 clinical_synthesizer      (HITL pause)
 ```
 
-**Safety Gate** is deterministic pure-Python code. It evaluates five pluggable gap detectors:
+**Safety Gate** is deterministic pure-Python code. It evaluates six pluggable gap detectors:
 
 | Detector | Gap |
 |:---|:---|
 | `AmbiguityDetector` | Gap 8 — ambiguous lab term |
 | `UnitMismatchDetector` | Gap 2 — unit not supported by concept |
 | `MissingQualifierDetector` | Gap 5 — qualifier needed (e.g. total vs. ionized) |
+| `MissingUnitDetector` | Missing measurement unit validation |
 | `RangeCollisionDetector` | Look-alike test collision |
 | `SpecimenSequenceDetector` | Gap 11 — tube ordering violation |
 

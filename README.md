@@ -58,7 +58,7 @@ multiagent-retrieval-gaps/
 │   │   │   ├── concept_graph.py         # Typed concept graph walk & look-alikes (OKF §4, §8.2)
 │   │   │   ├── okf_writer.py            # Knowledge writeback & log.md maintenance (OKF §5.2, §7.5)
 │   │   │   ├── attestation.py           # Deterministic numeric range attestation (OKF §5.4, §9)
-│   │   │   └── detectors/               # 5 pluggable gap detectors + SafetyGateEngine
+│   │   │   └── detectors/               # 6 pluggable gap detectors + SafetyGateEngine
 │   │   ├── agents/                      # 6 specialized ADK agent roles (OKF trust-aware synthesis)
 │   │   ├── harness/                     # Agent Harness — 4-step MCP continuous loop
 │   │   │   ├── agent.py                 # Step 1: ClinicalADKHarness continuous reasoning loop
@@ -74,11 +74,12 @@ multiagent-retrieval-gaps/
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
 │   └── tests/
-│       ├── test_gate.py                 # 21 deterministic safety invariant tests
+│       ├── test_gate.py                 # 27 deterministic safety invariant tests
 │       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
 │       ├── test_okf_refinement.py       # 46 OKF Phase 1–4 tests (trust tiers, loader, resolver, synthesis)
 │       ├── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
-│       └── test_harness.py             # 35 harness tests: session, MCP dispatch, context, scenarios
+│       ├── test_harness.py             # 35 harness tests: session, MCP dispatch, context, scenarios
+│       └── test_code_review_regressions.py # 15 regression tests: T1–T15 (patient safety & gate bypass prevention)
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
@@ -177,17 +178,20 @@ flowchart TD
         Triage -->|A2A: PARSE_REQUEST| OntologyAgent[Ontology Resolver Agent]
         OntologyAgent -->|Resolution State| SafetyGuard[Safety Guard Agent<br/><i>Deterministic Code Gate</i>]
 
-        subgraph Gap_Detectors["SafetyGateEngine — 5 Pluggable Detectors"]
+        subgraph Gap_Detectors["SafetyGateEngine — 6 Pluggable Detectors"]
             AmbiguityDet["AmbiguityDetector (Gap 8)"]
             UnitMismatchDet["UnitMismatchDetector (Gap 2)"]
             MissingQualDet["MissingQualifierDetector (Gap 5)"]
+            MissingUnitDet["MissingUnitDetector"]
             RangeCollisionDet["RangeCollisionDetector (Look-Alikes)"]
             SpecimenSeqDet["SpecimenSequenceDetector (Gap 11)"]
         end
 
         SafetyGuard -.-> Gap_Detectors
         SafetyGuard -- "status == RESOLVED (PROCEED)" --> ProtocolAgent[Protocol Retriever Agent<br/><i>Canonical URI Grounding</i>]
-        ProtocolAgent -->|A2A: Grounded Protocol| SynthesisAgent[Clinical Synthesizer Agent<br/><i>Single-Turn Gemini 3.5 Flash</i>]
+        ProtocolAgent --> AttestGate[Synthesis Gate Node<br/><i>Attestation Verification & OKF Audit</i>]
+        AttestGate -- "Attested (PROCEED)" --> SynthesisAgent[Clinical Synthesizer Agent<br/><i>Single-Turn Gemini 3.5 Flash</i>]
+        AttestGate -- "Unattested / Out-of-Spec (CLARIFY)" --> ClarifyAgent
         SafetyGuard -- "Uncertain / Collision (CLARIFY)" --> ClarifyAgent[Clarification Coordinator Agent<br/><i>Human-in-the-Loop HITL</i>]
     end
 
@@ -226,7 +230,7 @@ python -m src.harness.console --offline
 uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 # POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
 
-# 8. Run tests (142 deterministic safety invariants, OKF & harness tests)
+# 8. Run tests (163 deterministic safety invariants, OKF & harness tests)
 python -m pytest tests/ -v
 ```
 

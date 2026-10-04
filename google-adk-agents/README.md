@@ -25,7 +25,7 @@ The system coordinates six specialized agent roles across a directed workflow gr
 flowchart TD
     START([START: Clinician Input]) --> TRIAGE[Triage / Intake Node\nparse_clinician_input\n+ OKF Pre-Scoping]
     TRIAGE -->|A2AMessage: PARSE_REQUEST| RESOLVER[Ontology Resolver Agent\nLOINC Grounding &\nOKF Trust/Staleness Filter]
-    RESOLVER -->|A2AMessage: EVALUATE_SAFETY| GUARD[Safety Guard Node\nDeterministic SafetyGateEngine\n5 Pluggable Detectors]
+    RESOLVER -->|A2AMessage: EVALUATE_SAFETY| GUARD[Safety Guard Node\nDeterministic SafetyGateEngine\n6 Pluggable Detectors]
     
     GUARD -->|VERDICT: CLARIFY| CLARIFY[Clarification Agent\nHITL Clinical Pause\nOptions & Disambiguation]
     GUARD -->|VERDICT: PROCEED| PROTOCOL[Protocol Retriever Agent\nReference Ranges & Panic Limits]
@@ -140,20 +140,20 @@ python -m src.harness.console --offline
 # Production ASGI server
 uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 
-# Docker production container
-docker build -t adk-harness . && docker run -p 8000:8000 -e GEMINI_API_KEY=... adk-harness
+# Docker production container (built from repository root)
+docker build -f google-adk-agents/Dockerfile -t adk-harness . && docker run -p 8000:8000 -e GEMINI_API_KEY=... adk-harness
 ```
 
 ### REST API Endpoints
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `POST` | `/api/v1/sessions` | Create isolated clinician session |
-| `POST` | `/api/v1/query` | Execute harness turn; returns route, status, attestation |
-| `GET` | `/api/v1/sessions/{id}` | Retrieve turn history for a session |
+| `POST` | `/api/v1/sessions` | Create isolated clinician session (server-generated ID) |
+| `POST` | `/api/v1/query` | Execute harness turn; returns route, status, attestation (max 2,000 chars) |
+| `GET` | `/api/v1/sessions/{id}` | Retrieve turn history for a session (requires Bearer auth) |
 | `GET` | `/api/v1/mcp/tools` | List all registered MCP tool schemas |
 | `GET` | `/healthz` | Liveness probe |
-| `GET` | `/readyz` | Readiness probe (offline mode, model, tools) |
+| `GET` | `/readyz` | Readiness probe (`status: ready`, or `status: degraded, offline_mode: true`) |
 
 ---
 
@@ -178,10 +178,11 @@ google-adk-agents/
 │   │   └── detectors/
 │   │       ├── base.py            # SafetyGateEngine & BaseDetector
 │   │       ├── ambiguity.py       # Ambiguity detector
+│   │       ├── missing_unit.py    # Missing unit detector
+│   │       ├── missing_qualifier.py # Total vs. ionized qualifier detector
 │   │       ├── range_collision.py # Look-alike range collision detector
-│   │       ├── specimen_seq.py    # Specimen aliquot/tube order detector
-│   │       ├── unit_mismatch.py   # Unit compatibility detector
-│   │       └── missing_qualifier.py # Total vs. ionized qualifier detector
+│   │       ├── specimen_sequence.py # Specimen aliquot/tube order detector
+│   │       └── unit_mismatch.py   # Unit compatibility detector
 │   ├── agents/
 │   │   ├── triage_agent.py        # Intake agent envelope creator
 │   │   ├── ontology_agent.py      # LOINC resolver with OKF trust filtering
@@ -204,11 +205,12 @@ google-adk-agents/
 │   ├── runner.py                  # Multi-scenario runner (supports --harness flag)
 │   └── main.py                    # Interactive CLI runner
 └── tests/
-    ├── test_gate.py               # Deterministic safety gate tests (Gap 10)
+    ├── test_gate.py               # Deterministic safety gate tests (Gap 10, 27 tests)
     ├── test_multiagent_extensible.py # Registry, scenario extensions, detector tests
     ├── test_okf_refinement.py     # OKF Phases 1-4 tests (trust tiers, loader, resolver, synthesis)
     ├── test_okf_phases_5_8.py     # OKF Phases 5-8 tests (index, graph, writeback, attestation)
-    └── test_harness.py            # 35 harness tests: session, MCP, context window, scenario parity
+    ├── test_harness.py            # 35 harness tests: session, MCP, context window, scenario parity
+    └── test_code_review_regressions.py # 15 regression tests: T1–T15 (patient safety & gate bypass prevention)
 ```
 
 ---
@@ -282,7 +284,7 @@ uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 
 ## Test Suite & Verification
 
-The suite includes **142 comprehensive unit and trajectory tests** running deterministically in pure code:
+The suite includes **163 comprehensive unit and trajectory tests** running deterministically in pure code:
 
 ```bash
 # Full test suite
@@ -290,15 +292,19 @@ python -m pytest tests/ -v
 
 # Harness tests only
 python -m pytest tests/test_harness.py -v
+
+# Regression tests (T1–T15)
+python -m pytest tests/test_code_review_regressions.py -v
 ```
 
 ### Test Coverage Summary
 
 | Test File | Test Count | Focus Area |
 | :--- | :--- | :--- |
-| `tests/test_gate.py` | 21 tests | Classical retrieval gaps & deterministic gate verification without LLMs. |
-| `tests/test_multiagent_extensible.py` | 16 tests | Baseline registry, dynamic scenario extensions (Troponin), and 5 safety detectors. |
+| `tests/test_gate.py` | **27 tests** | Classical retrieval gaps & deterministic gate verification without LLMs. |
+| `tests/test_multiagent_extensible.py` | 16 tests | Baseline registry, dynamic scenario extensions (Troponin), and 6 safety detectors. |
 | `tests/test_okf_refinement.py` | 46 tests | OKF trust tier derivation, staleness filtering, lifecycle status, and calibrated synthesis instructions. |
 | `tests/test_okf_phases_5_8.py` | 24 tests | Progressive disclosure index, typed graph traversal, audit writeback log, and numeric attestation gate. |
-| `tests/test_harness.py` | **35 tests** | Session state, MCP tool registry & dispatch, context window management, and end-to-end harness scenario parity (offline). |
-| **Total** | **142 tests** | **100% Passing** |
+| `tests/test_harness.py` | 35 tests | Session state, MCP tool registry & dispatch, context window management, and end-to-end harness scenario parity (offline). |
+| `tests/test_code_review_regressions.py` | **15 tests** | Patient safety invariants, live harness gate enforcement, reported unit preservation, and fail-closed defaults (T1–T15). |
+| **Total** | **163 tests** | **100% Passing** |
