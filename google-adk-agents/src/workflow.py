@@ -25,12 +25,23 @@ def route_for(status: str) -> str:
 
 def parse(node_input: Any) -> Event:
     """Parser node: extracts test term, optional value, and reported unit from clinician input.
-    
-    Supports formats:
-      - 'Hb'
-      - 'Hb | g/dL'
-      - 'Hb 13.5 | g/dL'
-      - 'Hb | mg/dL'
+
+    Supports formats::
+
+        Hb
+        Hb | g/dL
+        Hb 13.5 | g/dL
+        Calcium 4.8 | mg/dL
+        Calcium 4,8 | mg/dL        ← comma-decimal normalised
+        Na+ -3 | mEq/L             ← negative value preserved
+        25-OH vitamin D 18 | ng/mL ← value not confused with leading digits in name
+
+    Rules:
+    - Only a digit sequence that is *preceded by whitespace or start-of-string*
+      (not by a letter, hyphen, or other non-space) is treated as a numeric value.
+    - Comma-decimal notation (``4,8``) is normalised to ``4.8`` before parsing.
+    - A leading ``-`` immediately before the digit group is treated as a negative sign
+      only when the character before it is whitespace or start-of-string.
     """
     if hasattr(node_input, "parts") and node_input.parts:
         text = node_input.parts[0].text
@@ -43,18 +54,36 @@ def parse(node_input: Any) -> Event:
     left_str = left.strip()
     unit_str = unit.strip()
 
-    # Extract numeric value if present (e.g. 13.5)
-    val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
+    # When there is a second pipe segment (e.g. "Calcium 4.8 | total | mg/dL"),
+    # the first segment after '|' is the qualifier and the second is the unit.
+    if "|" in unit_str:
+        qualifier_str, _, unit_str = unit_str.partition("|")
+        qualifier_str = qualifier_str.strip()
+        unit_str = unit_str.strip()
+    else:
+        qualifier_str = ""
+
+    # Normalise comma-decimal notation (e.g. "4,8" -> "4.8") *before* matching.
+    left_normalised = re.sub(r"(\d),(\d)", r"\1.\2", left_str)
+
+    # Match a numeric value that is:
+    #  - preceded only by whitespace or start-of-string, AND
+    #  - NOT immediately followed by a hyphen or word character
+    # This prevents '25' in '25-OH vitamin D' from being treated as a value,
+    # while still matching '18' in '25-OH vitamin D 18'.
+    val_match = re.search(r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_normalised)
     patient_value = float(val_match.group(1)) if val_match else None
-    
-    # Strip numeric value from term if present
-    cleaned_term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str).strip()
-    term = cleaned_term if cleaned_term else left_str
+
+    # Strip the matched number (including its optional sign) from the term.
+    # Use the same boundary-aware pattern so we do not strip mid-word digits.
+    cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_normalised).strip()
+    term = cleaned_term if cleaned_term else left_str.strip()
 
     return Event(
         output={
             "term": term,
             "unit": unit_str,
+            "qualifier": qualifier_str,
             "patient_value": patient_value,
             "raw_text": text,
         }
@@ -62,13 +91,15 @@ def parse(node_input: Any) -> Event:
 
 
 def resolve_node(node_input: Dict[str, Any]) -> Event:
-    """Ontology resolution node: maps term and unit to canonical LOINC concepts."""
+    """Ontology resolution node: maps term, unit, and qualifier to canonical LOINC concepts."""
     term = node_input.get("term", "")
     unit = node_input.get("unit", "")
+    qualifier = node_input.get("qualifier", "")
     resolution = resolve_lab_term(term, unit)
-    
-    # Carry forward patient value
+
+    # Carry forward patient value and qualifier for downstream gate / synthesis
     resolution["patient_value"] = node_input.get("patient_value")
+    resolution["qualifier"] = qualifier
     return Event(output=resolution)
 
 

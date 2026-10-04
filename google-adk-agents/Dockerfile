@@ -18,8 +18,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source and configuration
 COPY src/ /app/src/
+COPY config/ /app/config/
 COPY pytest.ini /app/
 COPY README.md /app/
+
+# Create a non-root user for runtime (CIS Docker Benchmark L1-4.1)
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --no-create-home appuser && \
+    chown -R appuser:appgroup /app
+
+# Switch to non-root user before starting the process
+USER appuser
 
 # Expose production ASGI HTTP port
 EXPOSE 8000

@@ -125,19 +125,25 @@ def classify(value: float, r: Dict[str, Any]) -> str:
 
 def check_calcium(value_mg_dl: float, qualifier: str = "") -> Dict[str, Any]:
     """Classify a calcium value (mg/dL) under plausible concepts.
-    
+
     Flags RANGE_COLLISION if candidate interpretations conflict.
     For example: 4.8 mg/dL is CRITICAL_LOW for Total Calcium (ref 8.5-10.5)
     but NORMAL for Ionized Calcium (ref 4.5-5.6).
+
+    Only mg/dL assay entries are evaluated (value_mg_dl parameter);
+    mmol/L variants in RANGES are excluded to prevent wrong-unit classification.
     """
     q = qualifier.strip().lower()
-    if q in ("total", "tca"):
-        uris = ["loinc:17861-6"]
-    elif q in ("ionized", "ica", "free"):
-        uris = ["loinc:17864-0"]
-    else:
-        uris = list(RANGES)
+    # Filter to mg/dL assay entries only (RANGES now also contains mmol/L variants)
+    mgdl_ranges = {k: v for k, v in RANGES.items() if v.get("unit", "mg/dL") == "mg/dL"}
 
-    readings = {RANGES[u]["name"]: classify(value_mg_dl, RANGES[u]) for u in uris}
+    if q in ("total", "tca"):
+        uris = [k for k, v in mgdl_ranges.items() if "total" in v["name"].lower()]
+    elif q in ("ionized", "ica", "free"):
+        uris = [k for k, v in mgdl_ranges.items() if "ionized" in v["name"].lower()]
+    else:
+        uris = list(mgdl_ranges)
+
+    readings = {mgdl_ranges[u]["name"]: classify(value_mg_dl, mgdl_ranges[u]) for u in uris}
     status = "RANGE_COLLISION" if len(set(readings.values())) > 1 else "RESOLVED"
     return {"status": status, "value_mg_dl": value_mg_dl, "readings": readings}

@@ -22,13 +22,22 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Enable CORS for browser clients
+# CORS: default to no cross-origin access; override via ALLOWED_ORIGINS env var.
+# Example: ALLOWED_ORIGINS=https://lis.hospital.internal,https://portal.hospital.internal
+# WARNING: Never use "*" with allow_credentials=True — browsers will reject it
+# and it exposes credentials to any origin in non-browser clients.
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "")
+_allowed_origins: List[str] = [
+    o.strip() for o in _raw_origins.split(",") if o.strip()
+]
+_allow_credentials = bool(_allowed_origins)  # credentials only valid with explicit origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_credentials=_allow_credentials,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # In-memory session store (pluggable with Redis / Firestore in production)

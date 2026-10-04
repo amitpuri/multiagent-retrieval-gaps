@@ -1,4 +1,4 @@
-# Google ADK 2.0 and GenAI SDK
+# Google ADK and GenAI SDK
 google-adk>=2.11.0
 google-genai>=2.27.0
 
@@ -10,7 +10,7 @@ PyYAML>=6.0.0
 # Testing & Verification
 pytest>=8.0.0
 
-# Model Context Protocol (MCP) & Harness Deployment
-mcp>=1.0.0
+# Model Context Protocol (MCP) — pin to 1.x; mcp 2.x removed mcp.server.fastmcp
+mcp>=1.0.0,<2
 fastapi>=0.100.0
 uvicorn>=0.22.0

@@ -36,27 +36,29 @@ def _rank_by_trust(concepts: List[ConceptDefinition]) -> List[ConceptDefinition]
 def resolve_term_with_registry(
     term: str,
     unit: str = "",
+    qualifier: str = "",
     registry: Optional[OntologyRegistry] = None,
 ) -> Dict[str, Any]:
-    """Map a lab test name and optional unit to canonical concepts using OntologyRegistry.
+    """Map a lab test name, optional unit, and optional qualifier to canonical concepts.
 
     OKF Phase 3 behaviour:
-    1. Lexical matching (unchanged).
-    2. Drop deprecated concepts immediately — they are never returned.
-    3. Separate stale from fresh candidates; exclude stale from resolution.
+    1. Lexical matching.
+    2. Drop deprecated concepts immediately — never returned.
+    3. Fail-closed on all-stale: returns NOT_FOUND rather than silently using
+       stale data.  Stale URIs are surfaced in ``stale_dropped``.
     4. Apply unit constraint if provided.
-    5. Rank remaining candidates by OKF trust tier.
-    6. Emit RESOLVED / AMBIGUOUS / NOT_FOUND / UNIT_MISMATCH as before,
-       plus ``stale_dropped``, ``trust_tier``, and ``concept_status`` metadata.
+    5. Apply qualifier constraint against concept alt_labels if still ambiguous.
+    6. Rank remaining candidates by OKF trust tier.
+    7. Emit RESOLVED / AMBIGUOUS / NOT_FOUND / UNIT_MISMATCH.
 
     Returns:
         dict with keys:
-          status           – ResolutionStatus value string
-          candidates       – list of concept view dicts (via to_view())
-          stale_dropped    – list of URIs excluded due to staleness
+          status             – ResolutionStatus value string
+          candidates         – list of concept view dicts (via to_view())
+          stale_dropped      – list of URIs excluded due to staleness
           deprecated_dropped – list of URIs excluded due to deprecated status
-          trust_tier       – TrustTier of the winning concept (if RESOLVED), else None
-          concept_status   – lifecycle status of the winning concept (if RESOLVED), else None
+          trust_tier         – TrustTier of the winning concept (if RESOLVED), else None
+          concept_status     – lifecycle status of the winning concept (if RESOLVED), else None
     """
     reg = registry or get_default_registry()
     raw_candidates = reg.find_concepts(term.strip())
@@ -79,10 +81,21 @@ def resolve_term_with_registry(
     stale_dropped = [c.uri for c in usable if c.is_stale()]
     fresh = [c for c in usable if not c.is_stale()]
 
-    # If all usable candidates are stale, fall back to stale ones with a warning
-    # rather than returning NOT_FOUND (they are usable but flagged)
+    # Fail-closed on all-stale: do NOT fall back to stale data silently.
+    # Surface the problem so the gate routes to CLARIFY / re-verification.
     if not fresh:
-        fresh = usable  # use stale as fallback; stale_dropped stays populated
+        return {
+            "status": ResolutionStatus.NOT_FOUND.value,
+            "candidates": [],
+            "stale_dropped": stale_dropped,
+            "deprecated_dropped": deprecated_dropped,
+            "trust_tier": None,
+            "concept_status": None,
+            "stale_warning": (
+                f"All {len(stale_dropped)} candidate(s) for '{term}' are stale. "
+                "Re-verification required before clinical use."
+            ),
+        }
 
     # ---- Unit constraint ----
     if unit:
@@ -100,6 +113,19 @@ def resolve_term_with_registry(
             }
         fresh = matched
 
+    # ---- Qualifier constraint (resolves look-alike collisions e.g. Ca total vs ionized) ----
+    # Only applied when still ambiguous after unit filtering.
+    if qualifier and len(fresh) > 1:
+        q = qualifier.strip().lower()
+        # A qualifier matches if it appears in the concept's alt_labels
+        # (e.g. "total" matches alt_label "total calcium", "ionized" matches "ionized calcium").
+        qualifier_matched = [
+            c for c in fresh
+            if any(q in alt.lower() for alt in [c.label] + c.alt_labels)
+        ]
+        if qualifier_matched:
+            fresh = qualifier_matched
+
     # ---- OKF: Rank by trust tier ----
     fresh = _rank_by_trust(fresh)
 
@@ -109,7 +135,6 @@ def resolve_term_with_registry(
         else ResolutionStatus.AMBIGUOUS.value
     )
 
-    # Resolved concept metadata for downstream trust-aware agents
     winning = fresh[0] if len(fresh) == 1 else None
     return {
         "status": status,
@@ -124,8 +149,9 @@ def resolve_term_with_registry(
 def ontology_resolver_node(node_input: Any) -> Event:
     """ADK Workflow node for ontology resolution, wrapping state in A2A envelope.
 
-    Emits OKF trust and staleness signals in the output payload so the
-    downstream safety gate and synthesis agent can calibrate responses.
+    Passes qualifier through to the resolver so a clinician who provides
+    'Calcium 4.8 | total' is not re-asked for the qualifier they already gave.
+    Emits OKF trust and staleness signals in the output payload.
     """
     data = node_input if isinstance(node_input, dict) else {}
     term = data.get("term", "")
@@ -134,7 +160,8 @@ def ontology_resolver_node(node_input: Any) -> Event:
     patient_value = data.get("patient_value")
 
     reg = get_default_registry()
-    resolution = resolve_term_with_registry(term, unit, reg)
+    # Pass qualifier into the resolver so it can disambiguate look-alikes.
+    resolution = resolve_term_with_registry(term, unit, qualifier=qualifier, registry=reg)
 
     # Formulate A2A message response
     a2a_msg = A2AMessage(

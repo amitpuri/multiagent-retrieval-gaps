@@ -29,7 +29,17 @@ class SpecimenSequenceDetector(GapDetector):
                 message="Registry not configured in SpecimenSequenceDetector",
             )
 
-        panel_id = context.panel_id or "csf_emergency_panel"
+        # Only evaluate when the caller explicitly requests a panel check.
+        # Defaulting to csf_emergency_panel caused unrelated queries to fail.
+        if not context.panel_id:
+            return GapEvaluationResult(
+                passed=True,
+                status=ResolutionStatus.RESOLVED,
+                gap_name=self.gap_name,
+                message="No panel_id in context; specimen sequencing check skipped",
+            )
+
+        panel_id = context.panel_id
         panel = self.registry.get_panel(panel_id)
         if not panel:
             return GapEvaluationResult(

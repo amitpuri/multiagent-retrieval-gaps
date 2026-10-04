@@ -3,6 +3,7 @@ Gap 2 & Gap 8 Detector: Lexical Ambiguity and Silent Guessing.
 Detects when a clinical query matches multiple candidate concepts across
 departments and lacks the necessary unit or contextual constraints to disambiguate.
 """
+from __future__ import annotations
 
 from typing import List
 from src.core.detectors.base import GapDetector
@@ -63,6 +64,19 @@ class AmbiguityDetector(GapDetector):
                     details={"reported_unit": unit},
                 )
             candidates = matched_by_unit
+
+        # If a qualifier is supplied and we are still ambiguous, use it to narrow.
+        # This is the fix for Bug 1: a clinician who says "total" after being asked
+        # for a qualifier must not be asked again.
+        qualifier = context.qualifier.strip()
+        if qualifier and len(candidates) > 1:
+            q = qualifier.lower()
+            qualifier_matched = [
+                c for c in candidates
+                if any(q in alt.lower() for alt in [c.label] + c.alt_labels)
+            ]
+            if qualifier_matched:
+                candidates = qualifier_matched
 
         # Check for ambiguity
         if len(candidates) > 1:
