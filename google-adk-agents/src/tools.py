@@ -36,7 +36,7 @@ def _view(uri: str) -> Dict[str, Any]:
     }
 
 
-def resolve_lab_term(term: str, unit: str = "") -> Dict[str, Any]:
+def resolve_lab_term(term: str, unit: str = "", qualifier: str = "") -> Dict[str, Any]:
     """Map a lab test name (and optional unit) to canonical LOINC concepts.
     
     Never guesses: returns AMBIGUOUS when several concepts match.
@@ -69,6 +69,17 @@ def resolve_lab_term(term: str, unit: str = "") -> Dict[str, Any]:
                 "candidates": [_view(c) for c in candidates],
             }
         candidates = matched
+
+    if qualifier and len(candidates) > 1:
+        q = qualifier.strip().lower()
+        matched_q = [
+            c
+            for c in candidates
+            if q in CONCEPTS[c]["label"].lower()
+            or any(q in alt.lower() for alt in CONCEPTS[c]["alt_labels"])
+        ]
+        if matched_q:
+            candidates = matched_q
 
     status = "RESOLVED" if len(candidates) == 1 else "AMBIGUOUS"
     return {"status": status, "candidates": [_view(c) for c in candidates]}

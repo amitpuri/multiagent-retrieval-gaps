@@ -282,7 +282,7 @@ uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 
 ## Test Suite & Verification
 
-The suite includes **133 comprehensive unit and trajectory tests** running deterministically in pure code:
+The suite includes **142 comprehensive unit and trajectory tests** running deterministically in pure code:
 
 ```bash
 # Full test suite
@@ -296,9 +296,9 @@ python -m pytest tests/test_harness.py -v
 
 | Test File | Test Count | Focus Area |
 | :--- | :--- | :--- |
-| `tests/test_gate.py` | 10 tests | Classical retrieval gaps & deterministic gate verification without LLMs. |
-| `tests/test_multiagent_extensible.py` | 18 tests | Baseline registry, dynamic scenario extensions (Troponin), and 5 safety detectors. |
+| `tests/test_gate.py` | 21 tests | Classical retrieval gaps & deterministic gate verification without LLMs. |
+| `tests/test_multiagent_extensible.py` | 16 tests | Baseline registry, dynamic scenario extensions (Troponin), and 5 safety detectors. |
 | `tests/test_okf_refinement.py` | 46 tests | OKF trust tier derivation, staleness filtering, lifecycle status, and calibrated synthesis instructions. |
 | `tests/test_okf_phases_5_8.py` | 24 tests | Progressive disclosure index, typed graph traversal, audit writeback log, and numeric attestation gate. |
 | `tests/test_harness.py` | **35 tests** | Session state, MCP tool registry & dispatch, context window management, and end-to-end harness scenario parity (offline). |
-| **Total** | **133 tests** | **100% Passing** |
+| **Total** | **142 tests** | **100% Passing** |

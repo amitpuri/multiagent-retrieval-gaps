@@ -74,8 +74,8 @@ multiagent-retrieval-gaps/
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
 │   └── tests/
-│       ├── test_gate.py                 # 10 deterministic safety invariant tests
-│       ├── test_multiagent_extensible.py# 18 multi-agent, A2A & YAML-extension tests
+│       ├── test_gate.py                 # 21 deterministic safety invariant tests
+│       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
 │       ├── test_okf_refinement.py       # 46 OKF Phase 1–4 tests (trust tiers, loader, resolver, synthesis)
 │       ├── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
 │       └── test_harness.py             # 35 harness tests: session, MCP dispatch, context, scenarios
@@ -226,7 +226,7 @@ python -m src.harness.console --offline
 uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 # POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
 
-# 8. Run tests (133 deterministic safety invariants, OKF & harness tests)
+# 8. Run tests (142 deterministic safety invariants, OKF & harness tests)
 python -m pytest tests/ -v
 ```
 
@@ -460,7 +460,7 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Google ADK 2.0 — 133 tests (~12.7 s)
+# Google ADK 2.0 — 142 tests (~5.4 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
 # AWS Strands SDK — 50 tests (~1.7 s)
@@ -469,7 +469,7 @@ cd strands-agents && python -m pytest tests/ -v
 # Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 227 deterministic safety invariants verified across all 3 frameworks!
+# Total: 236 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
@@ -634,7 +634,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | — | `ClinicalHarnessAgent` (todos, modes, approval) |
 | **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | — | — |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
-| **Tests** | **133 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
+| **Tests** | **142 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

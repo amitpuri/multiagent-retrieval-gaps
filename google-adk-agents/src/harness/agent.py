@@ -96,6 +96,7 @@ class ClinicalADKHarness:
         # Clean term
         cleaned_term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str)
         cleaned_term = re.sub(r"\b(total|ionized|free)\b", "", cleaned_term, flags=re.IGNORECASE).strip()
+        cleaned_term = re.sub(r"\b(mg/dl|g/dl|mmol/l|ng/ml|ng/l)\b", "", cleaned_term, flags=re.IGNORECASE).strip()
         term = cleaned_term if cleaned_term else left_str
 
         return {
@@ -198,7 +199,7 @@ class ClinicalADKHarness:
 
         # Standard Clinical Laboratory Workflow:
         # Step 1: Resolve ontology via MCP
-        resolve_args = {"term": term, "unit": unit}
+        resolve_args = {"term": term, "unit": unit, "qualifier": qualifier}
         resolve_res = self.mcp_bridge.execute_tool("resolve_lab_term", resolve_args)
         record_resolve = ToolInvocationRecord(tool_name="resolve_lab_term", args=resolve_args, result=resolve_res)
         all_tool_calls.append(record_resolve)

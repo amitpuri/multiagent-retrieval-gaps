@@ -7,10 +7,18 @@ import asyncio
 from pathlib import Path
 import sys
 
-# __file__ is google-adk-agents/src/main.py; repo root is 3 levels up
-root_dir = Path(__file__).resolve().parent.parent.parent
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
+# Configure UTF-8 encoding for standard streams (Windows compatibility)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Ensure google-adk-agents root and repo root are in sys.path
+_adk_dir = Path(__file__).resolve().parent.parent
+_repo_root = _adk_dir.parent
+for p in (str(_repo_root), str(_adk_dir)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from src.runner import main as run_scenarios
 

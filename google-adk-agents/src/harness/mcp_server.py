@@ -30,13 +30,13 @@ mcp_server = FastMCP(
 )
 
 
-@mcp_server.tool(name="resolve_lab_term", description="Map a lab test name and optional unit to canonical LOINC concepts.")
-def resolve_lab_term(term: str, unit: str = "") -> Dict[str, Any]:
+@mcp_server.tool(name="resolve_lab_term", description="Map a lab test name, optional unit, and optional qualifier to canonical LOINC concepts.")
+def resolve_lab_term(term: str, unit: str = "", qualifier: str = "") -> Dict[str, Any]:
     """
     Resolve test name to LOINC concept.
     Returns status: RESOLVED, AMBIGUOUS, UNIT_MISMATCH, or NOT_FOUND.
     """
-    return base_resolve_lab_term(term=term, unit=unit)
+    return base_resolve_lab_term(term=term, unit=unit, qualifier=qualifier)
 
 
 @mcp_server.tool(name="evaluate_safety_gate", description="Run deterministic safety gate detectors over candidate concepts and patient values.")
