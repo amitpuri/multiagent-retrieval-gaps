@@ -171,18 +171,15 @@ async def test_harness_scenario_c_collision(harness_agent):
     assert res.route == "CLARIFY"
     assert res.status in ("AMBIGUOUS", "RANGE_COLLISION")
 
-    # Qualified calcium with total qualifier — AmbiguityDetector does NOT use qualifier
-    # to reduce candidates (only unit filtering). Both concepts accept mg/dL so still CLARIFY.
-    # This is correct fail-closed Gap 8 behavior: qualifier alone is insufficient disambiguation.
+    # Qualified calcium with total qualifier resolves unambiguously -> PROCEED
     res_total = await harness_agent.run("Calcium 4.8 | mg/dL | total")
-    assert res_total.route == "CLARIFY", (
-        "Calcium with qualifier alone still ambiguous — Gap 8 fail-closed invariant. "
-        "Qualifier disambiguation requires concept-level qualifier attributes (future extension)."
-    )
+    assert res_total.route == "PROCEED"
+    assert res_total.status == "RESOLVED"
 
-    # Ionised qualifier similarly stays CLARIFY under current engine
+    # Ionized qualifier similarly resolves -> PROCEED
     res_ionized = await harness_agent.run("Calcium 4.8 | mg/dL | ionized")
-    assert res_ionized.route == "CLARIFY"
+    assert res_ionized.route == "PROCEED"
+    assert res_ionized.status == "RESOLVED"
 
 
 @pytest.mark.anyio

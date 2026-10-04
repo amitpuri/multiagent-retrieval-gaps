@@ -73,14 +73,18 @@ if _csf_panel:
 
 # -------------------------------------------------------------------------
 # Scenario C (Look-Alike Tests & Range Collisions): Total vs Ionized Calcium
+# Keyed by assay registry ID (e.g. 'total_calcium', 'total_calcium_mmol') so
+# that mmol/L and mg/dL variants sharing the same LOINC URI do not overwrite
+# each other. check_calcium() only uses mg/dL assays (filter by unit == mg/dL).
 # -------------------------------------------------------------------------
 RANGES: Dict[str, Dict[str, Any]] = {
-    assay.uri: {
+    assay_id: {
         "name": assay.name,
         "ref": (assay.ref_low, assay.ref_high),
         "crit_low": assay.crit_low,
         "crit_high": assay.crit_high,
         "unit": assay.unit,
+        "uri": assay.uri,
     }
-    for assay in _registry.assays.values()
+    for assay_id, assay in _registry.assays.items()
 }
