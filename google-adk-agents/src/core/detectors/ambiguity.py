@@ -5,6 +5,7 @@ departments and lacks the necessary unit or contextual constraints to disambigua
 """
 from __future__ import annotations
 
+import re
 from typing import List
 from src.core.detectors.base import GapDetector
 from src.core.models import (
@@ -66,14 +67,18 @@ class AmbiguityDetector(GapDetector):
             candidates = matched_by_unit
 
         # If a qualifier is supplied and we are still ambiguous, use it to narrow.
-        # This is the fix for Bug 1: a clinician who says "total" after being asked
-        # for a qualifier must not be asked again.
+        # Fix 13: whole-word matching using word boundaries.
         qualifier = context.qualifier.strip()
         if qualifier and len(candidates) > 1:
             q = qualifier.lower()
+            pattern = (
+                re.compile(rf"(?:^|\s){re.escape(q)}\b", re.IGNORECASE)
+                if len(q) == 1
+                else re.compile(rf"\b{re.escape(q)}\b", re.IGNORECASE)
+            )
             qualifier_matched = [
                 c for c in candidates
-                if any(q in alt.lower() for alt in [c.label] + c.alt_labels)
+                if any(pattern.search(alt) for alt in [c.label] + c.alt_labels)
             ]
             if qualifier_matched:
                 candidates = qualifier_matched

@@ -10,10 +10,11 @@ typed relationship links (ConceptLink), and an AttestatedComputation stub
 per the Open Knowledge Format v0.2 specification.
 """
 
+import math
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +287,11 @@ class CollisionFamily(BaseModel):
     assays: List[str]
     trigger_unit: str = ""
     default_qualifier_required: bool = True
+    # Fix 8: optional list of canonical concept URIs (e.g. LOINC) that also
+    # identify this collision family.  URI matching takes priority over name-
+    # substring matching so that synonyms (e.g. "serum calcium") trigger the
+    # same family as "Total calcium" without string overlap.
+    uris: List[str] = Field(default_factory=list)
 
 
 class SpecimenTubeRule(BaseModel):
@@ -313,6 +319,23 @@ class EvaluationContext(BaseModel):
     panel_id: Optional[str] = None
     raw_text: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("patient_value", mode="before")
+    @classmethod
+    def reject_non_finite(cls, v: Optional[float]) -> Optional[float]:
+        """Fix 4: reject NaN and inf before they reach any detector.
+
+        A NaN patient_value makes every comparison False, so classify(nan)
+        returns NORMAL regardless of the actual clinical range.  An inf value
+        trivially satisfies CRITICAL_HIGH on every assay.  Both are invalid
+        inputs that must be caught at the boundary.
+        """
+        if v is not None and not math.isfinite(v):
+            raise ValueError(
+                f"patient_value must be a finite number, got {v!r}. "
+                "NaN and infinite values are not valid clinical measurements."
+            )
+        return v
 
 
 class GapEvaluationResult(BaseModel):

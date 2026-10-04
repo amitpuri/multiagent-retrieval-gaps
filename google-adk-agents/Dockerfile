@@ -1,4 +1,6 @@
 # Production Deployment Container for Google ADK Agent Harness
+# Build from the repository root:
+#   docker build -f google-adk-agents/Dockerfile -t clinical-adk-harness .
 FROM python:3.12-slim
 
 # Avoid writing .pyc files and enable unbuffered output
@@ -13,14 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
-COPY requirements.txt /app/
+COPY google-adk-agents/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source and configuration
-COPY src/ /app/src/
+# Copy application source and domain configuration from repo root
+COPY google-adk-agents/src/ /app/src/
 COPY config/ /app/config/
-COPY pytest.ini /app/
-COPY README.md /app/
+COPY google-adk-agents/pytest.ini /app/
+COPY google-adk-agents/README.md /app/
 
 # Create a non-root user for runtime (CIS Docker Benchmark L1-4.1)
 RUN groupadd --gid 1001 appgroup && \

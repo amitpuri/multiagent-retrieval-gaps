@@ -5,12 +5,29 @@ Step 1: Continuous reasoning loop that manages inputs, model turns, and tool com
 Step 2: MCP tool interception and execution via FastMCP bridge.
 Step 3: Context window tracking, tool output caching, and progressive disclosure.
 Step 4: Production-ready harness execution supporting live Gemini and offline deterministic modes.
+
+Safety invariants
+-----------------
+* The deterministic SafetyGateEngine verdict is computed from parsed input BEFORE any
+  Gemini turn.  last_route and last_status therefore always start as "CLARIFY" /
+  "UNKNOWN" — never as "PROCEED" / "RESOLVED".
+* Protocol-retrieval tools (fetch_grounded_protocol, attest_computation) are blocked
+  until the gate verdict is PROCEED.  The model cannot bypass them by calling those
+  tools directly.
+* A missing GEMINI_API_KEY causes a WARNING log and selects offline/stub mode
+  explicitly — no silent degradation.
+* The blanket except-Exception around Gemini API calls has been narrowed; unexpected
+  errors are re-raised rather than silently swallowed.
 """
 from __future__ import annotations
 
+import logging
+import math
 import os
 import re
+import warnings
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 from google.genai import Client, types
@@ -18,6 +35,11 @@ from google.genai import Client, types
 from src.harness.context import ContextWindowManager
 from src.harness.mcp_client import MCPToolBridge
 from src.harness.session import HarnessSession, SessionMessage, ToolInvocationRecord
+
+log = logging.getLogger(__name__)
+
+# Tools that are only reachable after a PROCEED gate verdict.
+_GATE_GUARDED_TOOLS: frozenset = frozenset({"fetch_grounded_protocol", "attest_computation"})
 
 
 class HarnessResponse(BaseModel):
@@ -59,6 +81,14 @@ class ClinicalADKHarness:
             self.offline = offline
         else:
             api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+            if not api_key:
+                warnings.warn(
+                    "No GEMINI_API_KEY found — running in offline/stub mode. "
+                    "Gate-bypassing vulnerabilities are masked in this mode. "
+                    "Set GEMINI_API_KEY for live Gemini execution.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
             self.offline = (not api_key) or ("--offline" in os.sys.argv)
 
         self.client = client
@@ -66,7 +96,10 @@ class ClinicalADKHarness:
             try:
                 self.client = Client()
             except Exception:
-                # Fall back gracefully to offline deterministic mode if client fails init
+                log.warning(
+                    "Gemini Client init failed — falling back to offline/stub mode.",
+                    exc_info=True,
+                )
                 self.offline = True
 
     def create_session(self, session_id: Optional[str] = None) -> HarnessSession:
@@ -76,36 +109,125 @@ class ClinicalADKHarness:
         return HarnessSession()
 
     def parse_clinician_query(self, prompt: str) -> Dict[str, Any]:
-        """Utility parser to extract test term, value, qualifier, and reported unit."""
-        left, _, unit = prompt.partition("|")
+        """
+        Canonical parser: extracts test term, value, qualifier, and reported unit.
+
+        Format understood::
+
+            Hb
+            Hb 13.5 | g/dL
+            Calcium 4.8 | total | mg/dL   ← two-pipe: first segment is qualifier
+            Na+ -3 | mEq/L                ← negative value preserved
+            25-OH vitamin D 18 | ng/mL    ← leading digit in name not confused with value
+
+        A comma followed by exactly three digits (e.g. "1,250") is treated as
+        ambiguous thousands-separator notation and returns patient_value=None so
+        the gate routes to CLARIFY rather than silently dividing by 1000.
+        """
+        left, _, rest = prompt.partition("|")
         left_str = left.strip()
-        unit_str = unit.strip()
 
-        # Extract qualifier if present (e.g. 'total', 'ionized')
-        qualifier = ""
-        low_left = left_str.lower()
-        if "total" in low_left:
-            qualifier = "total"
-        elif "ionized" in low_left or "free" in low_left:
-            qualifier = "ionized"
+        # Two-pipe format: "Calcium 4.8 | total | mg/dL"
+        if "|" in rest:
+            qualifier_str, _, unit_str = rest.partition("|")
+            qualifier_str = qualifier_str.strip()
+            unit_str = unit_str.strip()
+        else:
+            qualifier_str = ""
+            unit_str = rest.strip()
 
-        # Extract numeric value
-        val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
-        patient_value = float(val_match.group(1)) if val_match else None
+        # Ambiguous thousands separator guard: "1,250" → CLARIFY
+        ambiguous_thousands = bool(re.search(r"\b\d+,\d{3}\b", left_str))
 
-        # Clean term
-        cleaned_term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str)
-        cleaned_term = re.sub(r"\b(total|ionized|free)\b", "", cleaned_term, flags=re.IGNORECASE).strip()
-        cleaned_term = re.sub(r"\b(mg/dl|g/dl|mmol/l|ng/ml|ng/l)\b", "", cleaned_term, flags=re.IGNORECASE).strip()
-        term = cleaned_term if cleaned_term else left_str
+        # Normalise comma-decimal (e.g. "4,8" → "4.8") — only when NOT thousands notation
+        left_normalised = left_str
+        if not ambiguous_thousands:
+            left_normalised = re.sub(r"(\d),(\d)", r"\1.\2", left_str)
+
+        # Extract qualifier from left side if not in separate pipe segment
+        if not qualifier_str:
+            low_left = left_normalised.lower()
+            if "total" in low_left:
+                qualifier_str = "total"
+            elif "ionized" in low_left or "free" in low_left:
+                qualifier_str = "ionized"
+
+        # Boundary-aware numeric match: preceded by whitespace or start-of-string,
+        # not immediately followed by hyphen or word character.
+        patient_value: Optional[float] = None
+        if not ambiguous_thousands:
+            val_match = re.search(
+                r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_normalised
+            )
+            if val_match:
+                raw_val = float(val_match.group(1))
+                if not math.isfinite(raw_val):
+                    patient_value = None  # reject NaN/inf at parse time
+                else:
+                    patient_value = raw_val
+
+        # Clean term: strip the matched number and qualifier keywords
+        cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_normalised).strip()
+        cleaned_term = re.sub(
+            r"\b(total|ionized|free)\b", "", cleaned_term, flags=re.IGNORECASE
+        ).strip()
+        cleaned_term = re.sub(
+            r"\b(mg/dl|g/dl|mmol/l|ng/ml|ng/l)\b", "", cleaned_term, flags=re.IGNORECASE
+        ).strip()
+        term = cleaned_term if cleaned_term else left_str.strip()
 
         return {
             "term": term,
             "unit": unit_str,
-            "qualifier": qualifier,
+            "qualifier": qualifier_str,
             "patient_value": patient_value,
             "raw_text": prompt,
+            "ambiguous_thousands": ambiguous_thousands,
         }
+
+    def _compute_gate_verdict(
+        self,
+        parsed: Dict[str, Any],
+        all_tool_calls: List[ToolInvocationRecord],
+        session: HarnessSession,
+    ) -> Dict[str, Any]:
+        """
+        Compute the safety-gate verdict in pure code from parsed input.
+
+        This is called BEFORE any Gemini turn so the gate cannot be bypassed by
+        a model that chooses not to call evaluate_safety_gate.
+
+        Returns the raw gate result dict (route, status, clarification_prompt, …).
+        """
+        # Ambiguous thousands separator → immediate CLARIFY before the gate runs
+        if parsed.get("ambiguous_thousands"):
+            return {
+                "route": "CLARIFY",
+                "status": "AMBIGUOUS",
+                "passed": False,
+                "clarification_prompt": (
+                    f"Value '{parsed['raw_text']}' contains a comma that looks like "
+                    "a thousands separator (e.g. '1,250'). Please resend with an "
+                    "unambiguous decimal format."
+                ),
+                "triggered_gaps": ["AmbiguousThousandsSeparator"],
+                "candidates": [],
+            }
+
+        gate_args = {
+            "term": parsed["term"],
+            "unit": parsed["unit"],
+            "qualifier": parsed["qualifier"],
+            "patient_value": parsed["patient_value"],
+            "status": "UNKNOWN",
+        }
+        gate_res = self.mcp_bridge.execute_tool("evaluate_safety_gate", gate_args)
+        rec = ToolInvocationRecord(
+            tool_name="evaluate_safety_gate", args=gate_args, result=gate_res
+        )
+        all_tool_calls.append(rec)
+        self.context_mgr.append_tool_result_to_session(session, "evaluate_safety_gate", gate_res)
+        return gate_res
 
     async def run(
         self,
@@ -293,15 +415,47 @@ class ClinicalADKHarness:
     ) -> HarnessResponse:
         """
         Continuous reasoning loop with live Gemini model.
-        Loops while Gemini requests tool calls, dispatches to FastMCP, and appends to history.
+
+        Safety guarantees
+        -----------------
+        1. The deterministic gate is computed from parsed input BEFORE any Gemini
+           turn.  ``last_route`` and ``last_status`` start as CLARIFY / UNKNOWN.
+        2. Gate-guarded tools (fetch_grounded_protocol, attest_computation) are
+           blocked until the gate verdict is PROCEED.
+        3. Exceptions from the Gemini API are narrowed: only transient API errors
+           trigger a fallback; unexpected errors are re-raised.
         """
         all_tool_calls: List[ToolInvocationRecord] = []
-        turn = 0
-        last_route = "PROCEED"
-        last_status = "RESOLVED"
-        clarification_msg = None
+
+        # --- Fix 1: compute gate verdict in code BEFORE any Gemini turn ---
+        parsed = self.parse_clinician_query(prompt)
+        gate_res = self._compute_gate_verdict(parsed, all_tool_calls, session)
+
+        # Fail-closed defaults: CLARIFY / UNKNOWN until gate explicitly clears.
+        last_route: str = gate_res.get("route", "CLARIFY")
+        last_status: str = gate_res.get("status", "UNKNOWN")
+        clarification_msg: Optional[str] = gate_res.get("clarification_prompt")
+
+        # If gate already fails, short-circuit before any model call.
+        if last_route == "CLARIFY":
+            clarify_text = (
+                f"[CLARIFY - Safety Gate]\n"
+                f"{clarification_msg or 'Ambiguity detected. Clarification required.'}"
+            )
+            session.add_model_message(content=clarify_text)
+            return HarnessResponse(
+                text=clarify_text,
+                route="CLARIFY",
+                status=last_status,
+                session_id=session.session_id,
+                tool_calls=all_tool_calls,
+                clarification=clarification_msg,
+                is_hitl_paused=True,
+            )
+
         protocol_data: Dict[str, Any] = {}
         attested = False
+        turn = 0
 
         gemini_tools = self.mcp_bridge.get_gemini_tools()
 
@@ -321,7 +475,18 @@ class ClinicalADKHarness:
                     ),
                 )
             except Exception as e:
-                # If live generation fails, fall back to deterministic pipeline
+                # Narrow the fallback: only swallow API-level errors (network,
+                # quota, retryable).  Re-raise programming errors.
+                err_name = type(e).__name__
+                _retryable = ("GoogleAPICallError", "ServiceUnavailable", "DeadlineExceeded",
+                              "ResourceExhausted", "InternalServerError", "BadGateway",
+                              "TooManyRequests", "ConnectionError", "TimeoutError")
+                if not any(err_name.endswith(n) for n in _retryable):
+                    raise
+                log.warning(
+                    "[WARN] Gemini API error (%s) — falling back to deterministic pipeline: %s",
+                    err_name, e,
+                )
                 return self._run_deterministic_pipeline(prompt, session)
 
             # Check if Gemini issued tool calls
@@ -329,7 +494,11 @@ class ClinicalADKHarness:
             if not candidate or not candidate.content or not candidate.content.parts:
                 break
 
-            function_calls = [p.function_call for p in candidate.content.parts if hasattr(p, "function_call") and p.function_call]
+            function_calls = [
+                p.function_call
+                for p in candidate.content.parts
+                if hasattr(p, "function_call") and p.function_call
+            ]
 
             if function_calls:
                 # Model requested tool calls: intercept and execute via MCP (Step 2)
@@ -337,6 +506,32 @@ class ClinicalADKHarness:
                 for fc in function_calls:
                     tool_name = fc.name
                     tool_args = dict(fc.args) if fc.args else {}
+
+                    # --- Fix 1: gate-guard protocol retrieval tools ---
+                    if tool_name in _GATE_GUARDED_TOOLS and last_route != "PROCEED":
+                        blocked_result: Dict[str, Any] = {
+                            "status": "BLOCKED",
+                            "error": (
+                                f"Tool '{tool_name}' is only reachable after a PROCEED "
+                                "safety-gate verdict. Current gate status: "
+                                f"{last_status}. Provide qualifying information first."
+                            ),
+                        }
+                        rec = ToolInvocationRecord(
+                            tool_name=tool_name, args=tool_args, result=blocked_result
+                        )
+                        executed_records.append(rec)
+                        all_tool_calls.append(rec)
+                        self.context_mgr.append_tool_result_to_session(
+                            session, tool_name, blocked_result
+                        )
+                        log.warning(
+                            "[SECURITY] Model attempted to call gate-guarded tool '%s' "
+                            "before PROCEED verdict (status=%s). Request blocked.",
+                            tool_name, last_status,
+                        )
+                        continue
+
                     tool_result = self.mcp_bridge.execute_tool(tool_name, tool_args)
 
                     rec = ToolInvocationRecord(tool_name=tool_name, args=tool_args, result=tool_result)
@@ -346,11 +541,16 @@ class ClinicalADKHarness:
                     # Step 3: Append tool output to conversation history
                     self.context_mgr.append_tool_result_to_session(session, tool_name, tool_result)
 
-                    # Intercept safety gate verdicts immediately
+                    # Intercept safety gate verdicts from model-requested gate calls
                     if tool_name == "evaluate_safety_gate":
-                        last_route = tool_result.get("route", "CLARIFY")
-                        last_status = tool_result.get("status", "UNKNOWN")
-                        if last_route == "CLARIFY":
+                        new_route = tool_result.get("route", "CLARIFY")
+                        new_status = tool_result.get("status", "UNKNOWN")
+                        # Gate can only stay-or-narrow — never upgrade to PROCEED if
+                        # the pre-computed verdict was already CLARIFY.
+                        if last_route == "PROCEED":
+                            last_route = new_route
+                            last_status = new_status
+                        if new_route == "CLARIFY":
                             clarification_msg = tool_result.get("clarification_prompt")
 
                     elif tool_name == "resolve_lab_term":
@@ -379,7 +579,10 @@ class ClinicalADKHarness:
 
                 # If hard safety gate collision occurred, stop and pause for HITL
                 if last_route == "CLARIFY":
-                    clarify_text = f"[CLARIFY - HITL Pause]\n{clarification_msg or 'Ambiguity detected. Clarification required.'}"
+                    clarify_text = (
+                        f"[CLARIFY - HITL Pause]\n"
+                        f"{clarification_msg or 'Ambiguity detected. Clarification required.'}"
+                    )
                     session.add_model_message(content=clarify_text)
                     return HarnessResponse(
                         text=clarify_text,
@@ -402,19 +605,21 @@ class ClinicalADKHarness:
                 # synthesise a structured summary from accumulated tool results.
                 if not final_text.strip():
                     proto = protocol_data.get("protocol", protocol_data) if protocol_data else {}
-                    badge = " [Attested \u2713]" if attested else ""
+                    badge = " [Attested ✓]" if attested else ""
                     if last_route == "PROCEED" and proto:
                         final_text = (
                             f"[PROCEED{badge}]\n"
                             f"Status: {last_status}\n"
-                            + (f"Resolved URI: {proto.get('uri', proto.get('loinc_uri', ''))}\n" if proto.get('uri') or proto.get('loinc_uri') else "")
-                            + (f"Reference Range: {proto.get('reference_range', 'N/A')}\n" if proto.get('reference_range') else "")
-                            + (f"Panic Limits: {proto.get('panic_limits', 'N/A')}" if proto.get('panic_limits') else "")
+                            + (f"Resolved URI: {proto.get('uri', proto.get('loinc_uri', ''))}\n" if proto.get("uri") or proto.get("loinc_uri") else "")
+                            + (f"Reference Range: {proto.get('reference_range', 'N/A')}\n" if proto.get("reference_range") else "")
+                            + (f"Panic Limits: {proto.get('panic_limits', 'N/A')}" if proto.get("panic_limits") else "")
                         ).strip()
                     elif last_route == "PROCEED":
-                        # If csf_workup was called, summarize tube sequence
                         csf_calls = [tc for tc in all_tool_calls if tc.tool_name == "csf_workup"]
-                        resolve_calls = [tc for tc in all_tool_calls if tc.tool_name == "resolve_lab_term" and isinstance((tc.result or {}), dict)]
+                        resolve_calls = [
+                            tc for tc in all_tool_calls
+                            if tc.tool_name == "resolve_lab_term" and isinstance((tc.result or {}), dict)
+                        ]
                         if csf_calls and isinstance(csf_calls[-1].result, dict):
                             csf_res = csf_calls[-1].result
                             dept_tubes = []
@@ -428,7 +633,6 @@ class ClinicalADKHarness:
                             else:
                                 final_text = f"[PROCEED] {last_status}"
                         elif resolve_calls:
-                            # Enrich from last resolved lab term candidate
                             r = resolve_calls[-1].result or {}
                             cands = r.get("candidates", [])
                             if cands and isinstance(cands[0], dict):
@@ -462,14 +666,16 @@ class ClinicalADKHarness:
         final_msg = session.messages[-1].content if session.messages else ""
         if not final_msg.strip() and protocol_data:
             proto = protocol_data.get("protocol", protocol_data)
-            badge = " [Attested \u2713]" if attested else ""
+            badge = " [Attested ✓]" if attested else ""
             final_msg = (
                 f"[PROCEED{badge}] {last_status}\n"
-                + (f"Reference Range: {proto.get('reference_range', 'N/A')}" if proto.get('reference_range') else "")
+                + (f"Reference Range: {proto.get('reference_range', 'N/A')}" if proto.get("reference_range") else "")
             ).strip()
         elif not final_msg.strip():
-            # Try to enrich from resolve_lab_term results
-            resolve_calls = [tc for tc in all_tool_calls if tc.tool_name == "resolve_lab_term" and isinstance((tc.result or {}), dict)]
+            resolve_calls = [
+                tc for tc in all_tool_calls
+                if tc.tool_name == "resolve_lab_term" and isinstance((tc.result or {}), dict)
+            ]
             if resolve_calls:
                 r = resolve_calls[-1].result or {}
                 cands = r.get("candidates", [])
@@ -488,6 +694,7 @@ class ClinicalADKHarness:
                     final_msg = f"[{last_route}] {last_status}"
             else:
                 final_msg = f"[{last_route}] {last_status}"
+
         return HarnessResponse(
             text=final_msg,
             route=last_route,

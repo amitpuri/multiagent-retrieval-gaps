@@ -47,8 +47,23 @@ class RangeCollisionDetector(GapDetector):
         context_unit = context.unit.strip().lower()
 
         # Find applicable collision family — must match both term AND unit.
-        # Bug B2 fix: CollisionFamily.trigger_unit is now checked so that a value
-        # in mmol/L is never classified against mg/dL ranges.
+        # Fix 8: match by resolved concept URI first (if candidates were attached
+        # to the context), then fall back to name-substring matching.
+        # URI-based matching catches synonyms (e.g. "serum calcium" → same URI as
+        # "Total calcium") that do not share a substring.
+        context_uris: set = set(
+            (context.metadata or {}).get("resolved_uris", [])
+        )
+        for c in (context.metadata or {}).get("candidates", []):
+            if isinstance(c, dict) and "uri" in c:
+                context_uris.add(c["uri"])
+            elif isinstance(c, str):
+                context_uris.add(c)
+        if "resolved_concept" in (context.metadata or {}):
+            rc = context.metadata["resolved_concept"]
+            if isinstance(rc, dict) and "uri" in rc:
+                context_uris.add(rc["uri"])
+
         active_family: Optional[CollisionFamily] = None
         for fam in self.registry.collision_families.values():
             # Unit gate: if the family declares a trigger_unit, only activate when
@@ -62,6 +77,16 @@ class RangeCollisionDetector(GapDetector):
                 for a_id in fam.assays
                 if a_id in self.registry.assays
             ]
+
+            # --- Fix 8: URI-first matching ---
+            fam_uris: set = set(getattr(fam, "uris", []))
+            if not fam_uris:
+                fam_uris = {a.uri for a in assay_objs if getattr(a, "uri", None)}
+
+            if fam_uris and context_uris and fam_uris.intersection(context_uris):
+                active_family = fam
+                break
+
             # Term match: name must exactly or partially overlap the query term.
             # Require a minimum overlap of 2 characters to avoid spurious matches
             # on very short terms like "ca".

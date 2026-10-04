@@ -17,6 +17,14 @@ protocols:
     status: stable
     stale_after: "2028-01-01T00:00:00Z"
     verified_by: "human:dr_puri"
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        # Physiological upper plausibility cap for Hb in g/dL.
+        # Values above this are instrument errors or wrong-unit submissions.
+        expected_max: 25.0
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
 
   "loinc:4548-4":
     reference_range: "Normal < 5.7%; prediabetes 5.7-6.4%; diabetes >= 6.5%"
@@ -26,6 +34,13 @@ protocols:
     status: stable
     stale_after: "2028-01-01T00:00:00Z"
     verified_by: "human:dr_puri"
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        # Physiological upper plausibility cap for HbA1c in %.
+        expected_max: 20.0
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
 
   "loinc:17861-6":
     reference_range: "8.5 to 10.5 mg/dL"

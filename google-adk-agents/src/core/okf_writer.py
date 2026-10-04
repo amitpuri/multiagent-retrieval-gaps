@@ -5,6 +5,8 @@ corpora, enabling human verification via git diff review.
 Per OKF v0.2 §5.2 and §7.5.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -25,10 +27,21 @@ def format_log_entry(
     details: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Format an ISO-timestamped markdown bullet entry for log.md."""
+    # Fix 17: Sanitise parameters against newline/carriage-return injection
+    uri_clean = str(uri).replace("\r", " ").replace("\n", " ").strip()
+    change_clean = str(change).replace("\r", " ").replace("\n", " ").strip()
+    agent_id_clean = str(agent_id).replace("\r", " ").replace("\n", " ").strip()
     ts = timestamp or datetime.now(timezone.utc)
     ts_str = ts.isoformat()
-    detail_str = f" | {details}" if details else ""
-    return f"- {ts_str} | `{uri}` | {change} | generated_by={agent_id}{detail_str}\n"
+    if details:
+        clean_details = {
+            str(k).replace("\r", " ").replace("\n", " "): str(v).replace("\r", " ").replace("\n", " ")
+            for k, v in details.items()
+        }
+        detail_str = f" | {clean_details}"
+    else:
+        detail_str = ""
+    return f"- {ts_str} | `{uri_clean}` | {change_clean} | generated_by={agent_id_clean}{detail_str}\n"
 
 
 def record_concept_update(

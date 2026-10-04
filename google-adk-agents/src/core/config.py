@@ -9,6 +9,9 @@ generated_by, generated_at, verified_by, sources, links) from YAML config files,
 populating the enriched ConceptDefinition and ProtocolDefinition models.
 """
 
+from __future__ import annotations
+
+import copy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
@@ -173,15 +176,20 @@ def load_domain_config(domain_dir: Path) -> OntologyRegistry:
         with open(ranges_file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
             for assay_id, a_data in data.get("assays", {}).items():
+                for required_key in ("ref_low", "ref_high", "crit_low", "crit_high"):
+                    if required_key not in a_data:
+                        raise ValueError(
+                            f"Assay '{assay_id}' is missing required threshold '{required_key}'"
+                        )
                 assay = NumericAssay(
                     uri=a_data.get("uri", ""),
                     name=a_data.get("name", ""),
                     qualifiers=a_data.get("qualifiers", []),
                     unit=a_data.get("unit", ""),
-                    ref_low=float(a_data.get("ref_low", 0.0)),
-                    ref_high=float(a_data.get("ref_high", 0.0)),
-                    crit_low=float(a_data.get("crit_low", 0.0)),
-                    crit_high=float(a_data.get("crit_high", 0.0)),
+                    ref_low=float(a_data["ref_low"]),
+                    ref_high=float(a_data["ref_high"]),
+                    crit_low=float(a_data["crit_low"]),
+                    crit_high=float(a_data["crit_high"]),
                 )
                 registry.register_assay(assay_id, assay)
 
@@ -191,6 +199,7 @@ def load_domain_config(domain_dir: Path) -> OntologyRegistry:
                     assays=f_data.get("assays", []),
                     trigger_unit=f_data.get("trigger_unit", ""),
                     default_qualifier_required=f_data.get("default_qualifier_required", True),
+                    uris=f_data.get("uris", []),
                 )
                 registry.register_collision_family(fam_id, family)
 
@@ -220,10 +229,15 @@ def load_domain_config(domain_dir: Path) -> OntologyRegistry:
     return registry
 
 
-def load_scenario_extension(scenario_path: Path, registry: OntologyRegistry):
+def load_scenario_extension(
+    scenario_path: Path,
+    registry: Optional[OntologyRegistry] = None,
+) -> OntologyRegistry:
     """Dynamically register extensions declared in a scenario YAML into an existing registry."""
+    if registry is None:
+        registry = copy.deepcopy(get_default_registry())
     if not scenario_path.exists():
-        return
+        return registry
     with open(scenario_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
@@ -260,6 +274,8 @@ def load_scenario_extension(scenario_path: Path, registry: OntologyRegistry):
             ),
         )
         registry.register_protocol(uri, protocol)
+
+    return registry
 
 
 _DEFAULT_REGISTRY: Optional[OntologyRegistry] = None

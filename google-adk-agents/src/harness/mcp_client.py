@@ -6,6 +6,7 @@ requests, executing tools, and returning structured MCP outputs.
 from __future__ import annotations
 
 import inspect
+import math
 from typing import Any, Callable, Dict, List, Optional
 from google.genai import types
 
@@ -131,6 +132,17 @@ class MCPToolBridge:
                     if param.annotation in (float, Optional[float]) and v is not None:
                         try:
                             v = float(v)
+                            # Fix 4: reject non-finite values produced by model output
+                            # before they reach EvaluationContext or any detector.
+                            if not math.isfinite(v):
+                                return {
+                                    "error": (
+                                        f"Non-finite value {v!r} rejected for parameter '{k}'. "
+                                        "NaN and infinite values are not valid clinical measurements."
+                                    ),
+                                    "status": "EXECUTION_ERROR",
+                                    "tool_name": tool_name,
+                                }
                         except (ValueError, TypeError):
                             pass
                     valid_args[k] = v

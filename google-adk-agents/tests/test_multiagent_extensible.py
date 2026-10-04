@@ -51,20 +51,23 @@ def test_registry_loads_baseline_domain():
 
 def test_dynamic_scenario_extension_loading():
     """Verify that new scenarios (Scenario D) can dynamically register concepts and protocols via YAML."""
-    registry = get_default_registry()
-    assert "loinc:10839-9" not in registry.concepts
+    default_reg = get_default_registry()
+    assert "loinc:10839-9" not in default_reg.concepts
 
     scenario_path = Path(__file__).resolve().parent.parent.parent / "config" / "scenarios" / "scenario_d_troponin.yaml"
-    load_scenario_extension(scenario_path, registry)
+    ext_registry = load_scenario_extension(scenario_path)
 
-    # Concept now registered dynamically
-    assert "loinc:10839-9" in registry.concepts
-    assert "loinc:6598-7" in registry.concepts
+    # Concept now registered dynamically in extended registry
+    assert "loinc:10839-9" in ext_registry.concepts
+    assert "loinc:6598-7" in ext_registry.concepts
 
     # Check dynamic protocol
-    proto_tni = registry.get_protocol("loinc:10839-9")
+    proto_tni = ext_registry.get_protocol("loinc:10839-9")
     assert proto_tni is not None
     assert "< 0.04 ng/mL" in proto_tni.reference_range
+
+    # Invariant (Fix 14 / T14): default registry was NOT mutated
+    assert "loinc:10839-9" not in get_default_registry().concepts
 
 
 # -------------------------------------------------------------------------

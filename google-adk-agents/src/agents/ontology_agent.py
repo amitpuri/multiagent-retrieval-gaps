@@ -9,6 +9,9 @@ OKF Enhancement (Phase 3):
   so downstream agents (synthesis, safety gate) can calibrate their behaviour.
 """
 
+from __future__ import annotations
+
+import re
 from typing import Any, Dict, List, Optional
 from google.adk import Agent, Event
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
@@ -114,14 +117,17 @@ def resolve_term_with_registry(
         fresh = matched
 
     # ---- Qualifier constraint (resolves look-alike collisions e.g. Ca total vs ionized) ----
-    # Only applied when still ambiguous after unit filtering.
+    # Fix 13: whole-word matching using word boundaries.
     if qualifier and len(fresh) > 1:
         q = qualifier.strip().lower()
-        # A qualifier matches if it appears in the concept's alt_labels
-        # (e.g. "total" matches alt_label "total calcium", "ionized" matches "ionized calcium").
+        pattern = (
+            re.compile(rf"(?:^|\s){re.escape(q)}\b", re.IGNORECASE)
+            if len(q) == 1
+            else re.compile(rf"\b{re.escape(q)}\b", re.IGNORECASE)
+        )
         qualifier_matched = [
             c for c in fresh
-            if any(q in alt.lower() for alt in [c.label] + c.alt_labels)
+            if any(pattern.search(alt) for alt in [c.label] + c.alt_labels)
         ]
         if qualifier_matched:
             fresh = qualifier_matched

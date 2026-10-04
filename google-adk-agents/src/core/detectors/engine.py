@@ -68,7 +68,15 @@ class SafetyGateEngine:
         detectors pass without ever assigning ``result`` in the current scope.
         """
         for detector in self.detectors:
-            result = detector.evaluate(context)
+            try:
+                result = detector.evaluate(context)
+            except Exception as exc:
+                return GapEvaluationResult(
+                    passed=False,
+                    status=ResolutionStatus.UNKNOWN,
+                    gap_name=detector.gap_name,
+                    message=f"Detector raised unexpectedly: {exc}",
+                )
             if not result.passed:
                 return result
 

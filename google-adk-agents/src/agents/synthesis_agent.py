@@ -188,5 +188,16 @@ def synthesis_gate_node(node_input: Any) -> Any:
     if att_result:
         out["attestation_badge"] = "[Attested ✓]"
         out["attestation"] = att_result.model_dump(mode="json")
+        # Fix 17: Log verified attestation into OKF audit trail
+        try:
+            from src.core.okf_writer import record_concept_update
+            record_concept_update(
+                uri=payload.get("resolved_uri", "unknown"),
+                change=f"attested_value={payload.get('patient_value')}",
+                agent_id="synthesis_gate_node",
+                details={"status": "ATTESTED"},
+            )
+        except Exception:
+            pass
 
     return Event(output=out)

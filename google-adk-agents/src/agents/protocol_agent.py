@@ -40,9 +40,10 @@ def protocol_retriever_node(node_input: Dict[str, Any]) -> Event:
         else:
             protocol_data = {"status": "NOT_FOUND"}
 
-        reported_unit = ""
-        if candidates[0].get("expected_units"):
-            reported_unit = candidates[0]["expected_units"][0]
+        # Fix 2: preserve the clinician's reported unit from the parsed input.
+        # Do NOT substitute the concept's first expected_unit — that would silently
+        # reclassify e.g. Hb 135 g/L against g/dL thresholds.
+        reported_unit = node_input.get("unit", "")
 
         result = {
             "resolved_uri": uri,

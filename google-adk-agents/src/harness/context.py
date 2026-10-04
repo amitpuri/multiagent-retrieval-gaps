@@ -36,7 +36,13 @@ class ContextWindowManager:
     def format_history_for_gemini(self, session: HarnessSession) -> List[types.Content]:
         """
         Converts the session messages into a sequence of google.genai.types.Content
-        objects adhering to Gemini's role sequence (user -> model -> tool -> model).
+        objects adhering to Gemini's required role sequence:
+            user → model (with function_call parts) → user (with function_response parts) → model
+
+        Fix 7: tool responses MUST use role="user" containing
+        Part.from_function_response(...) parts, NOT role="tool".
+        Submitting role="tool" causes Gemini to reject the request on turn 2.
+
         Applies sliding window pruning if the turn count exceeds budget.
         """
         messages = session.messages
@@ -66,6 +72,9 @@ class ContextWindowManager:
                     contents.append(types.Content(role="model", parts=parts))
 
             elif msg.role == "tool":
+                # Fix 7: Gemini requires function responses in role="user" Content,
+                # each wrapped in Part.from_function_response.
+                # The sequence is: model (function_call) → user (function_response).
                 parts = []
                 for tr in msg.tool_responses:
                     tool_name = tr.get("tool_name", "tool")
@@ -79,8 +88,8 @@ class ContextWindowManager:
                         )
                     )
                 if parts:
-                    # In Gemini SDK, tool responses are sent with role="tool" (or "user" depending on protocol)
-                    contents.append(types.Content(role="tool", parts=parts))
+                    # role MUST be "user" here — not "tool"
+                    contents.append(types.Content(role="user", parts=parts))
 
         return contents
 

@@ -26,21 +26,64 @@ class AttestationResult(BaseModel):
 
 def parse_range_bounds(range_str: str) -> Tuple[Optional[float], Optional[float]]:
     """Extract (low, high) float boundaries from reference or panic strings.
-    
+
     Handles patterns such as:
       - '8.6 to 10.2 mg/dL'
       - '4.5 - 5.6'
-      - 'Low < 6.5 mg/dL; high > 14.0 mg/dL'
+      - 'Low < 6.5 mg/dL; high > 14.0 mg/dL'  (compound — both sides)
+      - 'High > 52 ng/L'       → (None, 52.0)  upper-only
+      - 'Low < 6.5 mg/dL'     → (6.5, None)   lower-only
+
+    Fix 3: one-sided limit strings are now correctly assigned.
+    "High > 52" means the UPPER limit is 52 → high=52, low=None.
+    "Low < 6.5" means the LOWER limit is 6.5 → low=6.5, high=None.
+    Compound strings (semicolon or comma-joined) scan for both.
     """
     if not range_str:
         return None, None
 
-    matches = re.findall(r"(\d+(?:\.\d+)?)", range_str)
+    s = range_str.strip().lower()
+
+    # --- Compound string: contains BOTH a high and a low part ---
+    # "Low < 6.5 mg/dL; high > 14.0 mg/dL"
+    low_from_compound: Optional[float] = None
+    high_from_compound: Optional[float] = None
+
+    low_m = re.search(r"(?:low\s*)?[<≤]\s*(\d+(?:\.\d+)?)", s)
+    high_m = re.search(r"(?:high\s*)?[>≥]\s*(\d+(?:\.\d+)?)", s)
+    if low_m:
+        low_from_compound = float(low_m.group(1))
+    if high_m:
+        high_from_compound = float(high_m.group(1))
+    if low_from_compound is not None or high_from_compound is not None:
+        # At least one side was found via directional keyword; return both.
+        return low_from_compound, high_from_compound
+
+    # --- Two-number range: "8.6 to 10.2", "4.5 - 5.6", "8.6–10.2" ---
+    two_num = re.search(
+        r"(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)", s
+    )
+    if two_num:
+        return float(two_num.group(1)), float(two_num.group(2))
+
+    # --- Keyword-only patterns without operator: "Panic high 14.0", "Crit low 6.5" ---
+    high_kw = re.search(r"(?:panic\s+|crit(?:ical)?\s+)?high\s+(\d+(?:\.\d+)?)", s)
+    if high_kw:
+        return None, float(high_kw.group(1))
+
+    low_kw = re.search(r"(?:panic\s+|crit(?:ical)?\s+)?low\s+(\d+(?:\.\d+)?)", s)
+    if low_kw:
+        return float(low_kw.group(1)), None
+
+    # --- Fallback: extract all numbers; treat first as low, second as high ---
+    matches = re.findall(r"\d+(?:\.\d+)?", s)
     if len(matches) >= 2:
         return float(matches[0]), float(matches[1])
     elif len(matches) == 1:
         return float(matches[0]), None
     return None, None
+
+
 
 
 def attest_numeric(
@@ -74,15 +117,19 @@ def attest_numeric(
             message="Protocol is stale — attestation rejected.",
         )
 
-    # 2. Physiological plausibility
-    if value < 0.0 or value > 1000.0:
+    # 2. Negative-value plausibility check (universally invalid for lab measurements).
+    # Fix 3b: the former hard upper cap of 1000.0 has been removed — it incorrectly
+    # blocked legitimate analytes such as troponin (> 2500 ng/L in MI) and ferritin.
+    # Upper-bound plausibility is now enforced only via expected_max in
+    # attested_computation.parameters, which is configurable per assay.
+    if value < 0.0:
         return AttestationResult(
             passed=False,
             verdict="FAIL",
             executed_check=executed_check,
             attested_value=value,
             expected_range=protocol.reference_range,
-            message=f"Value {value} is physiologically implausible or negative.",
+            message=f"Value {value} is physiologically implausible or negative (must be ≥ 0).",
         )
 
     ref_low, ref_high = parse_range_bounds(protocol.reference_range)
