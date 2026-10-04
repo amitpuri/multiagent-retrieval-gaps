@@ -89,8 +89,13 @@ def test_safety_gate_tool_deterministic_clarify():
 
 
 def test_safety_gate_tool_range_collision():
-    """run_safety_gate blocks conflicting ranges for unqualified calcium."""
-    res = run_safety_gate(term="calcium", patient_value=4.8, status="RESOLVED")
+    """run_safety_gate blocks conflicting ranges for unqualified calcium.
+
+    Previously tested without a unit (which now triggers UNIT_MISMATCH before
+    RANGE_COLLISION).  Updated to include 'mg/dL' so the request reaches the
+    RangeCollisionDetector as originally intended.
+    """
+    res = run_safety_gate(term="calcium", unit="mg/dL", patient_value=4.8, status="RESOLVED")
     assert res["route"] == "CLARIFY"
     assert res["status"] == "RANGE_COLLISION"
 
@@ -204,12 +209,24 @@ def test_all_strands_agents_instantiate():
 # Test Group 5: Orchestrator Pipeline Trajectories
 # -------------------------------------------------------------------------
 def test_orchestrator_scenario_a_ambiguous():
-    """Scenario A: 'Hb 13.5' without unit routes to CLARIFY."""
+    """Scenario A: 'Hb' (no value, no unit) routes to CLARIFY as AMBIGUOUS."""
     orch = build_strands_orchestrator(offline=True)
-    res = orch.process_query_direct("Hb 13.5")
+    res = orch.process_query_direct("Hb")
     assert res["route"] == "CLARIFY"
     assert res["status"] == "AMBIGUOUS"
     assert "Ambiguity detected" in res["clarification"]
+
+
+def test_orchestrator_scenario_a_numeric_no_unit_blocked():
+    """Scenario A: 'Hb 13.5' (numeric value, no unit) routes to CLARIFY as UNIT_MISMATCH.
+
+    MissingUnitDetector fires before AmbiguityDetector so a unitless numeric
+    result is always rejected — the unit is needed to determine measurement scale.
+    """
+    orch = build_strands_orchestrator(offline=True)
+    res = orch.process_query_direct("Hb 13.5")
+    assert res["route"] == "CLARIFY"
+    assert res["status"] == "UNIT_MISMATCH"
 
 
 def test_orchestrator_scenario_a_resolved():
@@ -231,17 +248,33 @@ def test_orchestrator_scenario_a_unit_mismatch():
 
 
 def test_orchestrator_scenario_c_range_collision():
-    """Scenario C: Calcium 4.8 without qualifier routes to CLARIFY."""
+    """Scenario C: 'Calcium 4.8 | mg/dL' without qualifier routes to CLARIFY (RANGE_COLLISION).
+
+    A unit is required for range evaluation; the previous form 'Calcium 4.8' with
+    no unit is now caught earlier by MissingUnitDetector (see test below).
+    """
     orch = build_strands_orchestrator(offline=True)
-    res = orch.process_query_direct("Calcium 4.8")
+    res = orch.process_query_direct("Calcium 4.8 | mg/dL")
     assert res["route"] == "CLARIFY"
     assert res["status"] == "RANGE_COLLISION"
 
 
-def test_orchestrator_scenario_c_qualified_total():
-    """Scenario C: Calcium 4.8 | total resolves and proceeds."""
+def test_orchestrator_scenario_c_unitless_numeric_blocked():
+    """Scenario C (new): 'Calcium 4.8' with no unit must route to CLARIFY as UNIT_MISMATCH.
+
+    MissingUnitDetector now fires before RangeCollisionDetector so a unitless
+    numeric value is never silently classified against the wrong scale.
+    """
     orch = build_strands_orchestrator(offline=True)
-    res = orch.process_query_direct("Calcium 4.8 | total")
+    res = orch.process_query_direct("Calcium 4.8")
+    assert res["route"] == "CLARIFY"
+    assert res["status"] == "UNIT_MISMATCH"
+
+
+def test_orchestrator_scenario_c_qualified_total():
+    """Scenario C: 'Calcium 4.8 | total | mg/dL' with qualifier and unit resolves and proceeds."""
+    orch = build_strands_orchestrator(offline=True)
+    res = orch.process_query_direct("Calcium 4.8 | total | mg/dL")
     assert res["route"] == "PROCEED"
     assert res["status"] == "RESOLVED"
     assert res["concept"]["uri"] == "loinc:17861-6"

@@ -18,7 +18,9 @@ load_dotenv(dotenv_path=env_path)
 from strands.models.model import Model
 
 DEFAULT_CLAUDE_MODEL_ID = "claude-sonnet-4-5"
-DEFAULT_BEDROCK_CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-5:0"
+# Corrected AWS cross-region inference ID (was: "us.anthropic.claude-sonnet-4-5:0"
+# which is not a valid Bedrock model ID and would produce a model-not-found error).
+DEFAULT_BEDROCK_CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 class MockBedrockModel(Model):

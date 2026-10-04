@@ -16,7 +16,7 @@ By Dr. Amit Puri · October 2026
 
 | Framework | Folder | Model | Status |
 | :--- | :--- | :--- | :--- |
-| **Google ADK 2.0** | `google-adk-agents/` | Gemini 3.5 Flash | ✅ Complete |
+| **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.5 Flash | ✅ Complete |
 | **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | ✅ Complete |
 | **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | GPT-5 via Azure AI Foundry / OpenAI | ✅ Complete |
 
@@ -163,7 +163,7 @@ multiagent-retrieval-gaps/
 
 ---
 
-## Framework 1 — Google ADK 2.0 (`google-adk-agents/`)
+## Framework 1 — Google ADK ≥2.11.0 (`google-adk-agents/`)
 
 ### Multi-Agent Architecture
 
@@ -280,7 +280,7 @@ flowchart TD
 | Mode | Model ID | Trigger |
 | :--- | :--- | :--- |
 | **Local / Direct Anthropic** | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` set in `src/.env` |
-| **AWS Bedrock** | `us.anthropic.claude-sonnet-4-5:0` | `AWS_REGION` + credentials, `ANTHROPIC_API_KEY` unset |
+| **AWS Bedrock** | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | `AWS_REGION` + credentials, `ANTHROPIC_API_KEY` unset |
 | **Offline / Mock** | `MockBedrockModel` | `STRANDS_OFFLINE_MODE=true` or no credentials |
 
 ### Getting Started — Strands Agents
@@ -317,7 +317,7 @@ python -m pytest tests/ -v
 ```bash
 export AWS_REGION=us-east-1
 export AWS_PROFILE=your-profile
-export BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5:0
+export BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 unset ANTHROPIC_API_KEY   # let Bedrock auto-discovery take over
 python src/main.py
 ```
@@ -460,16 +460,16 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Google ADK 2.0 — 142 tests (~5.4 s)
+# Google ADK ≥2.11.0 — 148 tests (~5.4 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
-# AWS Strands SDK — 50 tests (~1.7 s)
+# AWS Strands SDK — 52 tests (~1.7 s)
 cd strands-agents && python -m pytest tests/ -v
 
 # Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 236 deterministic safety invariants verified across all 3 frameworks!
+# Total: 244 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
@@ -628,13 +628,13 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 
 | Layer | Google ADK | AWS Strands | Microsoft MAF / Azure AI Foundry |
 | :--- | :--- | :--- | :--- |
-| **Agent framework** | Google ADK 2.2 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
+| **Agent framework** | Google ADK ≥2.11.0 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
 | **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | `gpt-5` via Azure AI Foundry / OpenAI |
 | **Session memory** | ADK `InMemorySessionService` + `HarnessSession` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
 | **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | — | `ClinicalHarnessAgent` (todos, modes, approval) |
 | **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | — | — |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
-| **Tests** | **142 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 50 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
+| **Tests** | **148 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 52 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

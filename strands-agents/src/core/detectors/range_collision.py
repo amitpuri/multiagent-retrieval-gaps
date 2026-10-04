@@ -3,6 +3,7 @@ Range Collision Detector: Look-Alike Tests and Divergent Critical Thresholds.
 Detects when unqualified orders (e.g. 'Calcium 4.8' or 'Troponin 15') span
 look-alike assays with divergent clinical classifications (e.g. Critical Low vs Normal).
 """
+from __future__ import annotations
 
 from typing import Dict, List, Optional
 from src.core.detectors.base import GapDetector
@@ -43,13 +44,30 @@ class RangeCollisionDetector(GapDetector):
         val = context.patient_value
         term = context.term.strip().lower()
         qualifier = context.qualifier.strip().lower()
+        context_unit = context.unit.strip().lower()
 
-        # Find applicable collision family
+        # Find applicable collision family — must match both term AND unit.
+        # Unit gate: if the family declares a trigger_unit, only activate when
+        # the reported unit matches.  An empty trigger_unit means unit-agnostic.
         active_family: Optional[CollisionFamily] = None
         for fam in self.registry.collision_families.values():
-            # Check if term or assay names belong to this family
-            assay_objs = [self.registry.assays[a_id] for a_id in fam.assays if a_id in self.registry.assays]
-            if any(term in a.name.lower() or a.name.lower() in term for a in assay_objs):
+            fam_unit = fam.trigger_unit.strip().lower()
+            if fam_unit and context_unit and fam_unit != context_unit:
+                continue
+
+            assay_objs = [
+                self.registry.assays[a_id]
+                for a_id in fam.assays
+                if a_id in self.registry.assays
+            ]
+            # Term match: name must exactly or partially overlap the query term.
+            # Require a minimum overlap of 2 characters to avoid spurious matches
+            # on very short terms like "ca".
+            if any(
+                (len(term) >= 2 and term in a.name.lower())
+                or (len(a.name) >= 2 and a.name.lower() in term)
+                for a in assay_objs
+            ):
                 active_family = fam
                 break
 
@@ -58,7 +76,7 @@ class RangeCollisionDetector(GapDetector):
                 passed=True,
                 status=ResolutionStatus.RESOLVED,
                 gap_name=self.gap_name,
-                message="No range collision rules apply to this term",
+                message="No range collision rules apply to this term/unit combination",
             )
 
         # Get relevant assays in this family
@@ -90,6 +108,7 @@ class RangeCollisionDetector(GapDetector):
                     "family": active_family.family_name,
                     "readings": readings,
                     "value": val,
+                    "unit": context.unit,
                 },
             )
 
@@ -98,5 +117,5 @@ class RangeCollisionDetector(GapDetector):
             status=ResolutionStatus.RESOLVED,
             gap_name=self.gap_name,
             message="Numeric value classified consistently without collision",
-            details={"readings": readings, "value": val},
+            details={"readings": readings, "value": val, "unit": context.unit},
         )

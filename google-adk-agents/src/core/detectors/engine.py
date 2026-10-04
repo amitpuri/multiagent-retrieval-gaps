@@ -39,14 +39,18 @@ class SafetyGateEngine:
             from src.core.detectors.ambiguity import AmbiguityDetector
             from src.core.detectors.unit_mismatch import UnitMismatchDetector
             from src.core.detectors.missing_qualifier import MissingQualifierDetector
+            from src.core.detectors.missing_unit import MissingUnitDetector
             from src.core.detectors.range_collision import RangeCollisionDetector
             from src.core.detectors.specimen_sequence import SpecimenSequenceDetector
 
-            # Default suite: all 5 pluggable detectors
+            # Default suite: all 6 pluggable detectors.
+            # MissingUnitDetector is placed before RangeCollisionDetector so that
+            # unitless numeric values are rejected before scale-sensitive thresholds run.
             self.detectors = [
                 AmbiguityDetector(self.registry),
                 UnitMismatchDetector(self.registry),
                 MissingQualifierDetector(self.registry),
+                MissingUnitDetector(self.registry),
                 RangeCollisionDetector(self.registry),
                 SpecimenSequenceDetector(self.registry),
             ]

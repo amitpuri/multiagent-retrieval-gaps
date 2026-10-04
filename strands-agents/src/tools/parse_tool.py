@@ -2,6 +2,8 @@
 Clinician Input Parser Tool using Strands Agents SDK.
 Parses raw clinician input and emits structured parameters with an A2A message.
 """
+from __future__ import annotations
+
 import re
 from typing import Any, Dict, Optional
 from strands import tool
@@ -29,9 +31,11 @@ def parse_clinician_input(raw_text: str) -> Dict[str, Any]:
     else:
         unit = right_str
 
-    val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
+    # Support negative values: a '-' immediately preceded by whitespace (or start)
+    # is treated as a sign, not a separator.
+    val_match = re.search(r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_str)
     patient_value = float(val_match.group(1)) if val_match else None
-    term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str).strip() or left_str
+    term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_str).strip() or left_str
 
     a2a_msg = A2AMessage(
         sender=AgentRole.TRIAGE,

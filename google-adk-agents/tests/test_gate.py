@@ -299,3 +299,108 @@ def test_range_collision_unqualified_mmol_still_collides():
         f"Expected RANGE_COLLISION for unqualified 2.4 mmol/L calcium, got {result.status}"
     )
 
+
+# -------------------------------------------------------------------------
+# B1 regression: unitless numeric value must be rejected, not silently RESOLVED
+# -------------------------------------------------------------------------
+
+def test_missing_unit_detector_rejects_unitless_numeric():
+    """'Calcium 2.4' with no unit must return UNIT_MISMATCH via MissingUnitDetector (B1)."""
+    from src.core.detectors.missing_unit import MissingUnitDetector
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    detector = MissingUnitDetector()
+    ctx = EvaluationContext(term="Calcium", unit="", patient_value=2.4)
+    result = detector.evaluate(ctx)
+    assert result.passed is False
+    assert result.status == ResolutionStatus.UNIT_MISMATCH
+    assert "unit" in result.message.lower()
+
+
+def test_missing_unit_detector_passes_when_unit_present():
+    """MissingUnitDetector must pass when a unit accompanies the numeric value (B1)."""
+    from src.core.detectors.missing_unit import MissingUnitDetector
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    detector = MissingUnitDetector()
+    ctx = EvaluationContext(term="Calcium", unit="mg/dL", patient_value=2.4)
+    result = detector.evaluate(ctx)
+    assert result.passed is True
+    assert result.status == ResolutionStatus.RESOLVED
+
+
+def test_missing_unit_detector_skips_when_no_value():
+    """MissingUnitDetector must not fire when patient_value is None (non-numeric queries)."""
+    from src.core.detectors.missing_unit import MissingUnitDetector
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    detector = MissingUnitDetector()
+    ctx = EvaluationContext(term="Hb", unit="")
+    result = detector.evaluate(ctx)
+    assert result.passed is True
+
+
+def test_engine_rejects_unitless_numeric_end_to_end():
+    """Full engine must return UNIT_MISMATCH for unitless 'Calcium 2.4 | total' (B1)."""
+    from src.core.detectors.engine import SafetyGateEngine
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    engine = SafetyGateEngine()
+    ctx = EvaluationContext(term="Calcium", unit="", qualifier="total", patient_value=2.4)
+    result = engine.evaluate(ctx)
+    assert result.passed is False
+    assert result.status == ResolutionStatus.UNIT_MISMATCH, (
+        f"Expected UNIT_MISMATCH for unitless numeric, got {result.status}: {result.message}"
+    )
+
+
+# -------------------------------------------------------------------------
+# B2 regression: negative numeric values must not be dropped by the parser
+# -------------------------------------------------------------------------
+
+def test_parse_negative_hb_value():
+    """'Hb -5 | g/dL' must parse patient_value as -5.0, not 5.0 (B2)."""
+    ev = parse("Hb -5 | g/dL")
+    assert ev.output["patient_value"] == -5.0, (
+        "Expected -5.0 but got {} — minus sign was stripped".format(
+            ev.output["patient_value"]
+        )
+    )
+    assert ev.output["term"] == "Hb"
+    assert ev.output["unit"] == "g/dL"
+
+
+# -------------------------------------------------------------------------
+# B5 regression: engine must not leak last detector result on success path
+# -------------------------------------------------------------------------
+
+def test_engine_success_does_not_leak_last_detector_result_adk():
+    """Engine success branch must build result from context, not last detector locals (B5)."""
+    from src.core.detectors.engine import SafetyGateEngine
+    from src.core.detectors.base import GapDetector
+    from src.core.models import EvaluationContext, GapEvaluationResult, ResolutionStatus
+
+    class AlwaysPassWithSentinel(GapDetector):
+        """Passes but includes a sentinel candidates list to detect leaks."""
+
+        @property
+        def gap_name(self) -> str:
+            return "AlwaysPassSentinel"
+
+        def evaluate(self, context: EvaluationContext) -> GapEvaluationResult:
+            return GapEvaluationResult(
+                passed=True,
+                status=ResolutionStatus.RESOLVED,
+                gap_name=self.gap_name,
+                message="pass",
+                candidates=[{"sentinel": True}],
+            )
+
+    engine = SafetyGateEngine(detectors=[AlwaysPassWithSentinel()])
+    ctx = EvaluationContext(term="Hb", unit="g/dL")
+    result = engine.evaluate(ctx)
+    assert result.passed is True
+    assert result.status == ResolutionStatus.RESOLVED
+    assert result.candidates == [], (
+        "Engine success branch leaked last detector's candidates into the final result"
+    )

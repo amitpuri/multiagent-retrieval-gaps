@@ -25,19 +25,30 @@ class ParsedEvent(dict):
 
 
 def parse_clinician_input_direct(raw_text: str) -> ParsedEvent:
-    """Direct, pure-Python input parser for unit tests and deterministic scenarios."""
-    left, _, right = raw_text.partition("|")
-    left_str, right_str = left.strip(), right.strip()
+    """Direct, pure-Python input parser for unit tests and deterministic scenarios.
+
+    Supports formats::
+
+        Hb
+        Hb | g/dL
+        Hb 13.5 | g/dL
+        Calcium 4.8 | total | mg/dL
+        Na+ -3 | mEq/L
+    """
+    parts = [p.strip() for p in raw_text.split("|") if p.strip()]
+    left_str = parts[0] if parts else ""
 
     qualifier, unit = "", ""
-    if right_str.lower() in ("total", "tca", "ionized", "ica", "free", "i", "t"):
-        qualifier = right_str.lower()
-    else:
-        unit = right_str
+    for part in parts[1:]:
+        if part.lower() in ("total", "tca", "ionized", "ica", "free", "i", "t"):
+            qualifier = part.lower()
+        else:
+            unit = part
 
-    val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
+    # Support negative values (same boundary-aware regex as workflow.parse).
+    val_match = re.search(r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_str)
     patient_value = float(val_match.group(1)) if val_match else None
-    term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str).strip() or left_str
+    term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_str).strip() or left_str
 
     a2a_msg = A2AMessage(
         sender=AgentRole.TRIAGE,
