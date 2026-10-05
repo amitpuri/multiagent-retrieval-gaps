@@ -148,10 +148,12 @@ def verify_attestation_for_payload(payload: dict) -> tuple[bool, Optional["Attes
     if not protocol_def or not protocol_def.attested_computation:
         return True, None
 
+    reported_unit = payload.get("reported_unit") or payload.get("unit") or ""
     att_result = attest_numeric(
         value=float(patient_val),
         protocol=protocol_def,
         computation=protocol_def.attested_computation,
+        unit=reported_unit,
     )
     return att_result.passed, att_result
 

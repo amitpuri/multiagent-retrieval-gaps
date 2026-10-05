@@ -105,10 +105,11 @@ def resolve_node(node_input: Dict[str, Any]) -> Event:
     term = node_input.get("term", "")
     unit = node_input.get("unit", "")
     qualifier = node_input.get("qualifier", "")
-    resolution = resolve_lab_term(term, unit)
+    resolution = resolve_lab_term(term, unit, qualifier=qualifier)
 
-    # Carry forward patient value, qualifier, unit, and parse metadata for downstream
+    # Carry forward patient value, qualifier, unit, term, and parse metadata for downstream
     # gate / synthesis.  unit is forwarded so fetch_node can preserve reported_unit.
+    resolution["term"] = term
     resolution["patient_value"] = node_input.get("patient_value")
     resolution["qualifier"] = qualifier
     resolution["unit"] = unit

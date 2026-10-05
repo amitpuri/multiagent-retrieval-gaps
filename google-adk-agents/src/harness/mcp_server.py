@@ -162,7 +162,7 @@ def attest_computation(
                 ),
             }
 
-    result = attest_numeric(value, protocol_def)
+    result = attest_numeric(value, protocol_def, unit=unit)
     out: Dict[str, Any] = {
         "status": result.verdict,
         "passed": result.passed,

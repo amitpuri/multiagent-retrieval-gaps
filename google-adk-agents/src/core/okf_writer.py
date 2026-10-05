@@ -7,6 +7,7 @@ Per OKF v0.2 §5.2 and §7.5.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,9 @@ from typing import Any, Dict, List, Optional
 
 def get_default_log_path() -> Path:
     """Return the default path to knowledge/log.md in the repository root."""
+    env_path = os.environ.get("OKF_LOG_PATH")
+    if env_path:
+        return Path(env_path)
     # Walk up from src/core/okf_writer.py -> repo root
     repo_root = Path(__file__).resolve().parent.parent.parent.parent
     return repo_root / "knowledge" / "log.md"

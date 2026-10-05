@@ -33,25 +33,35 @@ def parse_clinician_input(node_input: Any) -> Event:
     else:
         text = str(node_input)
 
-    left, _, right = text.partition("|")
-    left_str = left.strip()
-    right_str = right.strip()
-
-    # Determine if right part is a unit or a qualifier
-    qualifier = ""
+    parts = [p.strip() for p in text.split("|")]
+    left_str = parts[0]
     unit = ""
-    if right_str.lower() in ("total", "tca", "ionized", "ica", "free", "i", "t"):
-        qualifier = right_str.lower()
-    else:
-        unit = right_str
+    qualifier = ""
 
-    # Extract numeric value if present
-    val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
-    patient_value = float(val_match.group(1)) if val_match else None
+    KNOWN_QUALIFIERS = {"total", "tca", "ionized", "ica", "free", "i", "t"}
+    KNOWN_UNITS = {"g/dl", "g/l", "%", "mg/dl", "mmol/l", "ng/l", "/ul", "ng/ml"}
 
-    # Strip numeric value from term
-    cleaned_term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str).strip()
-    term = cleaned_term if cleaned_term else left_str
+    for part in parts[1:]:
+        p_lower = part.lower()
+        if p_lower in KNOWN_QUALIFIERS and not qualifier:
+            qualifier = p_lower
+        elif (p_lower in KNOWN_UNITS or not unit) and not unit:
+            unit = part
+
+    # Ambiguous thousands-separator guard (e.g. "Troponin 1,250 | ng/L")
+    ambiguous_thousands = bool(re.search(r"\b\d+,\d{3}\b", left_str))
+
+    # Normalise comma-decimal notation (e.g. "4,8" -> "4.8") only when NOT thousands
+    left_normalised = left_str
+    patient_value: Optional[float] = None
+    if not ambiguous_thousands:
+        left_normalised = re.sub(r"(\d),(\d)", r"\1.\2", left_str)
+        val_match = re.search(r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_normalised)
+        patient_value = float(val_match.group(1)) if val_match else None
+
+    # Strip matched number from term
+    cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_normalised).strip()
+    term = cleaned_term if cleaned_term else left_str.strip()
 
     # OKF Phase 5: Progressive disclosure pre-scoping via concept index
     department_scope = None
@@ -79,6 +89,7 @@ def parse_clinician_input(node_input: Any) -> Event:
             "patient_value": patient_value,
             "department_scope": department_scope,
             "index_match_count": index_match_count,
+            "ambiguous_thousands": ambiguous_thousands,
         },
     )
 
@@ -91,6 +102,7 @@ def parse_clinician_input(node_input: Any) -> Event:
             "raw_text": text,
             "department_scope": department_scope,
             "index_match_count": index_match_count,
+            "ambiguous_thousands": ambiguous_thousands,
             "a2a_triage_message": a2a_msg.model_dump(mode="json"),
         }
     )

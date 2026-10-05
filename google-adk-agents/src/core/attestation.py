@@ -86,10 +86,48 @@ def parse_range_bounds(range_str: str) -> Tuple[Optional[float], Optional[float]
 
 
 
+def detect_protocol_unit(protocol: ProtocolDefinition) -> str:
+    """Extract primary measurement unit declared in reference range or panic limits."""
+    text = f"{protocol.reference_range} {protocol.panic_limits}"
+    for u in ["mg/dL", "g/dL", "mmol/L", "ng/mL", "ng/L", "g/L", "/uL"]:
+        if re.search(rf"\b{re.escape(u)}\b", text, re.IGNORECASE):
+            return u
+    if "%" in text:
+        return "%"
+    return ""
+
+
+def convert_unit(value: float, from_unit: str, to_unit: str) -> Optional[float]:
+    """Deterministically convert a numeric value between clinical units.
+    
+    Returns the converted float value, or None if conversion is not supported.
+    """
+    f = from_unit.strip().lower()
+    t = to_unit.strip().lower()
+    if not f or not t or f == t:
+        return value
+
+    # Hemoglobin / Protein: g/L <-> g/dL (1 g/dL = 10 g/L)
+    if f == "g/l" and t == "g/dl":
+        return value / 10.0
+    if f == "g/dl" and t == "g/l":
+        return value * 10.0
+
+    # Calcium (Total & Ionized): mmol/L <-> mg/dL
+    # Factor per ranges.yaml: 1 mg/dL = 0.2495 mmol/L (inverse: 1 mmol/L = 4.008 mg/dL)
+    if f == "mmol/l" and t == "mg/dl":
+        return value * 4.008
+    if f == "mg/dl" and t == "mmol/l":
+        return value * 0.2495
+
+    return None
+
+
 def attest_numeric(
     value: float,
     protocol: ProtocolDefinition,
     computation: Optional[AttestedComputation] = None,
+    unit: str = "",
 ) -> AttestationResult:
     """Attest a patient value against a sanctioned protocol computation.
     
@@ -99,9 +137,10 @@ def attest_numeric(
     
     Checks performed:
       1. Staleness check: rejects if protocol is past its stale_after date.
-      2. Physiological plausibility: rejects negative or extreme values (>1000).
-      3. Custom parameter bounds: checks expected_min, expected_max, or require_in_range if specified.
-      4. Identifies panic limit crossings.
+      2. Physiological plausibility: rejects negative values.
+      3. Unit normalization: scales value to protocol's reference unit before bounds check.
+      4. Custom parameter bounds: checks expected_min, expected_max, or require_in_range if specified.
+      5. Identifies panic limit crossings against normalised thresholds.
     """
     comp = computation or protocol.attested_computation
     executed_check = comp.attester if (comp and comp.attester) else "deterministic_range_checker"
@@ -118,10 +157,6 @@ def attest_numeric(
         )
 
     # 2. Negative-value plausibility check (universally invalid for lab measurements).
-    # Fix 3b: the former hard upper cap of 1000.0 has been removed — it incorrectly
-    # blocked legitimate analytes such as troponin (> 2500 ng/L in MI) and ferritin.
-    # Upper-bound plausibility is now enforced only via expected_max in
-    # attested_computation.parameters, which is configurable per assay.
     if value < 0.0:
         return AttestationResult(
             passed=False,
@@ -132,22 +167,38 @@ def attest_numeric(
             message=f"Value {value} is physiologically implausible or negative (must be ≥ 0).",
         )
 
+    # 3. Unit normalization to protocol reference unit
+    target_unit = detect_protocol_unit(protocol)
+    val_to_check = value
+    if unit and target_unit:
+        converted = convert_unit(value, unit, target_unit)
+        if converted is None:
+            return AttestationResult(
+                passed=False,
+                verdict="FAIL",
+                executed_check=executed_check,
+                attested_value=value,
+                expected_range=protocol.reference_range,
+                message=f"Cannot convert reported unit '{unit}' to protocol unit '{target_unit}'.",
+            )
+        val_to_check = converted
+
     ref_low, ref_high = parse_range_bounds(protocol.reference_range)
     panic_low, panic_high = parse_range_bounds(protocol.panic_limits)
 
     is_panic = False
-    if panic_low is not None and value < panic_low:
+    if panic_low is not None and val_to_check < panic_low:
         is_panic = True
-    if panic_high is not None and value > panic_high:
+    if panic_high is not None and val_to_check > panic_high:
         is_panic = True
 
-    # 3. Parameters check
+    # 4. Parameters check
     params = comp.parameters if comp else {}
     expected_min = params.get("expected_min")
     expected_max = params.get("expected_max")
     require_in_range = params.get("require_in_range", False)
 
-    if expected_min is not None and value < float(expected_min):
+    if expected_min is not None and val_to_check < float(expected_min):
         return AttestationResult(
             passed=False,
             verdict="FAIL",
@@ -158,7 +209,7 @@ def attest_numeric(
             message=f"Value {value} falls below expected minimum {expected_min}.",
         )
 
-    if expected_max is not None and value > float(expected_max):
+    if expected_max is not None and val_to_check > float(expected_max):
         return AttestationResult(
             passed=False,
             verdict="FAIL",
@@ -170,7 +221,7 @@ def attest_numeric(
         )
 
     if require_in_range and ref_low is not None and ref_high is not None:
-        if not (ref_low <= value <= ref_high):
+        if not (ref_low <= val_to_check <= ref_high):
             return AttestationResult(
                 passed=False,
                 verdict="FAIL",
