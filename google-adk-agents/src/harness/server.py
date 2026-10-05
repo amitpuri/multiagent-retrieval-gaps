@@ -19,6 +19,7 @@ Monitoring fix (Fix 6)
 """
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from typing import Any, Dict, List, Optional
@@ -29,6 +30,8 @@ from pydantic import BaseModel, Field, field_validator
 from src.harness.agent import ClinicalADKHarness, HarnessResponse, create_clinical_harness
 from src.harness.mcp_server import CLINICAL_MCP_TOOLS
 from src.harness.session import HarnessSession
+
+log = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Google ADK Clinical Agent Harness",
@@ -71,6 +74,13 @@ _RAW_TOKENS = os.environ.get("HARNESS_API_TOKENS", "")
 _VALID_TOKENS: frozenset = frozenset(
     t.strip() for t in _RAW_TOKENS.split(",") if t.strip()
 )
+
+if not _VALID_TOKENS:
+    log.warning(
+        "SECURITY WARNING: HARNESS_API_TOKENS is not set. "
+        "All /api/v1 endpoints are open to unauthenticated access. "
+        "Set HARNESS_API_TOKENS in the environment before production deployment."
+    )
 
 
 def get_harness() -> ClinicalADKHarness:
@@ -194,7 +204,9 @@ def readyz() -> Dict[str, Any]:
     status_code=status.HTTP_201_CREATED,
     tags=["Sessions"],
 )
-def create_session() -> SessionCreateResponse:
+def create_session(
+    _token: str = Depends(require_auth),  # Fix 11: auth required on all /api/v1 routes
+) -> SessionCreateResponse:
     """Create a new isolated clinician conversation session."""
     harness = get_harness()
     _evict_oldest_sessions()
@@ -227,7 +239,10 @@ def get_session(
 
 
 @app.post("/api/v1/query", response_model=QueryResponse, tags=["Agent Harness"])
-async def query_harness(req: QueryRequest) -> QueryResponse:
+async def query_harness(
+    req: QueryRequest,
+    _token: str = Depends(require_auth),  # Fix 11: auth required on all /api/v1 routes
+) -> QueryResponse:
     """
     Execute a turn against the continuous agent harness.
     Manages inputs, MCP tool execution, context window updates, and safety gating.
@@ -263,7 +278,9 @@ async def query_harness(req: QueryRequest) -> QueryResponse:
 
 
 @app.get("/api/v1/mcp/tools", tags=["MCP Tools"])
-def list_mcp_tools() -> Dict[str, Any]:
+def list_mcp_tools(
+    _token: str = Depends(require_auth),  # Fix 11: auth required on all /api/v1 routes
+) -> Dict[str, Any]:
     """Inspect all tools registered on the FastMCP server."""
     harness = get_harness()
     declarations = harness.mcp_bridge.get_tool_declarations_for_gemini()

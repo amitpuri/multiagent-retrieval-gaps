@@ -323,14 +323,35 @@ class EvaluationContext(BaseModel):
     @field_validator("patient_value", mode="before")
     @classmethod
     def reject_non_finite(cls, v: Optional[float]) -> Optional[float]:
-        """Fix 4: reject NaN and inf before they reach any detector.
+        """Fix 4: reject NaN, inf, booleans, and non-numeric strings before any detector.
 
         A NaN patient_value makes every comparison False, so classify(nan)
         returns NORMAL regardless of the actual clinical range.  An inf value
         trivially satisfies CRITICAL_HIGH on every assay.  Both are invalid
         inputs that must be caught at the boundary.
+
+        Fix Issue 6: explicitly reject bool (True/False), which Pydantic would
+        otherwise silently coerce to 1.0 / 0.0.  Also convert strings to float
+        here so the resulting TypeError becomes a ValueError (and therefore a
+        Pydantic ValidationError), not a raw TypeError that callers may miss.
         """
-        if v is not None and not math.isfinite(v):
+        if v is None:
+            return v
+        # Reject booleans before numeric check — bool is a subclass of int.
+        if isinstance(v, bool):
+            raise ValueError(
+                f"patient_value must be a numeric type, got bool ({v!r}). "
+                "Booleans are not valid clinical measurements."
+            )
+        # Pre-convert strings/ints so math.isfinite never sees a non-float.
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"patient_value must be a finite number, got {v!r}. "
+                "Only numeric values are accepted."
+            )
+        if not math.isfinite(v):
             raise ValueError(
                 f"patient_value must be a finite number, got {v!r}. "
                 "NaN and infinite values are not valid clinical measurements."

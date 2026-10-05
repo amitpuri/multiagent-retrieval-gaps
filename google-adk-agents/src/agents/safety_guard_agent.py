@@ -2,6 +2,7 @@
 Safety Guard Agent: Deterministic safety invariants and collision gating.
 Evaluates configured Gap Detectors in code to guarantee fail-closed enforcement.
 """
+from __future__ import annotations
 
 from typing import Any, Dict
 from google.adk import Event
@@ -28,7 +29,13 @@ def safety_guard_node(node_input: Dict[str, Any]) -> Event:
 
     # 1. If ontology resolver already failed, preserve and fail closed
     if current_status != ResolutionStatus.RESOLVED.value:
-        status_enum = ResolutionStatus(current_status)
+        try:
+            status_enum = ResolutionStatus(current_status)
+        except ValueError:
+            # Unknown status string — treat as UNKNOWN and route to CLARIFY.
+            # This covers statuses produced by other nodes (e.g. 'ATTESTATION_FAILED',
+            # 'NO_RESOLVED_CANDIDATE') that are not members of ResolutionStatus.
+            status_enum = ResolutionStatus.UNKNOWN
         route = engine.route_for(status_enum)
         
         a2a_msg = A2AMessage(

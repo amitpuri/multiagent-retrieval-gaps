@@ -16,7 +16,7 @@ from src.tools import (
     resolve_lab_term as base_resolve_lab_term,
 )
 from src.core.detectors.engine import SafetyGateEngine
-from src.core.models import EvaluationContext
+from src.core.models import EvaluationContext, ResolutionStatus
 
 
 # Initialize FastMCP instance
@@ -61,14 +61,28 @@ def evaluate_safety_gate(
     )
 
     verdict = engine.evaluate(ctx)
-    route = "PROCEED" if verdict.passed else "CLARIFY"
+    eval_status = verdict.status.value if hasattr(verdict.status, "value") else str(verdict.status)
+
+    # Preserve explicit upstream mismatch if downstream didn't detect collision
+    if status in (ResolutionStatus.UNIT_MISMATCH.value, "UNIT_MISMATCH") and verdict.status in (
+        ResolutionStatus.RESOLVED,
+        ResolutionStatus.AMBIGUOUS,
+    ):
+        eval_status = ResolutionStatus.UNIT_MISMATCH.value
+
+    route = engine.route_for(
+        ResolutionStatus(eval_status)
+        if eval_status in getattr(ResolutionStatus, "_value2member_map_", {})
+        else eval_status
+    )
+    passed = (route == "PROCEED")
     
     return {
         "route": route,
-        "status": verdict.status.value if hasattr(verdict.status, "value") else str(verdict.status),
-        "passed": verdict.passed,
-        "triggered_gaps": [verdict.gap_name] if not verdict.passed else [],
-        "clarification_prompt": verdict.message if not verdict.passed else None,
+        "status": eval_status,
+        "passed": passed,
+        "triggered_gaps": [verdict.gap_name] if not passed else [],
+        "clarification_prompt": verdict.message if not passed else None,
         "candidates": verdict.candidates,
     }
 
@@ -93,7 +107,7 @@ def csf_workup(department: str = "") -> Dict[str, Any]:
 @mcp_server.tool(name="check_calcium", description="Evaluates look-alike calcium values (mg/dL) across Total vs. Ionized Calcium interpretations.")
 def check_calcium(value_mg_dl: float, qualifier: str = "") -> Dict[str, Any]:
     """
-    Detects range collisions between Total Calcium (crit low < 6.5) and Ionized Calcium (normal 4.5-5.6).
+    Detects range collisions between Total Calcium (crit low < 6.0) and Ionized Calcium (normal 4.5-5.6).
     """
     return base_check_calcium(value_mg_dl=value_mg_dl, qualifier=qualifier)
 

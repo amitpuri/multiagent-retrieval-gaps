@@ -37,18 +37,24 @@ class SafetyGateEngine:
         else:
             # Deferred imports avoid circular imports at module level.
             from src.core.detectors.ambiguity import AmbiguityDetector
+            from src.core.detectors.unit_mismatch import UnitMismatchDetector
+            from src.core.detectors.missing_qualifier import MissingQualifierDetector
             from src.core.detectors.missing_unit import MissingUnitDetector
             from src.core.detectors.range_collision import RangeCollisionDetector
             from src.core.detectors.specimen_sequence import SpecimenSequenceDetector
 
             # Default suite ordering:
-            # 1. MissingUnitDetector  — unitless numeric values fail immediately
-            # 2. RangeCollisionDetector — numeric look-alike collision check
-            # 3. AmbiguityDetector    — multi-concept ambiguity (non-numeric or post-collision)
-            # 4. SpecimenSequenceDetector — tube ordering
+            # 1. MissingUnitDetector      — unitless numeric values fail immediately as UNIT_MISMATCH
+            # 2. UnitMismatchDetector     — unsupported units fail as UNIT_MISMATCH
+            # 3. RangeCollisionDetector   — numeric look-alike range collision before lexical ambiguity
+            # 4. MissingQualifierDetector — unqualified multi-concept numeric tests
+            # 5. AmbiguityDetector        — multi-concept ambiguity
+            # 6. SpecimenSequenceDetector — tube ordering
             self.detectors = [
                 MissingUnitDetector(self.registry),
+                UnitMismatchDetector(self.registry),
                 RangeCollisionDetector(self.registry),
+                MissingQualifierDetector(self.registry),
                 AmbiguityDetector(self.registry),
                 SpecimenSequenceDetector(self.registry),
             ]
@@ -61,12 +67,19 @@ class SafetyGateEngine:
         """Evaluate context across all registered gap detectors.
 
         Fails closed on first failing detector.
-        The success branch does NOT reference any detector-local ``result``
-        variable — that would be a NameError if the list is empty or all
-        detectors pass without ever assigning ``result`` in the current scope.
+        Detector exceptions are caught and converted to a fail-closed UNKNOWN
+        result so a buggy detector cannot silently open the gate.
         """
         for detector in self.detectors:
-            result = detector.evaluate(context)
+            try:
+                result = detector.evaluate(context)
+            except Exception as exc:
+                return GapEvaluationResult(
+                    passed=False,
+                    status=ResolutionStatus.UNKNOWN,
+                    gap_name=detector.gap_name,
+                    message=f"Detector raised unexpectedly: {exc}",
+                )
             if not result.passed:
                 return result
 

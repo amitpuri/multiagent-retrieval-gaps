@@ -3,10 +3,12 @@ Abstract data models and typed schemas for the generic retrieval-gap framework.
 Provides typed definitions for concepts, protocols, assays, collision rules,
 specimen sequences, and gap evaluation outcomes.
 """
+from __future__ import annotations
 
+import math
 from enum import Enum
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ResolutionStatus(str, Enum):
@@ -130,6 +132,44 @@ class EvaluationContext(BaseModel):
     panel_id: Optional[str] = None
     raw_text: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("patient_value", mode="before")
+    @classmethod
+    def reject_non_finite(cls, v: Optional[float]) -> Optional[float]:
+        """Reject NaN, inf, booleans, and non-numeric strings before any detector.
+
+        A NaN patient_value makes every comparison False, so classify(nan)
+        returns NORMAL regardless of the actual clinical range.  An inf value
+        trivially satisfies CRITICAL_HIGH on every assay.  Both are invalid
+        inputs that must be caught at the boundary.
+
+        Fix Issue 6: explicitly reject bool (True/False), which Pydantic would
+        otherwise silently coerce to 1.0 / 0.0.  Also convert strings to float
+        here so the resulting TypeError becomes a ValueError (and therefore a
+        Pydantic ValidationError), not a raw TypeError that callers may miss.
+        """
+        if v is None:
+            return v
+        # Reject booleans before numeric check — bool is a subclass of int.
+        if isinstance(v, bool):
+            raise ValueError(
+                f"patient_value must be a numeric type, got bool ({v!r}). "
+                "Booleans are not valid clinical measurements."
+            )
+        # Pre-convert strings/ints so math.isfinite never sees a non-float.
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"patient_value must be a finite number, got {v!r}. "
+                "Only numeric values are accepted."
+            )
+        if not math.isfinite(v):
+            raise ValueError(
+                f"patient_value must be a finite number, got {v!r}. "
+                "NaN and infinite values are not valid clinical measurements."
+            )
+        return v
 
 
 class GapEvaluationResult(BaseModel):

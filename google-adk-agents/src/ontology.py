@@ -6,6 +6,7 @@ reference protocols, and CSF tube sequencing as described in:
 
 Dynamically populated from declarative YAML configurations (config/domains/laboratory_medicine/).
 """
+from __future__ import annotations
 
 from typing import Any, Dict, List
 from src.core.config import get_default_registry
@@ -36,26 +37,124 @@ LAB_KB: List[Dict[str, str]] = [
 # -------------------------------------------------------------------------
 # Scenario A (Gap 2 & Gap 8): Controlled Vocabulary & Thesaurus (CONCEPTS)
 # -------------------------------------------------------------------------
-CONCEPTS: Dict[str, Dict[str, Any]] = {
-    uri: {
-        "label": c.label,
-        "alt_labels": c.alt_labels,
-        "department": c.department,
-        "units": c.units,
-    }
-    for uri, c in _registry.concepts.items()
-}
+class _DynamicConcepts(dict):
+    """Dynamically delegates to live registry so scenario extensions are visible."""
+
+    def __getitem__(self, uri: str) -> Dict[str, Any]:
+        reg = get_default_registry()
+        if uri in reg.concepts:
+            c = reg.concepts[uri]
+            return {
+                "label": c.label,
+                "alt_labels": c.alt_labels,
+                "department": c.department,
+                "units": c.units,
+            }
+        return super().__getitem__(uri)
+
+    def __contains__(self, uri: object) -> bool:
+        return uri in get_default_registry().concepts or super().__contains__(uri)
+
+    def items(self):
+        reg = get_default_registry()
+        seen = set()
+        for uri, c in reg.concepts.items():
+            seen.add(uri)
+            yield uri, {
+                "label": c.label,
+                "alt_labels": c.alt_labels,
+                "department": c.department,
+                "units": c.units,
+            }
+        for k, v in super().items():
+            if k not in seen:
+                yield k, v
+
+    def values(self):
+        for _, v in self.items():
+            yield v
+
+    def keys(self):
+        reg = get_default_registry()
+        k_list = list(reg.concepts.keys())
+        for k in super().keys():
+            if k not in reg.concepts:
+                k_list.append(k)
+        return k_list
+
+    def get(self, uri: str, default: Any = None) -> Any:
+        try:
+            return self[uri]
+        except KeyError:
+            return default
+
+    def __len__(self) -> int:
+        return len(list(self.keys()))
+
+    def __iter__(self):
+        return iter(self.keys())
+
+
+CONCEPTS: Dict[str, Dict[str, Any]] = _DynamicConcepts()
 
 # -------------------------------------------------------------------------
 # Scenario A: Grounded Protocols Keyed by Canonical Concept URI
 # -------------------------------------------------------------------------
-PROTOCOLS: Dict[str, Dict[str, str]] = {
-    uri: {
-        "reference_range": p.reference_range,
-        "panic_limits": p.panic_limits,
-    }
-    for uri, p in _registry.protocols.items()
-}
+class _DynamicProtocols(dict):
+    """Dynamically delegates to live registry so scenario extensions are visible."""
+
+    def __getitem__(self, uri: str) -> Dict[str, str]:
+        reg = get_default_registry()
+        if uri in reg.protocols:
+            p = reg.protocols[uri]
+            return {
+                "reference_range": p.reference_range,
+                "panic_limits": p.panic_limits,
+            }
+        return super().__getitem__(uri)
+
+    def __contains__(self, uri: object) -> bool:
+        return uri in get_default_registry().protocols or super().__contains__(uri)
+
+    def items(self):
+        reg = get_default_registry()
+        seen = set()
+        for uri, p in reg.protocols.items():
+            seen.add(uri)
+            yield uri, {
+                "reference_range": p.reference_range,
+                "panic_limits": p.panic_limits,
+            }
+        for k, v in super().items():
+            if k not in seen:
+                yield k, v
+
+    def values(self):
+        for _, v in self.items():
+            yield v
+
+    def keys(self):
+        reg = get_default_registry()
+        k_list = list(reg.protocols.keys())
+        for k in super().keys():
+            if k not in reg.protocols:
+                k_list.append(k)
+        return k_list
+
+    def get(self, uri: str, default: Any = None) -> Any:
+        try:
+            return self[uri]
+        except KeyError:
+            return default
+
+    def __len__(self) -> int:
+        return len(list(self.keys()))
+
+    def __iter__(self):
+        return iter(self.keys())
+
+
+PROTOCOLS: Dict[str, Dict[str, str]] = _DynamicProtocols()
 
 # -------------------------------------------------------------------------
 # Scenario B (Gap 11): CSF Emergency Panel Taxonomy & Department Ownership

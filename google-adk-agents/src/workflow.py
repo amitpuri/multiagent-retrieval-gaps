@@ -4,7 +4,9 @@ Closes Gap 9 (Safety rule lives in prompt) by moving routing policy
 out of prompt text into code-enforced graph orchestration with
 deterministic gating and Human-In-The-Loop pauses (RequestInput).
 """
+from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Callable, Dict, Generator, Optional, Union
 from google.adk import Agent, Event, Workflow
@@ -13,6 +15,8 @@ from src.agents import MODEL, create_synthesize_agent
 from src.core.detectors.engine import SafetyGateEngine
 from src.core.models import EvaluationContext
 from src.tools import fetch_grounded_protocol, resolve_lab_term
+
+logger = logging.getLogger(__name__)
 
 
 def route_for(status: str) -> str:
@@ -75,14 +79,24 @@ def parse(node_input: Any) -> Event:
     # Normalise comma-decimal notation (e.g. "4,8" -> "4.8") only when NOT thousands.
     left_normalised = left_str
     patient_value: Optional[float] = None
+    ambiguous_value: bool = False
     if not ambiguous_thousands:
         left_normalised = re.sub(r"(\d),(\d)", r"\1.\2", left_str)
 
         # Match a numeric value that is:
         #  - preceded only by whitespace or start-of-string, AND
         #  - NOT immediately followed by a hyphen or word character.
-        val_match = re.search(r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_normalised)
-        patient_value = float(val_match.group(1)) if val_match else None
+        val_pattern = r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])"
+        all_val_matches = re.findall(val_pattern, left_normalised)
+
+        # Fix Issue 5: multiple candidate values — flag as ambiguous instead of
+        # silently picking the first.  "Calcium 48 4.8 | total | mg/dL" would
+        # otherwise silently use 48 and discard 4.8.
+        if len(all_val_matches) > 1:
+            ambiguous_value = True
+            patient_value = None
+        elif all_val_matches:
+            patient_value = float(all_val_matches[0])
 
     # Strip the matched number (including its optional sign) from the term.
     cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_normalised).strip()
@@ -96,6 +110,7 @@ def parse(node_input: Any) -> Event:
             "patient_value": patient_value,
             "raw_text": text,
             "ambiguous_thousands": ambiguous_thousands,
+            "ambiguous_value": ambiguous_value,
         }
     )
 
@@ -134,6 +149,17 @@ def gate(node_input: Dict[str, Any]) -> Event:
         clarification = (
             "Value contains an ambiguous comma that looks like a thousands separator "
             "(e.g. '1,250'). Please resend with an unambiguous decimal format."
+        )
+        output = dict(node_input)
+        output["status"] = "AMBIGUOUS"
+        output["clarification"] = clarification
+        return Event(output=output, route="CLARIFY")
+
+    # Fix Issue 5: multiple numeric values in input — don't silently pick the first.
+    if node_input.get("ambiguous_value"):
+        clarification = (
+            "Input contains multiple numeric values (e.g. 'Calcium 48 4.8'). "
+            "Please resend with a single unambiguous numeric value."
         )
         output = dict(node_input)
         output["status"] = "AMBIGUOUS"
@@ -203,11 +229,26 @@ def synthesis_gate_node(node_input: Dict[str, Any]) -> Event:
     node routes to 'CLARIFY' instead of letting unattested data flow into the
     synthesis response.  This closes the gap where a stale or misconfigured
     protocol could produce a synthesised answer without a badge.
+
+    Fix (Issue 3): also routes to CLARIFY when there is no resolved URI or
+    protocol.  fetch_node returns status='NO_RESOLVED_CANDIDATE' in this case;
+    without this guard the synthesiser would run with no protocol data.
     """
     protocol = node_input.get("protocol", {})
     patient_value = node_input.get("patient_value")
     resolved_uri = node_input.get("resolved_uri", "")
     reported_unit = node_input.get("reported_unit", "")
+
+    # Fix Issue 3: fail closed when fetch_node found no resolved candidate.
+    if not resolved_uri or node_input.get("status") == "NO_RESOLVED_CANDIDATE":
+        output = dict(node_input)
+        output["status"] = "NO_RESOLVED_CANDIDATE"
+        output["clarification"] = (
+            "No resolved protocol URI is available. "
+            "The ontology lookup did not find a unique grounded concept — "
+            "please provide more specific test name, unit, or qualifier."
+        )
+        return Event(output=output, route="CLARIFY")
 
     # Attempt attestation if we have a value and a URI.
     if patient_value is not None and resolved_uri:
@@ -237,8 +278,13 @@ def synthesis_gate_node(node_input: Dict[str, Any]) -> Event:
                     agent_id="workflow/synthesis_gate_node",
                     details={"status": "ATTESTED", "badge": attest_result.get("badge")},
                 )
-            except Exception:
-                pass
+            except Exception as audit_exc:
+                logger.warning(
+                    "Failed to record OKF audit log for URI %s: %s",
+                    resolved_uri,
+                    audit_exc,
+                    exc_info=True,
+                )
         except Exception as exc:
             output = dict(node_input)
             output["attestation"] = {"passed": False, "error": str(exc)}

@@ -4,6 +4,7 @@ Provides deterministic runtime attestation for numeric claims, range boundaries,
 and sanctioned calculations per OKF v0.2 §5.4 and §9.
 Ensures critical numbers cannot be hallucinated or rewritten by generative agents.
 """
+from __future__ import annotations
 
 from datetime import datetime, timezone
 import re
@@ -97,10 +98,17 @@ def detect_protocol_unit(protocol: ProtocolDefinition) -> str:
     return ""
 
 
-def convert_unit(value: float, from_unit: str, to_unit: str) -> Optional[float]:
+def convert_unit(
+    value: float,
+    from_unit: str,
+    to_unit: str,
+    analyte: str = "",
+) -> Optional[float]:
     """Deterministically convert a numeric value between clinical units.
     
     Returns the converted float value, or None if conversion is not supported.
+    Supports analyte-specific molar-to-mass conversions (e.g. mmol/L <-> mg/dL)
+    which depend on the analyte's molecular weight.
     """
     f = from_unit.strip().lower()
     t = to_unit.strip().lower()
@@ -113,12 +121,25 @@ def convert_unit(value: float, from_unit: str, to_unit: str) -> Optional[float]:
     if f == "g/dl" and t == "g/l":
         return value * 10.0
 
-    # Calcium (Total & Ionized): mmol/L <-> mg/dL
-    # Factor per ranges.yaml: 1 mg/dL = 0.2495 mmol/L (inverse: 1 mmol/L = 4.008 mg/dL)
-    if f == "mmol/l" and t == "mg/dl":
-        return value * 4.008
-    if f == "mg/dl" and t == "mmol/l":
-        return value * 0.2495
+    # Molar-to-mass conversions (mmol/L <-> mg/dL) depend on molecular weight
+    if (f == "mmol/l" and t == "mg/dl") or (f == "mg/dl" and t == "mmol/l"):
+        a = analyte.strip().lower()
+        if "glucose" in a:
+            # Glucose MW ~ 180.16 g/mol: 1 mmol/L = 18.016 mg/dL
+            factor = 18.016
+        elif "cholesterol" in a:
+            factor = 38.67
+        elif "calcium" in a or not a:
+            # Calcium MW ~ 40.08 g/mol: 1 mmol/L = 4.008 mg/dL (1 mg/dL = 0.2495 mmol/L)
+            # Defaults to calcium for backwards compatibility when analyte is unspecified
+            factor = 4.008
+        else:
+            return None
+
+        if f == "mmol/l" and t == "mg/dl":
+            return value * factor
+        else:
+            return value / factor
 
     return None
 
@@ -171,7 +192,7 @@ def attest_numeric(
     target_unit = detect_protocol_unit(protocol)
     val_to_check = value
     if unit and target_unit:
-        converted = convert_unit(value, unit, target_unit)
+        converted = convert_unit(value, unit, target_unit, analyte=protocol.clinical_guideline or "")
         if converted is None:
             return AttestationResult(
                 passed=False,
