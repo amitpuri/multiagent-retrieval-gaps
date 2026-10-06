@@ -703,3 +703,10 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 8. Scope everything. Enforce with ACLs, not UI conventions.
 9. Make forgetting explicit. Define retention and deletion rules up front.
 10. Evaluate memory directly — test recall, staleness, conflict resolution, cross-session continuity.
+
+Further Reading
+- [Unified Knowledge Graph RAG on AWS: GraphRAG and LightRAG on one stack](https://aws.amazon.com/blogs/opensource/unified-knowledge-graph-rag-on-aws-graphrag-and-lightrag-on-one-stack)
+- [Python toolkit for building graph-enhanced GenAI applications](https://awslabs.github.io/graphrag-toolkit)
+- [Neo4j GraphRAG](https://graphrag.com)
+- [A modular graph-based Retrieval-Augmented Generation (RAG) system](https://microsoft.github.io/graphrag)
+
