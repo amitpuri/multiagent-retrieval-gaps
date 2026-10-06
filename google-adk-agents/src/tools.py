@@ -42,7 +42,8 @@ def resolve_lab_term(term: str, unit: str = "", qualifier: str = "") -> Dict[str
     Never guesses: returns AMBIGUOUS when several concepts match.
     Returns:
         - RESOLVED: exactly one concept matched.
-        - AMBIGUOUS: multiple concepts matched the term (e.g. 'Hb' matches both LOINC 718-7 and 4548-4).
+        - AMBIGUOUS: multiple concepts matched the term (e.g. 'Hb' matches both LOINC 718-7 and 4548-4),
+          or the qualifier contradicts the resolved concept (e.g. term='ionized calcium', qualifier='total').
         - UNIT_MISMATCH: the provided unit does not belong to any matching concept.
         - NOT_FOUND: no concept matched the search term.
     """
@@ -80,6 +81,31 @@ def resolve_lab_term(term: str, unit: str = "", qualifier: str = "") -> Dict[str
         ]
         if matched_q:
             candidates = matched_q
+
+    # Defect #6: qualifier-term contradiction check.
+    # After narrowing, verify the qualifier is not contradicted by the term itself.
+    # Example: term="ionized calcium", qualifier="total" → the term already encodes
+    # "ionized"; a qualifier of "total" is a silent contradiction, not a disambiguation.
+    # We detect this by checking whether the *term* embeds a qualifier direction that
+    # conflicts with the *qualifier* parameter.
+    _QUALIFIER_OPPOSITES = {
+        "total": ("ionized", "free"),
+        "ionized": ("total",),
+        "free": ("total",),
+    }
+    if qualifier:
+        q_lower = qualifier.strip().lower()
+        opposites = _QUALIFIER_OPPOSITES.get(q_lower, ())
+        if opposites and any(opp in t for opp in opposites):
+            return {
+                "status": "AMBIGUOUS",
+                "candidates": [_view(c) for c in candidates],
+                "contradiction": (
+                    f"Qualifier '{qualifier}' conflicts with term '{term}': "
+                    f"term already implies a different assay direction. "
+                    "Please use a consistent qualifier and term."
+                ),
+            }
 
     status = "RESOLVED" if len(candidates) == 1 else "AMBIGUOUS"
     return {"status": status, "candidates": [_view(c) for c in candidates]}

@@ -278,3 +278,42 @@ def test_orchestrator_scenario_c_qualified_total():
     assert res["route"] == "PROCEED"
     assert res["status"] == "RESOLVED"
     assert res["concept"]["uri"] == "loinc:17861-6"
+
+
+# -------------------------------------------------------------------------
+# Test Group 9: Graceful Agentic Fallback (T-FALLBACK-1, T-FALLBACK-2)
+# -------------------------------------------------------------------------
+
+def test_process_query_agentic_falls_back_on_api_error():
+    """T-FALLBACK-1: process_query_agentic returns OFFLINE-FALLBACK string when supervisor raises."""
+    orch = build_strands_orchestrator(offline=True)
+
+    # Patch the supervisor to raise an Anthropic-style credit error.
+    class _FakeErr(Exception):
+        pass
+
+    def _bad_supervisor(_text: str) -> None:
+        raise _FakeErr("Your credit balance is too low to access the Anthropic API")
+
+    orch.supervisor = _bad_supervisor
+    result = orch.process_query_agentic("Hb 13.5 | g/dL")
+
+    assert "[OFFLINE-FALLBACK]" in result, (
+        "Expected OFFLINE-FALLBACK prefix in agentic fallback output"
+    )
+    # Must NOT propagate — result is a string, not an exception.
+    assert isinstance(result, str)
+
+
+def test_process_query_agentic_falls_back_on_generic_error():
+    """T-FALLBACK-2: process_query_agentic handles arbitrary unexpected exceptions gracefully."""
+    orch = build_strands_orchestrator(offline=True)
+
+    def _boom(_text: str) -> None:
+        raise RuntimeError("simulated network timeout")
+
+    orch.supervisor = _boom
+    result = orch.process_query_agentic("Hb 13.5 | g/dL")
+
+    assert "[OFFLINE-FALLBACK]" in result
+    assert isinstance(result, str)

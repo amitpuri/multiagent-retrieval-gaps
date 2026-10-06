@@ -263,7 +263,23 @@ async def query_harness(
         session = harness.create_session()
         _SESSIONS[session.session_id] = session
 
-    res: HarnessResponse = await harness.run(prompt=req.prompt, session=session)
+    try:
+        res: HarnessResponse = await harness.run(prompt=req.prompt, session=session)
+    except Exception as exc:
+        # Unexpected error (e.g. malformed CSF input reaching the format loop before
+        # the guard was in place).  Remove the partial session so it does not leak,
+        # then surface a structured error — never a bare HTTP 500 traceback.
+        log.exception("Unhandled error in harness.run() for session %s", session.session_id)
+        _SESSIONS.pop(session.session_id, None)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "HarnessExecutionError",
+                "message": str(exc),
+                "session_id": session.session_id,
+                "prompt": req.prompt[:200],  # truncate for safety
+            },
+        ) from exc
 
     return QueryResponse(
         session_id=res.session_id,

@@ -81,10 +81,16 @@ async def run_scenario_a_interactive():
             print(f"  --> Reference Range: {protocol.get('reference_range')}")
             print(f"  --> Panic Limits: {protocol.get('panic_limits')}")
 
-            # If live, run agentic synthesis turn
+            # If live, run agentic synthesis turn — falls back gracefully if API unavailable.
             if live:
-                agentic_res = orchestrator.process_query_agentic(query)
-                print(f"  --> Live Claude Clinical Synthesis:\n{agentic_res}")
+                try:
+                    agentic_res = orchestrator.process_query_agentic(query)
+                    print(f"  --> Live Claude Clinical Synthesis:\n{agentic_res}")
+                except Exception as exc:
+                    print(
+                        f"  [!] Live synthesis skipped — {type(exc).__name__}: {exc}\n"
+                        "      Continuing with deterministic result above."
+                    )
 
 
 def run_scenario_b_csf():
@@ -183,11 +189,27 @@ async def run_scenario_d_multiagent_troponin():
             print(f"  --> Panic Limits: {protocol.get('panic_limits')}")
 
 
-async def main():
-    await run_scenario_a_interactive()
-    run_scenario_b_csf()
-    run_scenario_c_calcium()
-    await run_scenario_d_multiagent_troponin()
+async def main() -> None:
+    """Run all four scenarios; each scenario is individually guarded."""
+    for coro_factory, name in [
+        (run_scenario_a_interactive, "Scenario A"),
+        (run_scenario_d_multiagent_troponin, "Scenario D"),
+    ]:
+        try:
+            await coro_factory()
+        except Exception as exc:
+            print(f"\n[!] {name} aborted: {type(exc).__name__}: {exc}")
+            print("    Continuing to next scenario...\n")
+
+    for fn, name in [
+        (run_scenario_b_csf, "Scenario B"),
+        (run_scenario_c_calcium, "Scenario C"),
+    ]:
+        try:
+            fn()
+        except Exception as exc:
+            print(f"\n[!] {name} aborted: {type(exc).__name__}: {exc}")
+            print("    Continuing to next scenario...\n")
 
 
 if __name__ == "__main__":

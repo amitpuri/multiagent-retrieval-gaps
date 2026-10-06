@@ -2,6 +2,7 @@
 Multi-Agent Orchestration Layer for Laboratory Medicine Decision Support.
 Implements the Supervisor Orchestrator using Strands Agents SDK and Amazon Bedrock AgentCore.
 """
+import logging
 import re
 from typing import Any, Dict, Optional
 
@@ -165,14 +166,64 @@ class StrandsDecisionSupportOrchestrator:
         return result
 
     def process_query_agentic(self, raw_text: str) -> str:
-        """Run the full Strands Supervisor Agent in an AgentCore session context."""
+        """Run the full Strands Supervisor Agent in an AgentCore session context.
+
+        Falls back to the deterministic offline pipeline with a clear warning when
+        the upstream LLM is unavailable (no credits, bad auth, rate-limit, network).
+        """
         if hasattr(self.session_manager, "add_turn"):
             self.session_manager.add_turn(role="user", content=raw_text)
 
-        with self.session_manager:
-            output = self.supervisor(raw_text)
+        try:
+            with self.session_manager:
+                output = self.supervisor(raw_text)
+            output_str = str(output)
+        except Exception as exc:
+            # Classify the error so the caller sees a useful message.
+            exc_type = type(exc).__name__
+            exc_str = str(exc)
 
-        output_str = str(output)
+            # Anthropic-specific signals (credit exhaustion, bad key, rate-limit).
+            _ANTHROPIC_SIGNALS = (
+                "credit balance is too low",
+                "invalid_api_key",
+                "authentication_error",
+                "rate_limit_error",
+                "overloaded",
+            )
+            is_api_err = any(sig in exc_str.lower() for sig in _ANTHROPIC_SIGNALS)
+
+            if is_api_err:
+                reason = "Anthropic API unavailable (credit/auth/rate-limit)"
+            else:
+                reason = f"{exc_type}: {exc_str[:120]}"
+
+            logging.warning(
+                "[Strands] Live agentic call failed — falling back to offline pipeline. Reason: %s",
+                reason,
+            )
+
+            # Fall back to the deterministic pipeline.
+            det = self.process_query_direct(raw_text)
+            route = det.get("route", "CLARIFY")
+            status = det.get("status", "UNKNOWN")
+            fallback_note = (
+                f"[OFFLINE-FALLBACK] Live synthesis unavailable ({reason}).\n"
+                f"  Deterministic result — Route: {route} | Status: {status}"
+            )
+            if route == "PROCEED":
+                concept = det.get("concept", {})
+                protocol = det.get("protocol", {}).get("protocol", {})
+                fallback_note += (
+                    f"\n  Concept: {concept.get('label')} [{concept.get('uri')}]"
+                    f"\n  Ref range: {protocol.get('reference_range')}"
+                    f"\n  Panic limits: {protocol.get('panic_limits')}"
+                )
+            else:
+                fallback_note += f"\n  Clarification: {det.get('clarification', '')}"
+
+            output_str = fallback_note
+
         if hasattr(self.session_manager, "add_turn"):
             self.session_manager.add_turn(role="assistant", content=output_str)
 

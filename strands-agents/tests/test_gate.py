@@ -143,3 +143,61 @@ def test_parse_input_variations():
     ev2 = parse("Hb")
     assert ev2.output["term"] == "Hb"
     assert ev2.output["unit"] == ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Defect #4 parity regressions — Strands engine must match ADK verdicts
+# ─────────────────────────────────────────────────────────────────────────────
+def test_strands_hb_with_cardiology_department_proceeds():
+    """Defect #4: 'Hb 14 g/dL' with department 'Cardiology' must PROCEED in Strands.
+
+    Before the fix, SpecimenSequenceDetector defaulted to the CSF panel and
+    returned NOT_FOUND because 'Cardiology' is not a CSF department.
+    After the fix, specimen sequencing is skipped when no panel_id is supplied,
+    matching the ADK verdict of PROCEED/RESOLVED.
+    """
+    from src.core.detectors.engine import SafetyGateEngine
+    from src.core.models import EvaluationContext
+
+    engine = SafetyGateEngine()
+    ctx = EvaluationContext(term="Hb", unit="g/dL", patient_value=14.0, department="Cardiology")
+    result = engine.evaluate(ctx)
+    assert result.passed is True, (
+        f"Strands engine returned {result.status} for 'Hb 14 g/dL' with department='Cardiology'; "
+        "expected RESOLVED (defect #4 regression)"
+    )
+
+
+def test_strands_calcium_unqualified_returns_range_collision_not_ambiguous():
+    """Defect #4: 'Calcium 4.8 mg/dL' must return RANGE_COLLISION in Strands, not AMBIGUOUS.
+
+    The Strands detector order had RangeCollisionDetector after AmbiguityDetector,
+    so calcium hit AMBIGUOUS before the collision check could fire.
+    After syncing the order, RangeCollision runs first.
+    """
+    from src.core.detectors.engine import SafetyGateEngine
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    engine = SafetyGateEngine()
+    ctx = EvaluationContext(term="calcium", unit="mg/dL", patient_value=4.8)
+    result = engine.evaluate(ctx)
+    assert result.status == ResolutionStatus.RANGE_COLLISION, (
+        f"Strands engine returned {result.status} for 'Calcium 4.8 mg/dL'; "
+        "expected RANGE_COLLISION (defect #4 regression)"
+    )
+
+
+# -------------------------------------------------------------------------
+# Defect #6 regression: contradictory term and qualifier must return AMBIGUOUS
+# -------------------------------------------------------------------------
+def test_contradictory_qualifier_fails_safety_gate():
+    """Contradictory qualifier 'total' on term 'ionized calcium' must return AMBIGUOUS."""
+    from src.core.detectors.engine import SafetyGateEngine
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    engine = SafetyGateEngine()
+    ctx = EvaluationContext(term="ionized calcium", qualifier="total", unit="mg/dL")
+    result = engine.evaluate(ctx)
+    assert result.passed is False
+    assert result.status == ResolutionStatus.AMBIGUOUS
+    assert "contradicts" in result.message.lower()

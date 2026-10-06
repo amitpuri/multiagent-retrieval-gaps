@@ -167,7 +167,10 @@ class ClinicalADKHarness:
                     patient_value = raw_val
 
         # Clean term: strip the matched number and qualifier keywords
-        cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_normalised).strip()
+        term_source = left_normalised
+        if ambiguous_thousands:
+            term_source = re.sub(r"\b\d+,\d{3}\b", "", term_source).strip()
+        cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", term_source).strip()
         cleaned_term = re.sub(
             r"\b(total|ionized|free)\b", "", cleaned_term, flags=re.IGNORECASE
         ).strip()
@@ -213,6 +216,38 @@ class ClinicalADKHarness:
                 "triggered_gaps": ["AmbiguousThousandsSeparator"],
                 "candidates": [],
             }
+
+        # Defect #3 (Scenario B in live mode): the standard gate evaluates terms
+        # against concepts.yaml.  "CSF workup" is not a concept — it is a panel
+        # workup handled by a dedicated MCP tool (csf_workup).  Running the gate
+        # on this term returns NOT_FOUND, blocking live execution before the model
+        # can ever call csf_workup.  We short-circuit for the same special-case
+        # terms the deterministic pipeline handles, letting the Gemini loop dispatch
+        # the right tools.  The csf_workup and check_calcium tools themselves enforce
+        # all necessary safety invariants.
+        term_clean = parsed["term"].lower().strip()
+        is_csf_panel = (
+            term_clean in ("csf", "csf workup", "csf panel", "csf emergency", "csf emergency panel")
+            or (re.search(r"\bcsf\b", term_clean) and any(kw in term_clean for kw in ("workup", "panel", "emergency")))
+        )
+        if is_csf_panel:
+            synthetic = {
+                "route": "PROCEED",
+                "status": "RESOLVED",
+                "passed": True,
+                "triggered_gaps": [],
+                "clarification_prompt": None,
+                "candidates": [],
+                "_synthetic": True,  # marks that gate was bypassed for the CSF panel path
+            }
+            rec = ToolInvocationRecord(
+                tool_name="evaluate_safety_gate",
+                args={"term": parsed["term"], "note": "CSF panel — bypassed to csf_workup"},
+                result=synthetic,
+            )
+            all_tool_calls.append(rec)
+            self.context_mgr.append_tool_result_to_session(session, "evaluate_safety_gate", synthetic)
+            return synthetic
 
         gate_args = {
             "term": parsed["term"],
@@ -269,16 +304,91 @@ class ClinicalADKHarness:
 
         all_tool_calls: List[ToolInvocationRecord] = []
 
+        # Ambiguous thousands separator guard: "1,250" → CLARIFY
+        if parsed.get("ambiguous_thousands"):
+            clarification_msg = (
+                f"Value '{parsed['raw_text']}' contains a comma that looks like "
+                "a thousands separator (e.g. '1,250'). Please resend with an "
+                "unambiguous decimal format."
+            )
+            output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
+            session.add_model_message(content=output_text, tool_calls=all_tool_calls)
+            return HarnessResponse(
+                text=output_text,
+                route="CLARIFY",
+                status="AMBIGUOUS",
+                session_id=session.session_id,
+                tool_calls=all_tool_calls,
+                clarification=clarification_msg,
+                is_hitl_paused=True,
+            )
+
         # Special case: CSF panel workup
-        if "csf" in term.lower():
-            csf_args = {"department": unit or qualifier}
+        # Only true CSF panel/workup requests take this path; single tests (e.g. CSF protein)
+        # or unknown terms (e.g. csfzzz) proceed to ontology resolution and the safety gate.
+        term_clean = term.lower().strip()
+        is_csf_panel = (
+            term_clean in ("csf", "csf workup", "csf panel", "csf emergency", "csf emergency panel")
+            or (re.search(r"\bcsf\b", term_clean) and any(kw in term_clean for kw in ("workup", "panel", "emergency")))
+        )
+        if is_csf_panel:
+            # The department filter is passed via the unit slot by the pipe-delimited
+            # runner format "CSF workup | hematology".  Validate it is a real department
+            # keyword before forwarding so that a unit typo (e.g. mg/dL) does not cause
+            # csf_workup() to return {"status": "NOT_FOUND"} and crash the format loop.
+            _KNOWN_CSF_DEPTS = ("hematology", "biochemistry", "microbiology", "chemistry", "")
+            dept_hint = unit or qualifier
+            if dept_hint and not any(
+                d in dept_hint.lower() for d in _KNOWN_CSF_DEPTS if d
+            ):
+                clarification_msg = (
+                    f"Unrecognised department filter '{dept_hint}' for CSF workup. "
+                    "Please specify one of: Hematology, Clinical Biochemistry, Microbiology, "
+                    "or omit to receive the full panel."
+                )
+                output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
+                session.add_model_message(content=output_text, tool_calls=all_tool_calls)
+                return HarnessResponse(
+                    text=output_text,
+                    route="CLARIFY",
+                    status="NOT_FOUND",
+                    session_id=session.session_id,
+                    tool_calls=all_tool_calls,
+                    clarification=clarification_msg,
+                    is_hitl_paused=True,
+                )
+
+            csf_args = {"department": dept_hint}
             csf_res = self.mcp_bridge.execute_tool("csf_workup", csf_args)
             record = ToolInvocationRecord(tool_name="csf_workup", args=csf_args, result=csf_res)
             all_tool_calls.append(record)
             self.context_mgr.append_tool_result_to_session(session, "csf_workup", csf_res)
 
+            # Guard: csf_workup returns {"status": "NOT_FOUND"} if no tests match the
+            # department filter.  Iterating over that dict and calling str.get() crashes
+            # with AttributeError.  Route to CLARIFY instead.
+            if csf_res.get("status") == "NOT_FOUND":
+                clarification_msg = (
+                    f"No CSF tests found for department filter '{dept_hint}'. "
+                    "Please verify the department name or omit to receive the full panel."
+                )
+                output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
+                session.add_model_message(content=output_text, tool_calls=all_tool_calls)
+                return HarnessResponse(
+                    text=output_text,
+                    route="CLARIFY",
+                    status="NOT_FOUND",
+                    session_id=session.session_id,
+                    tool_calls=all_tool_calls,
+                    clarification=clarification_msg,
+                    is_hitl_paused=True,
+                )
+
             output_text = "[PROCEED] Emergency CSF Workup (Governed Tube Sequence Enforced):\n"
             for dept, tests in csf_res.items():
+                # Defensive: skip sentinel keys like "status" whose value is a string.
+                if not isinstance(tests, list):
+                    continue
                 output_text += f"\nDepartment: {dept}\n"
                 for t in tests:
                     output_text += f"  - Tube {t.get('tube')}: {t.get('test')} [{t.get('uri')}]\n"
@@ -294,7 +404,34 @@ class ClinicalADKHarness:
 
         # Special case: Calcium collision check
         if "calcium" in term.lower() and val is not None:
-            calc_args = {"value_mg_dl": val, "qualifier": qualifier}
+            # Defect #5: the unit from the clinician's input was ignored; the value was
+            # always forwarded as-is and treated as mg/dL even when mmol/L was reported.
+            # Convert to mg/dL before calling check_calcium so the classification and
+            # clarification message use the correct scale.
+            from src.core.attestation import convert_unit
+
+            val_mgdl = val
+            if unit and unit.strip().lower() == "mmol/l":
+                converted = convert_unit(val, "mmol/L", "mg/dL", analyte="calcium")
+                if converted is None:
+                    clarification_msg = (
+                        f"Cannot convert reported Calcium value {val} mmol/L to mg/dL. "
+                        "Please resend with value expressed in mg/dL."
+                    )
+                    output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
+                    session.add_model_message(content=output_text, tool_calls=all_tool_calls)
+                    return HarnessResponse(
+                        text=output_text,
+                        route="CLARIFY",
+                        status="UNIT_MISMATCH",
+                        session_id=session.session_id,
+                        tool_calls=all_tool_calls,
+                        clarification=clarification_msg,
+                        is_hitl_paused=True,
+                    )
+                val_mgdl = converted
+
+            calc_args = {"value_mg_dl": val_mgdl, "qualifier": qualifier}
             calc_res = self.mcp_bridge.execute_tool("check_calcium", calc_args)
             record = ToolInvocationRecord(tool_name="check_calcium", args=calc_args, result=calc_res)
             all_tool_calls.append(record)
@@ -302,8 +439,9 @@ class ClinicalADKHarness:
 
             status = calc_res.get("status", "RESOLVED")
             if status == "RANGE_COLLISION":
+                reported_display = f"{val} {unit}" if unit else f"{val_mgdl} mg/dL"
                 clarification_msg = (
-                    f"Calcium value {val} mg/dL is ambiguous without qualification: "
+                    f"Calcium value {reported_display} is ambiguous without qualification: "
                     f"CRITICAL LOW for Total Calcium vs NORMAL for Ionized Calcium. "
                     f"Please specify qualifier ('total' or 'ionized')."
                 )
@@ -372,10 +510,13 @@ class ClinicalADKHarness:
         record_proto = ToolInvocationRecord(tool_name="fetch_grounded_protocol", args=proto_args, result=proto_res)
         all_tool_calls.append(record_proto)
         self.context_mgr.append_tool_result_to_session(session, "fetch_grounded_protocol", proto_res)
+        proto_detail = proto_res.get("protocol", proto_res)
 
         # Step 5: Attest computation
         attested = False
         badge = ""
+        panic_warning = ""
+        attest_failure_msg = ""
         if val is not None and uri:
             attest_args = {"value": val, "uri": uri, "unit": unit}
             attest_res = self.mcp_bridge.execute_tool("attest_computation", attest_args)
@@ -385,8 +526,36 @@ class ClinicalADKHarness:
             if attest_res.get("passed"):
                 attested = True
                 badge = " [Attested ✓]"
+                # Defect #1: a panic value passes attestation but must never receive
+                # a clean badge without a CRITICAL WARNING visible to the clinician.
+                if attest_res.get("is_panic"):
+                    panic_warning = (
+                        f"\n⚠️  CRITICAL — PANIC VALUE: {val} {unit} is outside the panic "
+                        f"limits for {candidate.get('label', uri)}. "
+                        f"Panic limits: {attest_res.get('panic_limits', proto_detail.get('panic_limits', 'N/A'))}. "
+                        "Immediate clinical escalation required."
+                    )
+            else:
+                attest_fail_reason = attest_res.get("message", "Value failed deterministic attestation.")
+                clarification_msg = (
+                    f"Attestation failed for {candidate.get('label', uri)}: {attest_fail_reason} "
+                    "Value is outside plausible clinical parameters or protocol is stale. "
+                    "Please verify and resend the order."
+                )
+                output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
+                session.add_model_message(content=output_text, tool_calls=all_tool_calls)
+                return HarnessResponse(
+                    text=output_text,
+                    route="CLARIFY",
+                    status="ATTESTATION_FAILED",
+                    session_id=session.session_id,
+                    tool_calls=all_tool_calls,
+                    protocol=proto_res,
+                    attested=False,
+                    clarification=clarification_msg,
+                    is_hitl_paused=True,
+                )
 
-        proto_detail = proto_res.get("protocol", proto_res)
         output_text = (
             f"[PROCEED - Grounded Interpretation]{badge}\n"
             f"Resolved Concept: {candidate.get('label')} ({uri})\n"
@@ -395,6 +564,7 @@ class ClinicalADKHarness:
             f"Reference Range: {proto_detail.get('reference_range', 'N/A')}\n"
             f"Panic Limits: {proto_detail.get('panic_limits', 'N/A')}\n"
             f"Clinical Guidance: Verified against canonical ontology and governed protocols."
+            f"{panic_warning}{attest_failure_msg}"
         )
 
         session.add_model_message(content=output_text, tool_calls=all_tool_calls)

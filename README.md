@@ -74,12 +74,13 @@ multiagent-retrieval-gaps/
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
 │   └── tests/
-│       ├── test_gate.py                 # 27 deterministic safety invariant tests
+│       ├── test_gate.py                 # 28 deterministic safety invariant tests
 │       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
 │       ├── test_okf_refinement.py       # 46 OKF Phase 1–4 tests (trust tiers, loader, resolver, synthesis)
 │       ├── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
-│       ├── test_harness.py             # 35 harness tests: session, MCP dispatch, context, scenarios
-│       └── test_code_review_regressions.py # 15 regression tests: T1–T15 (patient safety & gate bypass prevention)
+│       ├── test_harness.py              # 49 harness tests: session, MCP dispatch, context, scenarios
+│       ├── test_code_review_regressions.py # 15 regression tests: T1–T15 (patient safety & gate bypass prevention)
+│       └── test_audit_regressions.py   # 16 audit regression tests: panic badge, CSF bypass, unit conv, contradiction
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
@@ -98,7 +99,9 @@ multiagent-retrieval-gaps/
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint
 │   └── tests/
-│       └── test_strands_agents.py       # 50 deterministic offline tests
+│       ├── test_gate.py                 # 15 deterministic safety invariant tests
+│       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
+│       └── test_strands_agents.py       # 24 deterministic offline tests
 │
 ├── agent-framework/                     # ── Framework 3: Microsoft Agent Framework (MAF) ────
 │   ├── pytest.ini
@@ -230,7 +233,7 @@ python -m src.harness.console --offline
 uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 # POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
 
-# 8. Run tests (163 deterministic safety invariants, OKF & harness tests)
+# 8. Run tests (194 deterministic safety invariants, OKF & harness tests)
 python -m pytest tests/ -v
 ```
 
@@ -464,16 +467,16 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Google ADK ≥2.11.0 — 148 tests (~5.4 s)
+# Google ADK ≥2.11.0 — 194 tests (~5.4 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
-# AWS Strands SDK — 52 tests (~1.7 s)
+# AWS Strands SDK — 55 tests (~1.7 s)
 cd strands-agents && python -m pytest tests/ -v
 
 # Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 244 deterministic safety invariants verified across all 3 frameworks!
+# Total: 293 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
@@ -638,7 +641,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | — | `ClinicalHarnessAgent` (todos, modes, approval) |
 | **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | — | — |
 | **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
-| **Tests** | **148 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 52 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
+| **Tests** | **194 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 55 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

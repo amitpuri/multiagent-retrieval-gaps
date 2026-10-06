@@ -404,3 +404,19 @@ def test_engine_success_does_not_leak_last_detector_result_adk():
     assert result.candidates == [], (
         "Engine success branch leaked last detector's candidates into the final result"
     )
+
+
+# -------------------------------------------------------------------------
+# Defect #6 regression: contradictory term and qualifier must return AMBIGUOUS
+# -------------------------------------------------------------------------
+def test_contradictory_qualifier_fails_safety_gate():
+    """Contradictory qualifier 'total' on term 'ionized calcium' must return AMBIGUOUS."""
+    from src.core.detectors.engine import SafetyGateEngine
+    from src.core.models import EvaluationContext, ResolutionStatus
+
+    engine = SafetyGateEngine()
+    ctx = EvaluationContext(term="ionized calcium", qualifier="total", unit="mg/dL")
+    result = engine.evaluate(ctx)
+    assert result.passed is False
+    assert result.status == ResolutionStatus.AMBIGUOUS
+    assert "contradicts" in result.message.lower()

@@ -43,13 +43,16 @@ class SafetyGateEngine:
             from src.core.detectors.range_collision import RangeCollisionDetector
             from src.core.detectors.specimen_sequence import SpecimenSequenceDetector
 
-            # Default suite ordering:
-            # 1. MissingUnitDetector      — unitless numeric values fail immediately as UNIT_MISMATCH
+            # Default suite ordering (synced to ADK engine.py — defect #4 fix):
+            # 1. MissingUnitDetector      — unitless numeric values fail immediately
             # 2. UnitMismatchDetector     — unsupported units fail as UNIT_MISMATCH
-            # 3. RangeCollisionDetector   — numeric look-alike range collision before lexical ambiguity
+            # 3. RangeCollisionDetector   — numeric look-alike BEFORE lexical ambiguity
             # 4. MissingQualifierDetector — unqualified multi-concept numeric tests
             # 5. AmbiguityDetector        — multi-concept ambiguity
-            # 6. SpecimenSequenceDetector — tube ordering
+            # 6. SpecimenSequenceDetector — tube ordering (skipped when no panel_id)
+            #
+            # The original Strands order had RangeCollision AFTER Ambiguity, causing
+            # "Calcium 4.8 mg/dL" to return AMBIGUOUS instead of RANGE_COLLISION.
             self.detectors = [
                 MissingUnitDetector(self.registry),
                 UnitMismatchDetector(self.registry),

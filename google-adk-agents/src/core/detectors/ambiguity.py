@@ -93,6 +93,29 @@ class AmbiguityDetector(GapDetector):
                 candidates=[c.to_view() for c in candidates],
             )
 
+        # Defect #6: Check for qualifier contradiction against resolved concept/term.
+        # A qualifier must not contradict the resolved concept or explicit term.
+        # e.g. term='ionized calcium' with qualifier='total' or vice versa.
+        if qualifier and len(candidates) == 1:
+            q_lower = qualifier.strip().lower()
+            opposites = {
+                "total": ("ionized", "free"),
+                "ionized": ("total",),
+                "free": ("total",),
+            }.get(q_lower, ())
+            target_text = (term + " " + candidates[0].label + " " + " ".join(candidates[0].alt_labels)).lower()
+            if any(re.search(rf"\b{re.escape(opp)}\b", target_text) for opp in opposites):
+                return GapEvaluationResult(
+                    passed=False,
+                    status=ResolutionStatus.AMBIGUOUS,
+                    gap_name=self.gap_name,
+                    message=(
+                        f"Qualifier '{qualifier}' contradicts term or concept '{candidates[0].label}'. "
+                        "Clarification required."
+                    ),
+                    candidates=[c.to_view() for c in candidates],
+                )
+
         # Single concept resolved
         return GapEvaluationResult(
             passed=True,

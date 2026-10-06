@@ -72,3 +72,19 @@ protocols:
         measurement: "ionized"
       executor: "protocol_retriever_agent"
       attester: "deterministic_range_checker"
+
+  "loinc:2880-3":
+    reference_range: "15 to 45 mg/dL"
+    panic_limits: "Low < 5 mg/dL; high > 100 mg/dL"
+    clinical_guideline: "CSF protein evaluates blood-brain barrier integrity, neuroinflammation, or demyelination."
+    # OKF: Lifecycle & Trust
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    verified_by: "human:dr_puri"
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        expected_max: 500.0
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
+
