@@ -710,3 +710,7 @@ Further Reading
 - [Neo4j GraphRAG](https://graphrag.com)
 - [A modular graph-based Retrieval-Augmented Generation (RAG) system](https://microsoft.github.io/graphrag)
 
+arXiv Papers
+- [From Local to Global: A Graph RAG Approach to Query-Focused Summarization](https://arxiv.org/abs/2404.16130)
+- [Simple and Fast Retrieval-Augmented Generation](https://arxiv.org/abs/2410.05779)
+
