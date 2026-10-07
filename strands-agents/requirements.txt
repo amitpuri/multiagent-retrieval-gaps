@@ -16,3 +16,7 @@ python-dotenv>=1.2.2
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# HTTP Production Server
+fastapi>=0.110.0
+uvicorn>=0.28.0

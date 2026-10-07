@@ -39,10 +39,14 @@ def build_agent_factory(
 
     # ── Option A: Azure AI Foundry ──────────────────────────────────────────
     if os.getenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"):
-        from azure.identity import AzureCliCredential
+        try:
+            from azure.identity import DefaultAzureCredential
+            credential = DefaultAzureCredential()
+        except ImportError:
+            from azure.identity import AzureCliCredential
+            credential = AzureCliCredential()
         try:
             from agent_framework.foundry import FoundryChatClient
-            credential = AzureCliCredential()
             client = FoundryChatClient(
                 endpoint=os.environ["AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"],
                 credential=credential,
@@ -56,8 +60,13 @@ def build_agent_factory(
 
     # ── Option B: Azure OpenAI direct ──────────────────────────────────────
     if os.getenv("AZURE_OPENAI_ENDPOINT"):
-        from azure.identity import AzureCliCredential
-        return AgentFactory(credential=AzureCliCredential(), bindings=bindings, safe_mode=safe_mode)
+        try:
+            from azure.identity import DefaultAzureCredential
+            credential = DefaultAzureCredential()
+        except ImportError:
+            from azure.identity import AzureCliCredential
+            credential = AzureCliCredential()
+        return AgentFactory(credential=credential, bindings=bindings, safe_mode=safe_mode)
 
     # ── Option C: OpenAI Agents SDK (local fallback) ────────────────────────
     # Active when only OPENAI_API_KEY is present (e.g. src/.env in this repo)
