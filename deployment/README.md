@@ -76,7 +76,7 @@ flowchart LR
     end
 
     subgraph Azure_Foundry["Azure AI Foundry"]
-        MAF["agent-framework/"] -->|Managed Identity (RBAC)| AzureAI["Azure AI Foundry Project\ngpt-5 (ais-clinical-agents)"]
+        MAF["agent-framework/"] -->|Managed Identity RBAC| AzureAI["Azure AI Foundry Project\ngpt-5 (ais-clinical-agents)"]
         MAF -.->|Fallback| DetMock3["Deterministic SafetyGateEngine / Mock"]
     end
 ```
