@@ -14,11 +14,12 @@ By Dr. Amit Puri · October 2026
 - **An ontology's job in an agent is to define what a term means, and when to stop.** In laboratory medicine, terms like `"Hb"`, `"Calcium"`, `"CSF panel"`, and `"Troponin"` each conceal multiple distinct assays with different clinical units, reference ranges, or owning laboratory departments.
 - **Same clinical logic, three agent frameworks.** The deterministic `SafetyGateEngine`, Pydantic models, YAML config, and A2A contracts are framework-independent. Three complete implementations demonstrate portability:
 
-| Framework | Folder | Model | Status |
-| :--- | :--- | :--- | :--- |
-| **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.5 Flash | ✅ Complete |
-| **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | ✅ Complete |
-| **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | GPT-5 via Azure AI Foundry / OpenAI | ✅ Complete |
+| Framework | Folder | Model | Production Target | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.5 Flash | Google Cloud Agent Platform / Cloud Run | ✅ Complete |
+| **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | AWS Bedrock AgentCore / ECS Fargate | ✅ Complete |
+| **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | GPT-5 via Azure AI Foundry / OpenAI | Azure Container Apps + AI Foundry | ✅ Complete |
+| **Multi-Cloud Deployment Automation** | `deployment/` | Multi-Cloud Agent Fleet | GCP, AWS & Azure (Bash & PowerShell) | ✅ Complete |
 
 > [!TIP]
 > The objective is not to find a universally "perfect" agent architecture, but to pinpoint **what failed**, **why it failed**, and **the smallest intervention that fixes it**.
@@ -43,9 +44,28 @@ multiagent-retrieval-gaps/
 │       ├── scenario_c_calcium_collision.yaml # Calcium look-alike range collision
 │       └── scenario_d_troponin.yaml          # Dynamic extension: Troponin I vs T (zero-code)
 │
+├── deployment/                          # ── Multi-Cloud Production Deployment Automation ─────
+│   ├── README.md                        # Multi-cloud deployment guide (GCP, AWS, Azure)
+│   ├── IMPLEMENTATION_PLAN.md           # Architecture, security & provisioning specification
+│   ├── gcloud-scripts/                  # Google Cloud Agent Platform / Cloud Run
+│   │   ├── config.env                   # Project ID, region (europe-west1), service config
+│   │   ├── deploy.sh / deploy.ps1       # Automated Cloud Run & Agent Platform provisioning
+│   │   ├── destroy.sh / destroy.ps1     # Clean resource teardown
+│   │   └── test-service.sh / .ps1       # End-to-end integration & health verification
+│   ├── aws-scripts/                     # AWS Bedrock AgentCore / ECS Fargate
+│   │   ├── config.env                   # AWS region (us-east-1), AgentCore config
+│   │   ├── deploy.sh / deploy.ps1       # Automated Bedrock AgentCore & IAM provisioning
+│   │   ├── destroy.sh / destroy.ps1     # Clean resource teardown
+│   │   └── test-service.sh / .ps1       # End-to-end integration & health verification
+│   └── az-scripts/                      # Azure Container Apps + AI Foundry
+│       ├── config.env                   # Azure region (eastus), AI Foundry project config
+│       ├── deploy.sh / deploy.ps1       # Keyless Managed Identity + ACA deployment
+│       ├── destroy.sh / destroy.ps1     # Clean resource teardown
+│       └── test-service.sh / .ps1       # End-to-end integration & health verification
+│
 ├── google-adk-agents/                   # ── Framework 1: Google ADK 2.0 ──────────────────────
 │   ├── README.md                        # Framework 1 documentation, OKF v0.2 & Harness details
-│   ├── Dockerfile                       # Cloud Run / GKE production container
+│   ├── Dockerfile                       # Cloud Run / GKE production container (port 8000)
 │   ├── pytest.ini
 │   ├── src/
 │   │   ├── .env                         # GEMINI_API_KEY (gitignored)
@@ -84,12 +104,14 @@ multiagent-retrieval-gaps/
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
+│   ├── Dockerfile                       # ECS / App Runner production container (port 8000)
 │   ├── pytest.ini
 │   ├── requirements.txt
 │   ├── .env.example                     # Bedrock / AgentCore template
 │   ├── src/
 │   │   ├── .env                         # ANTHROPIC_API_KEY + ANTHROPIC_MODEL_ID (gitignored)
 │   │   ├── env.example
+│   │   ├── server.py                    # Production FastAPI ASGI server (REST + healthz + MCP tools)
 │   │   ├── models/provider.py           # AnthropicModel (claude-sonnet-4-5) or BedrockModel
 │   │   ├── a2a/contracts.py             # Shared A2A contracts (same schema as ADK)
 │   │   ├── core/                        # Shared detectors & Pydantic models
@@ -101,9 +123,11 @@ multiagent-retrieval-gaps/
 │   └── tests/
 │       ├── test_gate.py                 # 15 deterministic safety invariant tests
 │       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
-│       └── test_strands_agents.py       # 24 deterministic offline tests
+│       └── test_strands_agents.py       # 26 deterministic offline tests
 │
 ├── agent-framework/                     # ── Framework 3: Microsoft Agent Framework (MAF) ────
+│   ├── README.md                        # Framework 3 documentation & declarative workflow details
+│   ├── Dockerfile                       # Azure Container Apps production container (port 8000)
 │   ├── pytest.ini
 │   ├── requirements.txt
 │   ├── load_env.sh
@@ -124,6 +148,7 @@ multiagent-retrieval-gaps/
 │   │   ├── harness/                     # MAF Agent Harness
 │   │   │   ├── agent.py                 # ClinicalHarnessAgent + create_clinical_harness_agent()
 │   │   │   ├── session.py               # HarnessSession — per-turn history & state
+│   │   │   ├── server.py                # Production FastAPI ASGI server (REST + healthz + MCP tools)
 │   │   │   ├── providers.py             # ClinicalTodoProvider, ClinicalModeProvider,
 │   │   │   │                            #   SafetyGateApprovalPolicy
 │   │   │   └── console.py               # Terminal UX — /todos /mode /scenario /status
@@ -311,8 +336,12 @@ python src/main.py
 # 4. Offline mode (no API key needed, deterministic mock)
 python src/main.py --offline
 
-# 5. Run tests (50 deterministic offline invariants, ~1.7 s)
+# 5. Run tests (57 deterministic offline invariants, ~1.7 s)
 python -m pytest tests/ -v
+
+# 6. Start production REST server (FastAPI / ASGI on port 8000)
+uvicorn src.server:app --host 0.0.0.0 --port 8000
+# POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
 ```
 
 > [!TIP]
@@ -434,7 +463,11 @@ python src/main.py --harness
 python src/main.py --harness-scenario A
 python src/main.py --harness-scenario all
 
-# 8. Run test suite (44 deterministic safety invariants, ~1.2 s)
+# 8. Start production REST server (FastAPI / ASGI on port 8000)
+uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
+# POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
+
+# 9. Run test suite (44 deterministic safety invariants, ~1.2 s)
 python -m pytest tests/ -v
 ```
 
@@ -470,13 +503,13 @@ Pure-code deterministic `pytest` suites verify safety invariants **without LLM c
 # Google ADK ≥2.11.0 — 194 tests (~5.4 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
-# AWS Strands SDK — 55 tests (~1.7 s)
+# AWS Strands SDK — 57 tests (~1.7 s)
 cd strands-agents && python -m pytest tests/ -v
 
 # Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 293 deterministic safety invariants verified across all 3 frameworks!
+# Total: 295 deterministic safety invariants verified across all 3 frameworks!
 ```
 
 ---
@@ -638,10 +671,12 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **Agent framework** | Google ADK ≥2.11.0 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
 | **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | `gpt-5` via Azure AI Foundry / OpenAI |
 | **Session memory** | ADK `InMemorySessionService` + `HarnessSession` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
-| **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | — | `ClinicalHarnessAgent` (todos, modes, approval) |
-| **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | — | — |
-| **Safety gate** | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) | `SafetyGateEngine` (shared) |
-| **Tests** | **194 offline `pytest` tests** (OKF v0.2 + Safety Gate + Harness) | 55 offline `pytest` tests | 44 offline `pytest` tests (✅ Complete) |
+| **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | FastAPI ASGI server (`src/server.py`, REST API) | `ClinicalHarnessAgent` + ASGI server (`src/harness/server.py`) |
+| **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | FastMCP tools & REST bridge via `src/server.py` | FastMCP tools & REST bridge via `src/harness/server.py` |
+| **Production Target** | Google Cloud Agent Platform / Cloud Run | AWS Bedrock AgentCore / ECS Fargate | Azure Container Apps + AI Foundry |
+| **Container Port** | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) |
+| **Safety gate** | `SafetyGateEngine` (shared deterministic code) | `SafetyGateEngine` (shared deterministic code) | `SafetyGateEngine` (shared deterministic code) |
+| **Tests** | **194 offline `pytest` tests** (OKF v0.2 + Gate + Harness) | **57 offline `pytest` tests** (Invariants + Extensible + Roles) | **44 offline `pytest` tests** (Invariants + Pipeline + Harness) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |
@@ -656,6 +691,87 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 > [!WARNING]
 > **Safety rules must live in deterministic code, not in prompts.** This is Gap 9.
 > The `SafetyGateEngine` runs before any LLM synthesis — regardless of which agent framework is used.
+
+---
+
+## Multi-Cloud Production Deployment (`deployment/`)
+
+All three framework implementations are containerized and cloud-ready for high-availability clinical decision support across Google Cloud, Amazon Web Services, and Microsoft Azure.
+
+```mermaid
+flowchart TD
+    Clinician([Clinician / EHR / LIS Client])
+
+    subgraph GCP["Google Cloud Agent Platform (europe-west1)"]
+        GCRun["Vertex AI Agent Platform / Cloud Run\nclinical-adk-agent:8000"]
+        GAR["Artifact Registry\nclinical-agents"]
+        GSM["Secret Manager\nclinical-gemini-api-key"]
+        VAE["Vertex AI Agent Engine\nReasoning Engine"]
+        GCRun --- GAR
+        GCRun --- GSM
+        GCRun --- VAE
+    end
+
+    subgraph AWS["Amazon Web Services (us-east-1)"]
+        AgentCore["Bedrock AgentCore Runtime\nclinical-strands-agent:8000"]
+        ECR["Amazon ECR\nstrands-clinical-agents"]
+        Mem["AgentCore Memory\nclinical-agent-memory"]
+        IAM_AC["IAM Role\nBedrockAgentCoreExecutionRole"]
+        AgentCore --- ECR
+        AgentCore --- Mem
+        AgentCore --- IAM_AC
+    end
+
+    subgraph Azure["Microsoft Azure (eastus)"]
+        ACA["Azure Container Apps\nmaf-clinical-agents:8000"]
+        ACR["Azure Container Registry\nacrclinagents*"]
+        Foundry["Azure AI Foundry Project\nais-clinical-agents/aiproj-clinical-agents (gpt-5)"]
+        MI["Managed Identity\nCognitive Services OpenAI User"]
+        ACA --- ACR
+        ACA --- Foundry
+        ACA --- MI
+    end
+
+    Clinician -->|HTTPS REST / MCP| GCRun
+    Clinician -->|HTTPS REST / MCP| AgentCore
+    Clinician -->|HTTPS REST / MCP| ACA
+```
+
+### Multi-Cloud Service Matrix
+
+| Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Authentication & Secrets | Port | Health Checks |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Google Cloud** | **`google-adk-agents/`** | **Google Cloud Agent Platform** (Cloud Run + Vertex AI Engine) | Gemini 3.5 Flash | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
+| **AWS** | **`strands-agents/`** | **Amazon Bedrock AgentCore Runtime** (Memory, Gateway, ECS) | Claude Sonnet 4.5 | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
+| **Microsoft Azure** | **`agent-framework/`** | **Azure Container Apps** (ACA) | Azure AI Foundry / Azure OpenAI (`gpt-5`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
+
+### Automated Deployment Scripts
+
+Automated deployment, testing, and teardown scripts are provided in both Bash (`.sh`) and PowerShell (`.ps1`) under [`deployment/`](deployment/):
+
+```bash
+# ── Google Cloud (Cloud Run / Vertex AI Agent Platform) ────────────
+cd deployment/gcloud-scripts
+./deploy.sh          # Or in PowerShell: .\deploy.ps1
+./test-service.sh    # End-to-end integration and health validation
+./destroy.sh         # Clean teardown of cloud resources
+
+# ── Amazon Web Services (Bedrock AgentCore / ECS Fargate) ──────────
+cd deployment/aws-scripts
+./deploy.sh          # Or in PowerShell: .\deploy.ps1
+./test-service.sh    # Verify Bedrock AgentCore & memory endpoints
+./destroy.sh         # Clean teardown of cloud resources
+
+# ── Microsoft Azure (Container Apps + Azure AI Foundry) ────────────
+cd deployment/az-scripts
+./deploy.sh          # Or in PowerShell: .\deploy.ps1
+./test-service.sh    # Verify Container App & Managed Identity auth
+./destroy.sh         # Clean teardown of cloud resources
+```
+
+> [!TIP]
+> See [`deployment/README.md`](deployment/README.md) for the complete multi-cloud deployment guide, environment configuration variables, and IAM/RBAC specifications.
+
 
 ---
 
