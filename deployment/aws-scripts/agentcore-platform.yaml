@@ -1,0 +1,944 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Amazon Bedrock AgentCore & App Runner platform stack for Clinical Decision Support (strands-agents):
+  Runtime, Gateway (+ clinical Lambda target), Memory, Identity, Policy, Payments, Built-in tools
+  (Browser / Code Interpreter), Observability, Online Evaluations, and optional App Runner service.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Naming & Service Specs }
+        Parameters: [ProjectName, Environment, EcrRepoName, ImageTag, Port]
+      - Label: { default: Deployment Target }
+        Parameters: [DeployTarget, ContainerImageUri, AppRunnerCpu, AppRunnerMemory]
+      - Label: { default: Feature toggles }
+        Parameters: [EnableMemory, EnableGateway, EnablePolicy, EnableIdentity, EnableBuiltinTools,
+                     EnablePayments, EnableHarness, EnableEvaluations, EnableTransactionSearch, EnableEcrRepo]
+      - Label: { default: Runtime & Model }
+        Parameters: [BedrockModelId, RuntimeProtocol, NetworkMode, SubnetIds, SecurityGroupIds]
+      - Label: { default: Auth }
+        Parameters: [AuthMode, JwtDiscoveryUrl, JwtAllowedClients]
+      - Label: { default: Other }
+        Parameters: [KmsKeyArn, PolicyMode, EvalSamplingPercentage, LogRetentionDays]
+
+# --------------------------------------------------------------------------- #
+Parameters:
+  ProjectName:
+    Type: String
+    Default: strands
+    AllowedPattern: ^[a-z][a-z0-9]{1,15}$
+    Description: Short lowercase alphanumeric name for clinical agent stack.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  EcrRepoName:
+    Type: String
+    Default: strands-clinical-agents
+    Description: Amazon ECR repository name for strands-agents container image.
+
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Container image tag.
+
+  Port:
+    Type: Number
+    Default: 8000
+    Description: Container listening port for FastAPI clinical agent service.
+
+  DeployTarget:
+    Type: String
+    Default: BOTH
+    AllowedValues: [AGENTCORE, APPRUNNER, BOTH, NONE]
+    Description: Compute deployment target (AgentCore Runtime, App Runner, Both, or None).
+
+  AppRunnerCpu:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["256", "512", "1024", "2048", "4096"]
+    Description: App Runner compute vCPU (1024 = 1 vCPU).
+
+  AppRunnerMemory:
+    Type: String
+    Default: "2048"
+    AllowedValues: ["512", "1024", "2048", "3072", "4096", "6144", "8192", "10240", "12288"]
+    Description: App Runner memory in MB (2048 = 2 GB).
+
+  EnableEcrRepo:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Create ECR repository via CloudFormation (leave false if created by deploy scripts).
+
+  EnableMemory:          { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
+  EnableGateway:         { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
+  EnablePolicy:          { Type: String, Default: "true",  AllowedValues: ["true", "false"], Description: Requires EnableGateway. }
+  EnableIdentity:        { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
+  EnableBuiltinTools:    { Type: String, Default: "true",  AllowedValues: ["true", "false"], Description: Custom Browser + Code Interpreter. }
+  EnablePayments:        { Type: String, Default: "false", AllowedValues: ["true", "false"] }
+  EnableHarness:         { Type: String, Default: "false", AllowedValues: ["true", "false"] }
+  EnableEvaluations:     { Type: String, Default: "false", AllowedValues: ["true", "false"], Description: Requires a Runtime (ContainerImageUri). }
+  EnableTransactionSearch:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Account-wide CloudWatch Transaction Search (needed for AgentCore trace views / evaluations).
+      Leave false if already enabled in this Region.
+
+  ContainerImageUri:
+    Type: String
+    Default: ""
+    Description: Optional explicit ECR image URI. If empty, auto-constructed from Account, Region, EcrRepoName, and ImageTag.
+
+  RuntimeProtocol:
+    Type: String
+    Default: HTTP
+    AllowedValues: [HTTP, MCP, A2A, AGUI]
+  NetworkMode:
+    Type: String
+    Default: PUBLIC
+    AllowedValues: [PUBLIC, VPC]
+  SubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Required when NetworkMode=VPC.
+  SecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Required when NetworkMode=VPC.
+
+  AuthMode:
+    Type: String
+    Default: AWS_IAM
+    AllowedValues: [AWS_IAM, CUSTOM_JWT]
+    Description: Inbound auth for Runtime, Gateway and PaymentManager.
+  JwtDiscoveryUrl:
+    Type: String
+    Default: ""
+    Description: OIDC discovery URL (…/.well-known/openid-configuration). Needed for CUSTOM_JWT.
+  JwtAllowedClients:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Allowed OAuth client IDs. Needed for CUSTOM_JWT.
+
+  KmsKeyArn:
+    Type: String
+    Default: ""
+    Description: Optional customer-managed KMS key for Memory and Gateway. Key policy must allow AgentCore.
+  PolicyMode:
+    Type: String
+    Default: LOG_ONLY
+    AllowedValues: [LOG_ONLY, ENFORCE]
+    Description: Start in LOG_ONLY, watch decisions, then flip to ENFORCE.
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-sonnet-4-5-20251203-v1:0
+    Description: Bedrock foundation model ID or inference profile for clinical decision support.
+  EvalSamplingPercentage:
+    Type: Number
+    Default: 10
+    MinValue: 0.01
+    MaxValue: 100
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+
+# --------------------------------------------------------------------------- #
+Conditions:
+  HasExplicitImage: !Not [!Equals [!Ref ContainerImageUri, ""]]
+  TargetAgentCore:  !Or [!Equals [!Ref DeployTarget, AGENTCORE], !Equals [!Ref DeployTarget, BOTH]]
+  TargetAppRunner:  !Or [!Equals [!Ref DeployTarget, APPRUNNER], !Equals [!Ref DeployTarget, BOTH]]
+  CreateRuntime:    !Condition TargetAgentCore
+  CreateAppRunner:  !Condition TargetAppRunner
+  NeedsComputeRole: !Or [!Condition CreateRuntime, !Condition CreateAppRunner]
+  CreateEcr:        !Equals [!Ref EnableEcrRepo, "true"]
+  CreateMemory:     !Equals [!Ref EnableMemory, "true"]
+  CreateGateway:    !Equals [!Ref EnableGateway, "true"]
+  CreatePolicy:     !And [!Equals [!Ref EnablePolicy, "true"], !Equals [!Ref EnableGateway, "true"]]
+  CreateIdentity:   !Equals [!Ref EnableIdentity, "true"]
+  CreateBuiltin:    !Equals [!Ref EnableBuiltinTools, "true"]
+  CreatePayments:   !Equals [!Ref EnablePayments, "true"]
+  CreateHarness:    !Equals [!Ref EnableHarness, "true"]
+  CreateEvals:      !And [!Equals [!Ref EnableEvaluations, "true"], !Condition CreateRuntime]
+  CreateTxSearch:   !Equals [!Ref EnableTransactionSearch, "true"]
+  UseJwt:           !Equals [!Ref AuthMode, CUSTOM_JWT]
+  UseVpc:           !Equals [!Ref NetworkMode, VPC]
+  UseKms:           !Not [!Equals [!Ref KmsKeyArn, ""]]
+  PolicyEnforce:    !Equals [!Ref PolicyMode, ENFORCE]
+  RuntimeUsesMemory:  !And [!Condition CreateRuntime, !Condition CreateMemory]
+  RuntimeUsesGateway: !And [!Condition CreateRuntime, !Condition CreateGateway]
+  RuntimeUsesBuiltin: !And [!Condition CreateRuntime, !Condition CreateBuiltin]
+
+Resources:
+
+  # ========================================================================= #
+  # ECR REPOSITORY (Optional managed repository for strands-agents)
+  # ========================================================================= #
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Condition: CreateEcr
+    Properties:
+      RepositoryName: !Ref EcrRepoName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ========================================================================= #
+  # MEMORY  – short & long term clinical session context
+  # ========================================================================= #
+  AgentMemory:
+    Type: AWS::BedrockAgentCore::Memory
+    Condition: CreateMemory
+    Properties:
+      Name: !Sub "${ProjectName}_${Environment}_memory"
+      Description: Clinical agent session memory for LOINC resolution context
+      EventExpiryDuration: 30            # days of raw short-term events
+      EncryptionKeyArn: !If [UseKms, !Ref KmsKeyArn, !Ref AWS::NoValue]
+      MemoryStrategies:                  # long-term extraction strategies
+        - SemanticMemoryStrategy:
+            Name: semantic_facts
+            Namespaces: ["/strategies/{memoryStrategyId}/actors/{actorId}"]
+        - UserPreferenceMemoryStrategy:
+            Name: user_preferences
+            Namespaces: ["/strategies/{memoryStrategyId}/actors/{actorId}"]
+        - SummaryMemoryStrategy:
+            Name: session_summaries
+            Namespaces: ["/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}"]
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ========================================================================= #
+  # IDENTITY
+  # ========================================================================= #
+  AgentWorkloadIdentity:
+    Type: AWS::BedrockAgentCore::WorkloadIdentity
+    Condition: CreateIdentity
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-agent"
+
+  # ========================================================================= #
+  # BUILT-IN TOOLS  – Browser + Code Interpreter
+  # ========================================================================= #
+  BrowserRecordingBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateBuiltin
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-recordings
+            Status: Enabled
+            ExpirationInDays: 30
+
+  BrowserRole:
+    Type: AWS::IAM::Role
+    Condition: CreateBuiltin
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+              ArnLike: { "aws:SourceArn": !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*" }
+      Policies:
+        - PolicyName: recordings
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:ListMultipartUploadParts, s3:AbortMultipartUpload]
+                Resource: !Sub "${BrowserRecordingBucket.Arn}/*"
+
+  CustomBrowser:
+    Type: AWS::BedrockAgentCore::BrowserCustom
+    Condition: CreateBuiltin
+    Properties:
+      Name: !Sub "${ProjectName}_${Environment}_browser"
+      Description: Custom browser with session recording
+      NetworkConfiguration:
+        NetworkMode: PUBLIC
+      ExecutionRoleArn: !GetAtt BrowserRole.Arn
+      RecordingConfig:
+        Enabled: true
+        S3Location:
+          Bucket: !Ref BrowserRecordingBucket
+          Prefix: browser-recordings
+      Tags:
+        Project: !Ref ProjectName
+
+  CustomCodeInterpreter:
+    Type: AWS::BedrockAgentCore::CodeInterpreterCustom
+    Condition: CreateBuiltin
+    Properties:
+      Name: !Sub "${ProjectName}_${Environment}_codeinterp"
+      Description: Sandboxed code interpreter
+      NetworkConfiguration:
+        NetworkMode: SANDBOX
+      Tags:
+        Project: !Ref ProjectName
+
+  # ========================================================================= #
+  # GATEWAY  – APIs / Lambda functions → MCP tools (+ clinical Lambda target)
+  # ========================================================================= #
+  SampleToolFunctionRole:
+    Type: AWS::IAM::Role
+    Condition: CreateGateway
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: "sts:AssumeRole" }
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  SampleToolFunction:
+    Type: AWS::Lambda::Function
+    Condition: CreateGateway
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 10
+      Role: !GetAtt SampleToolFunctionRole.Arn
+      Code:
+        ZipFile: |
+          import datetime, json
+
+          def handler(event, context):
+              now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+              return {
+                  "statusCode": 200,
+                  "body": json.dumps({"status": "healthy", "service": "clinical-gateway-tool", "utc": now})
+              }
+
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Condition: CreateGateway
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+              ArnLike: { "aws:SourceArn": !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:gateway/*" }
+      Policies:
+        - PolicyName: gateway-targets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt SampleToolFunction.Arn
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:GetWorkloadAccessToken
+                  - bedrock-agentcore:GetResourceOauth2Token
+                  - bedrock-agentcore:GetResourceApiKey
+                Resource: "*"
+        - !If
+          - CreatePolicy
+          - PolicyName: policy-engine-access
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - bedrock-agentcore:GetPolicyEngine
+                    - bedrock-agentcore:AuthorizeAction
+                    - bedrock-agentcore:PartiallyAuthorizeActions
+                  Resource:
+                    - !GetAtt AgentPolicyEngine.PolicyEngineArn
+                    - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:gateway/*"
+          - !Ref AWS::NoValue
+
+  AgentGateway:
+    Type: AWS::BedrockAgentCore::Gateway
+    Condition: CreateGateway
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-gw"
+      Description: MCP gateway for clinical agent tools
+      ProtocolType: MCP
+      RoleArn: !GetAtt GatewayRole.Arn
+      AuthorizerType: !If [UseJwt, CUSTOM_JWT, AWS_IAM]
+      AuthorizerConfiguration: !If
+        - UseJwt
+        - CustomJWTAuthorizer:
+            DiscoveryUrl: !Ref JwtDiscoveryUrl
+            AllowedClients: !Ref JwtAllowedClients
+        - !Ref AWS::NoValue
+      KmsKeyArn: !If [UseKms, !Ref KmsKeyArn, !Ref AWS::NoValue]
+      PolicyEngineConfiguration: !If
+        - CreatePolicy
+        - Arn: !GetAtt AgentPolicyEngine.PolicyEngineArn
+          Mode: !If [PolicyEnforce, ENFORCE, LOG_ONLY]
+        - !Ref AWS::NoValue
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  SampleLambdaTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Condition: CreateGateway
+    Properties:
+      Name: clinical-utils
+      Description: Clinical utility tool target
+      GatewayIdentifier: !GetAtt AgentGateway.GatewayIdentifier
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      TargetConfiguration:
+        Mcp:
+          Lambda:
+            LambdaArn: !GetAtt SampleToolFunction.Arn
+            ToolSchema:
+              InlinePayload:
+                - Name: get_clinical_time
+                  Description: Returns current UTC time for clinical timestamping.
+                  InputSchema:
+                    Type: object
+                    Properties: {}
+
+  # ========================================================================= #
+  # POLICY  – Cedar authorization on gateway tool calls
+  # ========================================================================= #
+  AgentPolicyEngine:
+    Type: AWS::BedrockAgentCore::PolicyEngine
+    Condition: CreatePolicy
+    Properties:
+      Name: !Sub "${ProjectName}_${Environment}_policies"
+      Description: Authorization policies for clinical agent tool calls
+
+  AllowSampleTool:
+    Type: AWS::BedrockAgentCore::Policy
+    Condition: CreatePolicy
+    DependsOn: [SampleLambdaTarget]
+    Properties:
+      Name: allow_clinical_tool
+      Description: Allow callers to use the clinical tool
+      PolicyEngineId: !GetAtt AgentPolicyEngine.PolicyEngineId
+      ValidationMode: FAIL_ON_ANY_FINDINGS
+      EnforcementMode: ACTIVE
+      Definition:
+        Cedar:
+          Statement: !Sub
+            - |
+              permit(
+                principal,
+                action == AgentCore::Action::"clinical-utils___get_clinical_time",
+                resource == AgentCore::Gateway::"${GwArn}"
+              );
+            - GwArn: !GetAtt AgentGateway.GatewayArn
+
+  # ========================================================================= #
+  # PAYMENTS  – microtransactions
+  # ========================================================================= #
+  PaymentManagerRole:
+    Type: AWS::IAM::Role
+    Condition: CreatePayments
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: baseline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/*"
+
+  AgentPaymentManager:
+    Type: AWS::BedrockAgentCore::PaymentManager
+    Condition: CreatePayments
+    Properties:
+      Name: !Sub "${ProjectName}${Environment}payments"
+      Description: Payment authorization for agents
+      RoleArn: !GetAtt PaymentManagerRole.Arn
+      AuthorizerType: !If [UseJwt, CUSTOM_JWT, AWS_IAM]
+      AuthorizerConfiguration: !If
+        - UseJwt
+        - CustomJWTAuthorizer:
+            DiscoveryUrl: !Ref JwtDiscoveryUrl
+            AllowedClients: !Ref JwtAllowedClients
+        - !Ref AWS::NoValue
+      Tags:
+        - { Key: Project, Value: !Ref ProjectName }
+
+  # ========================================================================= #
+  # RUNTIME EXECUTION ROLE  – for Bedrock AgentCore and App Runner
+  # ========================================================================= #
+  RuntimeRole:
+    Type: AWS::IAM::Role
+    Condition: NeedsComputeRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+              ArnLike: { "aws:SourceArn": !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*" }
+          - Effect: Allow
+            Principal:
+              Service:
+                - tasks.apprunner.amazonaws.com
+                - lambda.amazonaws.com
+                - bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: base
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EcrPull
+                Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+              - Sid: EcrAuth
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogGroup, logs:DescribeLogStreams, logs:CreateLogStream, logs:PutLogEvents]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apprunner/*"
+              - Sid: LogsDescribe
+                Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+              - Sid: XRay
+                Effect: Allow
+                Action: [xray:PutTraceSegments, xray:PutTelemetryRecords, xray:GetSamplingRules, xray:GetSamplingTargets]
+                Resource: "*"
+              - Sid: Metrics
+                Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals: { "cloudwatch:namespace": bedrock-agentcore }
+              - Sid: WorkloadIdentity
+                Effect: Allow
+                Action:
+                  - bedrock-agentcore:GetWorkloadAccessToken
+                  - bedrock-agentcore:GetWorkloadAccessTokenForJWT
+                  - bedrock-agentcore:GetWorkloadAccessTokenForUserId
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default"
+                  - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*"
+              - Sid: BedrockModelsAndRuntime
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:InvokeAgent
+                  - bedrock:GetFoundationModel
+                  - bedrock-agentcore:*
+                  - bedrock-agent-runtime:*
+                Resource: "*"
+              - Sid: SecretsManager
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: "*"
+
+  RuntimeMemoryAccess:
+    Type: AWS::IAM::Policy
+    Condition: RuntimeUsesMemory
+    Properties:
+      PolicyName: memory-access
+      Roles: [!Ref RuntimeRole]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - bedrock-agentcore:CreateEvent
+              - bedrock-agentcore:GetEvent
+              - bedrock-agentcore:ListEvents
+              - bedrock-agentcore:ListSessions
+              - bedrock-agentcore:ListMemoryRecords
+              - bedrock-agentcore:GetMemoryRecord
+              - bedrock-agentcore:RetrieveMemoryRecords
+            Resource: !GetAtt AgentMemory.MemoryArn
+
+  RuntimeGatewayAccess:
+    Type: AWS::IAM::Policy
+    Condition: RuntimeUsesGateway
+    Properties:
+      PolicyName: gateway-access
+      Roles: [!Ref RuntimeRole]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: bedrock-agentcore:InvokeGateway
+            Resource: !GetAtt AgentGateway.GatewayArn
+
+  RuntimeBuiltinToolsAccess:
+    Type: AWS::IAM::Policy
+    Condition: RuntimeUsesBuiltin
+    Properties:
+      PolicyName: builtin-tools-access
+      Roles: [!Ref RuntimeRole]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - bedrock-agentcore:StartBrowserSession
+              - bedrock-agentcore:GetBrowserSession
+              - bedrock-agentcore:StopBrowserSession
+              - bedrock-agentcore:ConnectBrowserAutomationStream
+              - bedrock-agentcore:ConnectBrowserLiveViewStream
+              - bedrock-agentcore:StartCodeInterpreterSession
+              - bedrock-agentcore:GetCodeInterpreterSession
+              - bedrock-agentcore:InvokeCodeInterpreter
+              - bedrock-agentcore:StopCodeInterpreterSession
+            Resource:
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:browser/*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:browser-custom/*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:code-interpreter/*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:code-interpreter-custom/*"
+
+  # ========================================================================= #
+  # RUNTIME  – Amazon Bedrock AgentCore Runtime
+  # ========================================================================= #
+  AgentRuntime:
+    Type: AWS::BedrockAgentCore::Runtime
+    Condition: CreateRuntime
+    Properties:
+      AgentRuntimeName: !Sub "${ProjectName}_${Environment}_agent"
+      Description: Clinical Decision Support - Strands Agents SDK on Bedrock AgentCore
+      RoleArn: !GetAtt RuntimeRole.Arn
+      ProtocolConfiguration: !Ref RuntimeProtocol
+      AgentRuntimeArtifact:
+        ContainerConfiguration:
+          ContainerUri: !If
+            - HasExplicitImage
+            - !Ref ContainerImageUri
+            - !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepoName}:${ImageTag}"
+      NetworkConfiguration:
+        NetworkMode: !Ref NetworkMode
+        NetworkModeConfig: !If
+          - UseVpc
+          - Subnets: !Ref SubnetIds
+            SecurityGroups: !Ref SecurityGroupIds
+          - !Ref AWS::NoValue
+      AuthorizerConfiguration: !If
+        - UseJwt
+        - CustomJWTAuthorizer:
+            DiscoveryUrl: !Ref JwtDiscoveryUrl
+            AllowedClients: !Ref JwtAllowedClients
+        - !Ref AWS::NoValue
+      EnvironmentVariables:
+        ALLOWED_ORIGINS:    "*"
+        MAX_SESSIONS:       "1000"
+        AWS_REGION:         !Ref "AWS::Region"
+        BEDROCK_MODEL_ID:   !Ref BedrockModelId
+        AGENTCORE_ENABLED:  "true"
+        PORT:               !Sub "${Port}"
+        AGENTCORE_MEMORY_ID: !If [CreateMemory, !GetAtt AgentMemory.MemoryId, none]
+        MEMORY_ID:          !If [CreateMemory, !GetAtt AgentMemory.MemoryId, none]
+        GATEWAY_URL:        !If [CreateGateway, !GetAtt AgentGateway.GatewayUrl, none]
+        BROWSER_ID:         !If [CreateBuiltin, !GetAtt CustomBrowser.BrowserId, none]
+        CODE_INTERPRETER_ID: !If [CreateBuiltin, !GetAtt CustomCodeInterpreter.CodeInterpreterId, none]
+        PAYMENT_MANAGER_ARN: !If [CreatePayments, !GetAtt AgentPaymentManager.PaymentManagerArn, none]
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  AgentRuntimeEndpoint:
+    Type: AWS::BedrockAgentCore::RuntimeEndpoint
+    Condition: CreateRuntime
+    Properties:
+      Name: live
+      Description: Stable endpoint for clinical clients
+      AgentRuntimeId: !GetAtt AgentRuntime.AgentRuntimeId
+
+  # ========================================================================= #
+  # APP RUNNER  – AWS App Runner compute service (matches deployment/aws-scripts)
+  # ========================================================================= #
+  AppRunnerECRAccessRole:
+    Type: AWS::IAM::Role
+    Condition: CreateAppRunner
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-apprunner-ecr-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: build.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
+
+  AppRunnerService:
+    Type: AWS::AppRunner::Service
+    Condition: CreateAppRunner
+    Properties:
+      ServiceName: !Sub "${ProjectName}-${Environment}-service"
+      SourceConfiguration:
+        ImageRepository:
+          ImageIdentifier: !If
+            - HasExplicitImage
+            - !Ref ContainerImageUri
+            - !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepoName}:${ImageTag}"
+          ImageRepositoryType: ECR
+          ImageConfiguration:
+            Port: !Sub "${Port}"
+            RuntimeEnvironmentVariables:
+              - Name: ALLOWED_ORIGINS
+                Value: "*"
+              - Name: MAX_SESSIONS
+                Value: "1000"
+              - Name: AWS_REGION
+                Value: !Ref "AWS::Region"
+              - Name: BEDROCK_MODEL_ID
+                Value: !Ref BedrockModelId
+              - Name: AGENTCORE_ENABLED
+                Value: "true"
+              - Name: AGENTCORE_MEMORY_ID
+                Value: !If [CreateMemory, !GetAtt AgentMemory.MemoryId, "none"]
+              - Name: PORT
+                Value: !Sub "${Port}"
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AppRunnerECRAccessRole.Arn
+        AutoDeploymentsEnabled: false
+      InstanceConfiguration:
+        Cpu: !Ref AppRunnerCpu
+        Memory: !Ref AppRunnerMemory
+        InstanceRoleArn: !GetAtt RuntimeRole.Arn
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /healthz
+        Interval: 10
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 3
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ========================================================================= #
+  # HARNESS  – managed agent loop (model + prompt + tools in one resource)
+  # ========================================================================= #
+  HarnessRole:
+    Type: AWS::IAM::Role
+    Condition: CreateHarness
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: harness
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/*"
+              - Effect: Allow
+                Action: [xray:PutTraceSegments, xray:PutTelemetryRecords]
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:GetWorkloadAccessToken
+                  - bedrock-agentcore:GetWorkloadAccessTokenForUserId
+                Resource: "*"
+
+  AgentHarness:
+    Type: AWS::BedrockAgentCore::Harness
+    Condition: CreateHarness
+    Properties:
+      HarnessName: !Sub "${ProjectName}_${Environment}_harness"
+      ExecutionRoleArn: !GetAtt HarnessRole.Arn
+      Model:
+        BedrockModelConfig:
+          ModelId: !Ref BedrockModelId
+      MaxIterations: 25
+      TimeoutSeconds: 900
+      Tags:
+        - { Key: Project, Value: !Ref ProjectName }
+
+  # ========================================================================= #
+  # OBSERVABILITY
+  # ========================================================================= #
+  RuntimeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateRuntime
+    Properties:
+      LogGroupName: !Sub "/aws/bedrock-agentcore/runtimes/${AgentRuntime.AgentRuntimeId}-DEFAULT"
+      RetentionInDays: !Ref LogRetentionDays
+
+  TransactionSearchLogPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Condition: CreateTxSearch
+    Properties:
+      PolicyName: !Sub "${ProjectName}-${Environment}-xray-spans"
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Sid": "TransactionSearchXRayAccess",
+            "Effect": "Allow",
+            "Principal": { "Service": "xray.amazonaws.com" },
+            "Action": "logs:PutLogEvents",
+            "Resource": [
+              "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:aws/spans:*",
+              "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/application-signals/data:*"
+            ],
+            "Condition": {
+              "ArnLike": { "aws:SourceArn": "arn:${AWS::Partition}:xray:${AWS::Region}:${AWS::AccountId}:*" },
+              "StringEquals": { "aws:SourceAccount": "${AWS::AccountId}" }
+            }
+          }]
+        }
+
+  TransactionSearch:
+    Type: AWS::XRay::TransactionSearchConfig
+    Condition: CreateTxSearch
+    DependsOn: [TransactionSearchLogPolicy]
+    Properties:
+      IndexingPercentage: 1
+
+  # ========================================================================= #
+  # EVALUATIONS  – online (continuous) evaluation of production traffic
+  # ========================================================================= #
+  EvaluationRole:
+    Type: AWS::IAM::Role
+    Condition: CreateEvals
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: evaluation
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:DescribeLogGroups, logs:StartQuery, logs:GetQueryResults, logs:StopQuery, logs:FilterLogEvents, logs:GetLogEvents]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/*"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:aws/spans:*"
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/evaluations/*"
+              - Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+
+  OnlineEvaluation:
+    Type: AWS::BedrockAgentCore::OnlineEvaluationConfig
+    Condition: CreateEvals
+    Properties:
+      OnlineEvaluationConfigName: !Sub "${ProjectName}_${Environment}_online_eval"
+      Description: Continuous quality evaluation of production traces
+      EvaluationExecutionRoleArn: !GetAtt EvaluationRole.Arn
+      ExecutionStatus: ENABLED
+      DataSourceConfig:
+        CloudWatchLogs:
+          LogGroupNames:
+            - !Sub "/aws/bedrock-agentcore/runtimes/${AgentRuntime.AgentRuntimeId}-DEFAULT"
+          ServiceNames:
+            - !Sub "${ProjectName}_${Environment}_agent.DEFAULT"
+      Rule:
+        SamplingConfig:
+          SamplingPercentage: !Ref EvalSamplingPercentage
+      Evaluators:
+        - EvaluatorId: Builtin.Helpfulness
+        - EvaluatorId: Builtin.GoalSuccessRate
+      Tags:
+        - { Key: Project, Value: !Ref ProjectName }
+
+# --------------------------------------------------------------------------- #
+Outputs:
+  AppRunnerServiceUrl:
+    Condition: CreateAppRunner
+    Value: !Sub "https://${AppRunnerService.ServiceUrl}"
+    Description: HTTPS endpoint URL of the App Runner clinical agent service
+  AppRunnerServiceArn:
+    Condition: CreateAppRunner
+    Value: !GetAtt AppRunnerService.ServiceArn
+    Description: ARN of the App Runner service
+  RuntimeArn:
+    Condition: CreateRuntime
+    Value: !GetAtt AgentRuntime.AgentRuntimeArn
+  RuntimeId:
+    Condition: CreateRuntime
+    Value: !GetAtt AgentRuntime.AgentRuntimeId
+  GatewayUrl:
+    Condition: CreateGateway
+    Value: !GetAtt AgentGateway.GatewayUrl
+  GatewayId:
+    Condition: CreateGateway
+    Value: !GetAtt AgentGateway.GatewayIdentifier
+  MemoryId:
+    Condition: CreateMemory
+    Value: !GetAtt AgentMemory.MemoryId
+  PolicyEngineId:
+    Condition: CreatePolicy
+    Value: !GetAtt AgentPolicyEngine.PolicyEngineId
+  BrowserId:
+    Condition: CreateBuiltin
+    Value: !GetAtt CustomBrowser.BrowserId
+  CodeInterpreterId:
+    Condition: CreateBuiltin
+    Value: !GetAtt CustomCodeInterpreter.CodeInterpreterId
+  PaymentManagerArn:
+    Condition: CreatePayments
+    Value: !GetAtt AgentPaymentManager.PaymentManagerArn
+  HarnessArn:
+    Condition: CreateHarness
+    Value: !GetAtt AgentHarness.Arn
