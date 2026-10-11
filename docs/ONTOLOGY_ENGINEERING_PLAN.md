@@ -666,12 +666,12 @@ Everything below runs offline in `./run-all-tests.sh`; nothing has been deployed
 | P5 gate derives behaviour | ✅ | `shared/ontogate/detectors/` |
 | P6 graph runtime | ✅ | `ontogate.concept_graph`, protocol nodes, `precedes` checks |
 | P7 provenance + ABox separation | ✅ | `AuditPort`, TBox-only `knowledge/log.md` |
-| P8 role specs + MCP contract | 🟡 | `agents/*.yaml`, MAF YAML generated + drift-checked; ADK/Strands instructions are still written per framework (8.4), A2A AgentCards not generated (8.6) |
-| P9 runtime skills | 🟡 | 8 skills, rendered references, lint, lock, native loaders in all three frameworks; skill-activation CQs (9.9) need live models; `CODEOWNERS` (9.8) not added |
+| P8 role specs + MCP contract | ✅ | `agents/*.yaml` with `delegates`; one instruction (`ontogate.roles.instruction_for`) and one tool grant per role on ADK (`src/agents/roles.py`), Strands (`src/agents/roles.py`) and MAF (generated YAML); A2A AgentCards generated from role specs and served at `/.well-known/agent-card.json` by all three servers (`ontogate.agent_cards`) |
+| P9 runtime skills | 🟡 | 8 skills, rendered references, lint, lock, native loaders in all three frameworks, `CODEOWNERS` (9.8); skill-activation CQs (9.9) need live models |
 | P10 model catalog | ✅ | `config/models.yaml`, repository-wide guard |
-| P11 deployments + skill stores | 🟡 | ADK `AdkApp` on Agent Runtime (`deployment/gcloud-scripts/agent_runtime.py`, offline dry-run tested); release build + skill publish in every deploy script; AgentCore IAM scoped. Not done: Agent Gateway/Registry routing (G3), AgentCore Gateway/Policy for the ontogate MCP (A3), Foundry hosted agent (Z1, Z3), live CQ runner (C2) |
-| P12 developer skills | 🟡 | snippet-tested; `author-runtime-skill`, `add-hazard-detector` current; other 12.3 skills not written; no discovery mirror (12.5) |
-| P13 conformance | 🟡 | gate parity across ADK/Strands/MAF wrappers (13.1, `conformance/run.py`), same lock on all three (13.2, offline), troponin overlay (13.6), YAML-only scenarios (13.7), cardiology reuse (13.8). Live-model evals and ablation (13.3–13.5) and skills over MCP (13.9) not started |
+| P11 deployments + skill stores | 🟡 | Teardown ledger + `deployment/teardown.py` for all three clouds (11.C4, offline-tested); ADK `AdkApp` on Agent Runtime (`deployment/gcloud-scripts/agent_runtime.py`, offline dry-run tested); release build + skill publish in every deploy script; AgentCore IAM scoped. live CQ runner in every `test-service` script (C2); Strands image meets the AgentCore Runtime contract (`/ping`, `/invocations`, 8080, arm64). Not done: Agent Gateway/Registry routing (G3), AgentCore Gateway/Policy for the ontogate MCP (A3), Foundry hosted agent (Z1, Z3) |
+| P12 developer skills | ✅ | snippet-tested and format-linted; `add-domain-pack`, `run-ontology-build`, `run-conformance-suite`, `update-model-catalog`, `deploy-and-teardown`, `author-runtime-skill`, `add-hazard-detector`; mirrored into `.claude/skills` (`ontogate skills mirror`, drift-checked) |
+| P13 conformance | 🟡 | gate and AgentCard parity across ADK/Strands/MAF (13.1, `conformance/run.py`), same lock on all three (13.2), live CQ runner per server and deployment (`conformance/live.py`, 11.C2), deterministic answer graders + live eval runner (13.3, `evals/`), troponin overlay (13.6), YAML-only scenarios (13.7), cardiology reuse (13.8). Needs deployed models: eval runs per cloud, ablation (13.4), down-tiering (13.5); skills over MCP (13.9) not started |
 
 ### P0 — Executable competency questions + developer-skill hotfix (S) · O, D
 
@@ -807,6 +807,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | 11.C1 | One `deploy` entrypoint per cloud reads the knowledge release (bundle + skills lock + model catalog) |
 | 11.C2 | `test-service.*` runs CQs (gate + expected skill activations) against the live endpoint; report keyed by `bundle_sha256` + `skills_lock_sha256` |
 | 11.C3 | Data protection: no raw patient values in memory, logs, traces or skill stores |
+| 11.C4 | **Teardown is part of every deployment.** Each deploy script records every resource it creates in a git-ignored ledger; `destroy.sh` / `destroy.ps1` (`deployment/teardown.py`) delete exactly those, newest first, plan-only unless `--yes`, never touching reused resources. Always-on fallbacks (AWS App Runner) are opt-in. Leftovers that still bill (build buckets, staging buckets, skill stores) are listed after every run |
 
 ### P12 — Developer skills for coding agents (M, continuous) · D
 

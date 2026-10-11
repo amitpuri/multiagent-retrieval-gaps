@@ -5,7 +5,8 @@ Runs ``probe.py`` once per framework — each in its own process, because every
 framework names its package ``src`` — and fails unless ADK (GCP), Strands
 (AWS) and MAF (Azure) return exactly the canonical ``ontogate`` decision for
 every competency question in ``config/scenarios`` (both domain packs), and
-every decision meets its scenario's expectations.
+every decision meets its scenario's expectations. The A2A AgentCard each
+framework serves must match the one generated from the role specs (P8.6).
 
     python conformance/run.py                 # all frameworks, report in dist/conformance/
     python conformance/run.py --frameworks adk maf
@@ -70,6 +71,8 @@ def run(frameworks: Sequence[str]) -> Dict[str, Any]:
     reference = {r["case"]: r for r in probe("ontogate")}
     report: Dict[str, Any] = {"cases": len(reference), "frameworks": {}, "expectation_failures": {}}
     for case, record in reference.items():
+        if case.startswith("_"):  # not a competency question (e.g. the AgentCard)
+            continue
         failures = _expectation_failures(record, expectations[case])
         if failures:
             report["expectation_failures"][case] = failures
@@ -96,6 +99,9 @@ def main(argv=None) -> int:
     parser.add_argument("--frameworks", nargs="+", default=["adk", "strands", "maf"],
                         choices=["adk", "strands", "maf"])
     args = parser.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles: never crash on ✓ or —
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     report = run(args.frameworks)
     dest = REPO / "dist" / "conformance"
     dest.mkdir(parents=True, exist_ok=True)

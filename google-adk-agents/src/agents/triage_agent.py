@@ -16,31 +16,14 @@ DEFAULT_MODEL = model_for("gcp")["id"]  # config/models.yaml
 
 
 def create_triage_agent(model: Optional[str] = None) -> Agent:
-    """Create the Triage Orchestrator ADK Agent.
-    
-    This agent serves as the primary entrypoint that:
-    1. Accepts raw clinician queries and parsed intent.
-    2. Delegates to OntologyResolverAgent, SafetyGuardAgent, ProtocolRetrieverAgent,
-       ClinicalSynthesizerAgent, and ClarificationCoordinatorAgent via A2A.
-    3. Enforces strict fail-closed session state management.
+    """The triage_orchestrator agent, built from agents/triage_orchestrator.yaml.
+
+    It is granted parse / resolve / gate and hands off to the roles it delegates
+    to (each an ``AgentTool`` built from its own role spec). The deterministic
+    gate, not the model, decides which hand-off happens.
     """
-    chosen_model = model or DEFAULT_MODEL
-    return Agent(
-        name="triage_orchestrator",
-        tools=skill_tools_for("triage_orchestrator"),
-        model=chosen_model,
-        instruction=(
-            "You are the Triage Orchestrator for a clinical laboratory decision-support system.\n"
-            "Your responsibilities:\n"
-            "1. Accept a clinician's raw query (e.g. 'Hb 13.5 | g/dL') and extract: term, unit, value, qualifier.\n"
-            "2. Delegate ontology resolution to the OntologyResolverAgent.\n"
-            "3. Delegate safety validation to the SafetyGuardAgent (deterministic, fail-closed).\n"
-            "4. If safety gate passes, delegate to ProtocolRetrieverAgent then ClinicalSynthesizerAgent.\n"
-            "5. If safety gate fails (AMBIGUOUS, UNIT_MISMATCH, RANGE_COLLISION), "
-            "delegate to ClarificationCoordinatorAgent and await clinician response.\n"
-            "Never speculate. Never proceed if status is not RESOLVED. Always cite which agent produced each finding."
-        ),
-    )
+    from src.agents.roles import build_role_agent
+    return build_role_agent("triage_orchestrator", model=model or DEFAULT_MODEL)
 
 
 def make_triage_envelope(

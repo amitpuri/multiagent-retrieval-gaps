@@ -45,6 +45,14 @@ if ($PSVersionTable.PSVersion.Major -ge 7) { $PSNativeCommandUseErrorActionPrefe
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = (Resolve-Path "$scriptDir\..\..").Path
 
+# Every resource this script CREATES is appended to the ledger; destroy.ps1 deletes
+# exactly those (deployment/teardown.py). Reused, pre-existing resources are not recorded.
+$ledger = Join-Path $scriptDir ".deployed\ledger.tsv"
+function Record-Created([string]$Kind, [string]$Name, [string]$Attrs = "") {
+    New-Item -ItemType Directory -Force -Path (Split-Path $ledger) | Out-Null
+    [System.IO.File]::AppendAllText($ledger, "$Kind`t$Name`t$Attrs`n", (New-Object System.Text.UTF8Encoding $false))
+}
+
 # Auto-detect Project ID
 if (-not $ProjectId) { $ProjectId = (gcloud config get-value project 2>$null).Trim() }
 if (-not $ProjectId) { Write-Error "GCP Project ID not set. Run 'gcloud config set project <ID>'."; exit 1 }
@@ -88,6 +96,7 @@ if (-not $repoExists) {
         --location=$Region `
         --description="Clinical Agent Platform containers" `
         --project=$ProjectId --quiet
+    if ($LASTEXITCODE -eq 0) { Record-Created "artifact-repository" $RepoName "location=$Region;project=$ProjectId" }
 }
 $imageUri = "$Region-docker.pkg.dev/$ProjectId/$RepoName/${ImageName}:$ImageTag"
 
@@ -110,12 +119,71 @@ if ($LASTEXITCODE -eq 0) {
 }
 Pop-Location
 
+# ─── STEP 4: Build & Push Container ───────────────────────────────────────────
+Write-Host "[4/8] Building and pushing container: $imageUri..." -ForegroundColor Yellow
+Push-Location $repoRoot
+try {
+    gcloud auth configure-docker "$Region-docker.pkg.dev" --quiet
+    docker build -f google-adk-agents/Dockerfile -t $imageUri .
+    if ($LASTEXITCODE -ne 0) { throw "Docker build failed." }
+    docker push $imageUri
+    if ($LASTEXITCODE -ne 0) { throw "Docker push failed." }
+} finally { Pop-Location }
+Write-Host "[+] Image ready: $imageUri" -ForegroundColor Green
+
+# ─── STEP 5: API Keys → Secret Manager ────────────────────────────────────────
+Write-Host "[5/8] Configuring Vertex AI credentials in Secret Manager..." -ForegroundColor Yellow
+$apiKey = $env:GEMINI_API_KEY
+if (-not $apiKey) {
+    $envFile = "$repoRoot\google-adk-agents\src\.env"
+    if (Test-Path $envFile) {
+        $match = Select-String -Path $envFile -Pattern "^GEMINI_API_KEY=(.+)$"
+        if ($match) { $apiKey = $match.Matches[0].Groups[1].Value.Trim('"', "'", "`r", "`n") }
+    }
+}
+
+$secretName  = "clinical-gemini-api-key"
+$secretFlags = @()
+if ($apiKey) {
+    $secretExists = gcloud secrets describe $secretName --project=$ProjectId 2>$null
+    if (-not $secretExists) {
+        gcloud secrets create $secretName --replication-policy="automatic" --project=$ProjectId --quiet
+        if ($LASTEXITCODE -eq 0) { Record-Created "secret" $secretName "project=$ProjectId" }
+    }
+    $apiKey | gcloud secrets versions add $secretName --data-file=- --project=$ProjectId --quiet
+    $projectNumber = (gcloud projects describe $ProjectId --format="value(projectNumber)").Trim()
+    $computeSa     = "$projectNumber-compute@developer.gserviceaccount.com"
+    gcloud secrets add-iam-policy-binding $secretName `
+        --member="serviceAccount:$computeSa" `
+        --role="roles/secretmanager.secretAccessor" `
+        --project=$ProjectId --quiet 2>$null | Out-Null
+    $hasRole = gcloud projects get-iam-policy $ProjectId --flatten="bindings[].members" `
+        --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:$computeSa" `
+        --format="value(bindings.role)" 2>$null
+    if (-not $hasRole) {
+        gcloud projects add-iam-policy-binding $ProjectId `
+            --member="serviceAccount:$computeSa" `
+            --role="roles/aiplatform.user" --quiet 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Record-Created "iam-binding" "serviceAccount:$computeSa" "role=roles/aiplatform.user;project=$ProjectId"
+        }
+    }
+    $secretFlags = @("--set-secrets=GEMINI_API_KEY=${secretName}:latest")
+    Write-Host "[+] GEMINI_API_KEY stored in Secret Manager + Vertex AI user role granted." -ForegroundColor Green
+} else {
+    Write-Host "    [i] GEMINI_API_KEY not found — deploying with Vertex AI ADC fallback." -ForegroundColor DarkYellow
+}
+
+# ─── STEP 6: Deploy to Agent Platform (Vertex AI Agent Runtime) ───────────────
+Write-Host "[6/8] Deploying to Google Cloud Agent Platform..." -ForegroundColor Yellow
+
 $agentEngineId = $null
 if ($UseAgentRuntime) {
     Write-Host "    Deploying the ADK workflow to Vertex AI Agent Runtime as an AdkApp..."
     $stagingBucket = if ($env:STAGING_BUCKET) { $env:STAGING_BUCKET } else { "gs://$ProjectId-agent-staging" }
     $runtimeOutput = python "$repoRoot\deployment\gcloud-scripts\agent_runtime.py" `
-        --project $ProjectId --location $Region --staging-bucket $stagingBucket --display-name $AgentDisplayName 2>&1
+        --project $ProjectId --location $Region --staging-bucket $stagingBucket --display-name $AgentDisplayName `
+        --ledger $ledger 2>&1
     $runtimeOutput | ForEach-Object { Write-Host "    $_" }
     if ($LASTEXITCODE -eq 0) {
         $match = $runtimeOutput | Select-String "Agent Runtime resource: (.+)"
@@ -145,7 +213,12 @@ $deployArgs = @(
     $authArg
 )
 if ($secretFlags.Count -gt 0) { $deployArgs += $secretFlags }
+gcloud run services describe $AgentResourceName --region=$Region --project=$ProjectId 2>$null | Out-Null
+$serviceExisted = ($LASTEXITCODE -eq 0)
 & gcloud @deployArgs
+if (-not $serviceExisted -and $LASTEXITCODE -eq 0) {
+    Record-Created "cloud-run-service" $AgentResourceName "region=$Region;project=$ProjectId"
+}
 
 $serviceUrl = (gcloud run services describe $AgentResourceName `
     --platform=managed --region=$Region --project=$ProjectId `
@@ -153,16 +226,8 @@ $serviceUrl = (gcloud run services describe $AgentResourceName `
 
 Write-Host "[+] Cloud Run (Agent Platform) service deployed: $serviceUrl" -ForegroundColor Green
 
-# ─── STEP 7: Register with Vertex AI Agent Builder (Agent Store) ───────────────
-Write-Host "[7/7] Registering agent with Vertex AI Agent Builder..." -ForegroundColor Yellow
-
-# Create Agent Builder data store for the agent
-$agentBuilderPayload = @{
-    displayName = $AgentDisplayName
-    description = "Clinical Decision Support multi-agent system using Google ADK 2.11 and Gemini"
-    defaultLanguageCode = "en"
-} | ConvertTo-Json -Compress
-
+# ─── STEP 7: Console links ─────────────────────────────────────────────────────
+Write-Host "[7/7] Console links..." -ForegroundColor Yellow
 Write-Host "    Agent Platform endpoint: $serviceUrl"
 Write-Host "    Vertex AI Console: https://console.cloud.google.com/vertex-ai/agents?project=$ProjectId"
 Write-Host "    Agent Builder:     https://console.cloud.google.com/gen-app-builder/engines?project=$ProjectId"
@@ -170,7 +235,7 @@ Write-Host "    Agent Builder:     https://console.cloud.google.com/gen-app-buil
 if ($agentEngineId) {
     Write-Host "    Agent Runtime:     https://console.cloud.google.com/vertex-ai/agents/agent-engines/$agentEngineId?project=$ProjectId"
 }
-Write-Host "[+] Agent registered with Vertex AI Agent Platform." -ForegroundColor Green
+Write-Host "    Teardown (deletes what this deploy created): $scriptDir\destroy.ps1 -Yes"
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 Write-Host ""

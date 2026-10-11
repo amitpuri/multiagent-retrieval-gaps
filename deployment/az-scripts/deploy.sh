@@ -14,6 +14,15 @@ if [[ -f "${SCRIPT_DIR}/config.env" ]]; then
   source "${SCRIPT_DIR}/config.env"
 fi
 
+# Every resource this script CREATES is appended to the ledger; destroy.sh deletes
+# exactly those (deployment/teardown.py). Reused, pre-existing resources (for example
+# a Foundry account you already had) are not recorded and are never deleted.
+LEDGER="${SCRIPT_DIR}/.deployed/ledger.tsv"
+record_created() {  # kind name [key=value;key=value]
+  mkdir -p "$(dirname "${LEDGER}")"
+  printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}" >> "${LEDGER}"
+}
+
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-clinical-agents}"
 LOCATION="${LOCATION:-eastus}"
 ENVIRONMENT_NAME="${ENVIRONMENT_NAME:-cae-clinical-agents}"
@@ -72,6 +81,7 @@ echo "[2/7] Ensuring Resource Group '${RESOURCE_GROUP}' exists..."
 if ! az group show --name "${RESOURCE_GROUP}" &>/dev/null; then
   echo "    Creating Resource Group ${RESOURCE_GROUP} in ${LOCATION}..."
   az group create --name "${RESOURCE_GROUP}" --location "${LOCATION}" -o none
+  record_created resource-group "${RESOURCE_GROUP}" "location=${LOCATION}"
 else
   echo "    Resource Group ${RESOURCE_GROUP} exists."
 fi
@@ -95,6 +105,7 @@ if ! az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" &>/de
     echo "    Try re-running with: --location eastus --resource-group rg-clinical-agents-eastus"
     exit 1
   fi
+  record_created acr "${ACR_NAME}" "resource_group=${RESOURCE_GROUP}"
 else
   echo "    ACR '${ACR_NAME}' exists."
 fi
@@ -168,6 +179,7 @@ if az cognitiveservices account show --name "${AI_FOUNDRY_ACCOUNT_NAME}" --resou
       --location "${AI_LOC}" \
       --description "Clinical Decision Support multi-agent project for Microsoft Agent Framework" \
       -o none
+    record_created foundry-project "${AI_FOUNDRY_PROJECT_NAME}" "account=${AI_FOUNDRY_ACCOUNT_NAME};resource_group=${TARGET_AI_RG}"
     PROJ_JSON="$(az cognitiveservices account project show --name "${AI_FOUNDRY_ACCOUNT_NAME}" --resource-group "${TARGET_AI_RG}" --project-name "${AI_FOUNDRY_PROJECT_NAME}" -o json)"
     FOUNDRY_PROJECT_ENDPOINT="$(echo "${PROJ_JSON}" | grep -o 'https://[^"]*services.ai.azure.com/api/projects/[^"]*' | head -n1 || true)"
   fi
@@ -180,6 +192,7 @@ else
     --sku S0 \
     --location "${LOCATION}" \
     --yes -o none
+  record_created foundry-account "${AI_FOUNDRY_ACCOUNT_NAME}" "resource_group=${RESOURCE_GROUP};location=${LOCATION}"
 
   AI_ACCOUNT_ID="$(az cognitiveservices account show --name "${AI_FOUNDRY_ACCOUNT_NAME}" --resource-group "${RESOURCE_GROUP}" --query "id" -o tsv)"
   AZURE_OPENAI_ENDPOINT="$(az cognitiveservices account show --name "${AI_FOUNDRY_ACCOUNT_NAME}" --resource-group "${RESOURCE_GROUP}" --query "properties.endpoint" -o tsv)"
@@ -191,9 +204,10 @@ else
     --project-name "${AI_FOUNDRY_PROJECT_NAME}" \
     --location "${LOCATION}" \
     -o none
+  record_created foundry-project "${AI_FOUNDRY_PROJECT_NAME}" "account=${AI_FOUNDRY_ACCOUNT_NAME};resource_group=${RESOURCE_GROUP}"
 
   echo "    Deploying foundation model '${FOUNDRY_MODEL}'..."
-  az cognitiveservices account deployment create \
+  if az cognitiveservices account deployment create \
     --name "${AI_FOUNDRY_ACCOUNT_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
     --deployment-name "${FOUNDRY_MODEL}" \
@@ -202,10 +216,12 @@ else
     --model-format OpenAI \
     --sku-capacity 10 \
     --sku-name "${FOUNDRY_SKU}" \
-    -o none || {
-      echo "[-] WARNING: model deployment '${FOUNDRY_MODEL}' (${FOUNDRY_MODEL_VERSION}, ${FOUNDRY_SKU}) failed."
-      echo "    Check regional availability in '${LOCATION}' or set FOUNDRY_SKU / LOCATION (deployment/README.md)."
-    }
+    -o none; then
+    record_created foundry-model-deployment "${FOUNDRY_MODEL}" "account=${AI_FOUNDRY_ACCOUNT_NAME};resource_group=${RESOURCE_GROUP}"
+  else
+    echo "[-] WARNING: model deployment '${FOUNDRY_MODEL}' (${FOUNDRY_MODEL_VERSION}, ${FOUNDRY_SKU}) failed."
+    echo "    Check regional availability in '${LOCATION}' or set FOUNDRY_SKU / LOCATION (deployment/README.md)."
+  fi
 
   PROJ_JSON="$(az cognitiveservices account project show --name "${AI_FOUNDRY_ACCOUNT_NAME}" --resource-group "${RESOURCE_GROUP}" --project-name "${AI_FOUNDRY_PROJECT_NAME}" -o json)"
   FOUNDRY_PROJECT_ENDPOINT="$(echo "${PROJ_JSON}" | grep -o 'https://[^"]*services.ai.azure.com/api/projects/[^"]*' | head -n1 || true)"
@@ -229,6 +245,15 @@ if ! az containerapp env show --name "${ENVIRONMENT_NAME}" --resource-group "${R
     echo "    Try re-running with: --location eastus"
     exit 1
   fi
+  # `env create` provisions a Log Analytics workspace in the group; it bills for ingestion.
+  WS_CID="$(az containerapp env show --name "${ENVIRONMENT_NAME}" --resource-group "${RESOURCE_GROUP}" \
+    --query "properties.appLogsConfiguration.logAnalyticsConfiguration.customerId" -o tsv 2>/dev/null || true)"
+  WS_NAME="$(az monitor log-analytics workspace list --resource-group "${RESOURCE_GROUP}" \
+    --query "[?customerId=='${WS_CID}'].name | [0]" -o tsv 2>/dev/null || true)"
+  if [[ -n "${WS_NAME}" ]]; then
+    record_created log-analytics-workspace "${WS_NAME}" "resource_group=${RESOURCE_GROUP}"
+  fi
+  record_created containerapp-env "${ENVIRONMENT_NAME}" "resource_group=${RESOURCE_GROUP}"
 else
   echo "    Environment '${ENVIRONMENT_NAME}' exists."
 fi
@@ -267,6 +292,7 @@ if ! az containerapp show --name "${APP_NAME}" --resource-group "${RESOURCE_GROU
     --max-replicas "${MAX_REPLICAS}" \
     --env-vars "${ENV_VARS_LIST[@]}" \
     -o none
+  record_created container-app "${APP_NAME}" "resource_group=${RESOURCE_GROUP}"
 else
   echo "    Container App exists. Updating revision..."
   az containerapp update \
@@ -281,12 +307,17 @@ fi
 APP_PRINCIPAL_ID="$(az containerapp show --name "${APP_NAME}" --resource-group "${RESOURCE_GROUP}" --query "identity.principalId" -o tsv 2>/dev/null || true)"
 if [[ -n "${APP_PRINCIPAL_ID}" && -n "${AI_ACCOUNT_ID}" ]]; then
   echo "    Assigning RBAC: 'Cognitive Services OpenAI User' to Container App Identity (${APP_PRINCIPAL_ID})..."
-  az role assignment create \
-    --assignee-object-id "${APP_PRINCIPAL_ID}" \
-    --assignee-principal-type "ServicePrincipal" \
-    --role "Cognitive Services OpenAI User" \
-    --scope "${AI_ACCOUNT_ID}" \
-    -o none 2>/dev/null || true
+  RA_ID="$(az role assignment list --assignee "${APP_PRINCIPAL_ID}" --role "Cognitive Services OpenAI User" \
+    --scope "${AI_ACCOUNT_ID}" --query "[0].id" -o tsv 2>/dev/null || true)"
+  if [[ -z "${RA_ID}" ]]; then
+    RA_ID="$(az role assignment create \
+      --assignee-object-id "${APP_PRINCIPAL_ID}" \
+      --assignee-principal-type "ServicePrincipal" \
+      --role "Cognitive Services OpenAI User" \
+      --scope "${AI_ACCOUNT_ID}" \
+      --query "id" -o tsv 2>/dev/null || true)"
+    if [[ -n "${RA_ID}" ]]; then record_created role-assignment "${RA_ID}"; fi
+  fi
   echo "[+] Keyless RBAC granted for Azure AI Foundry access."
 fi
 

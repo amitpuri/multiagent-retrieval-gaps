@@ -12,9 +12,11 @@ instructions: |
   Use the resolve_lab_term tool to find canonical LOINC codes, UCUM units, and qualifiers.
   Never guess between ambiguous candidates without clinician clarification.
   Follow the lab-term-resolution skill and the domain skill of the loaded pack.
+
+  Tools you may call: resolve_lab_term.
 tools:
 - kind: function
   name: resolve_lab_term
-  description: Map a lab test name (+ unit, qualifier) to canonical observables. Never guesses.
+  description: Map a lab test name, optional unit and qualifier to canonical LOINC observables.
   bindings:
     function: resolve_lab_term

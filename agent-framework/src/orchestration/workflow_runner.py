@@ -33,6 +33,7 @@ AGENT_DIR = _agent_framework_dir / "declarative-agents"
 WORKFLOW_DIR = _agent_framework_dir / "declarative-workflows"
 log = logging.getLogger("maf.workflow")
 
+from src.tools.safety_gate_tool import gate_arguments
 from src.tools import (
     attest_computation,
     build_clarification_prompt,
@@ -110,13 +111,7 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
         qualifier=parsed["qualifier"],
         patient_value=parsed["patient_value"],
     )
-    gate = evaluate_safety_gate(
-        term=resolved["term"],
-        unit=resolved["unit"],
-        qualifier=resolved["qualifier"],
-        patient_value=resolved["patient_value"],
-        status=resolved["status"],
-    )
+    gate = evaluate_safety_gate(**gate_arguments(parsed, resolved))
     route = gate["route"]
 
     # ── Step 2: Attempt MAF agent enrichment (best-effort, fails gracefully) ──
@@ -207,13 +202,7 @@ def _offline_pipeline(raw_query: str) -> Dict[str, Any]:
         qualifier=parsed["qualifier"],
         patient_value=parsed["patient_value"],
     )
-    gate = evaluate_safety_gate(
-        term=resolved["term"],
-        unit=resolved["unit"],
-        qualifier=resolved["qualifier"],
-        patient_value=resolved["patient_value"],
-        status=resolved["status"],
-    )
+    gate = evaluate_safety_gate(**gate_arguments(parsed, resolved))
 
     route = gate["route"]
 

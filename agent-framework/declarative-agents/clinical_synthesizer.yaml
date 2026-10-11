@@ -12,14 +12,16 @@ instructions: |
   Every stated clinical reference number must come from an attest_computation result.
   Include the [Attested ✓] badge only when computation verdict is PASS.
   Follow the grounded-synthesis skill and adhere to trust-tier caveats.
+
+  Tools you may call: fetch_grounded_protocol, attest_computation.
 tools:
 - kind: function
   name: fetch_grounded_protocol
-  description: Return the protocol bound to exactly one observable URI (invariant 7).
+  description: Fetch the protocol bound strictly to one canonical LOINC URI.
   bindings:
     function: fetch_grounded_protocol
 - kind: function
   name: attest_computation
-  description: Deterministically attest a value for an observable (OKF §5.4).
+  description: Deterministically attest a value against the protocol for a URI (OKF §5.4).
   bindings:
     function: attest_computation

@@ -191,15 +191,6 @@ def ontology_resolver_node(node_input: Any) -> Event:
 
 
 def create_ontology_agent(model: Optional[str] = None) -> Agent:
-    """Create an ADK Agent wrapping ontology resolution."""
-    return Agent(
-        name="ontology_resolver",
-        tools=skill_tools_for("ontology_resolver"),
-        model=model or model_for("gcp")["id"],
-        instruction=(
-            "You are an ontology resolution specialist. Map incoming lab terms and reported "
-            "units to canonical LOINC identifiers. Never guess if ambiguous. "
-            "Deprecated or stale concepts must not be returned. "
-            "Always report the trust tier of the resolved concept."
-        ),
-    )
+    """The ontology_resolver agent, built from agents/ontology_resolver.yaml."""
+    from src.agents.roles import build_role_agent
+    return build_role_agent("ontology_resolver", model=model)

@@ -25,9 +25,9 @@ flowchart TD
     end
 
     subgraph AWS["Amazon Web Services (us-east-1)"]
-        AgentCore["Bedrock AgentCore Runtime\nclinical-strands-agent:8000"]
+        AgentCore["Bedrock AgentCore Runtime\nclinical_strands_agent"]
         ECR["Amazon ECR\nstrands-clinical-agents"]
-        Mem["AgentCore Memory\nclinical-agent-memory"]
+        Mem["AgentCore Memory\nclinical_agent_memory"]
         IAM_AC["IAM Role\nBedrockAgentCoreExecutionRole"]
         AgentCore --- ECR
         AgentCore --- Mem
@@ -88,8 +88,8 @@ flowchart LR
   1. Ensure model access is enabled at [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess).
   2. The deployment script (`deploy.ps1` / `deploy.sh`) automatically provisions:
      - IAM Role `BedrockAgentCoreExecutionRole` with access to `bedrock-agentcore:*`, `bedrock-agent-runtime:*`, ECR, and CloudWatch Logs.
-     - AgentCore Memory resource (`clinical-agent-memory`) for short- and long-term session persistence.
-     - Bedrock AgentCore Runtime (`clinical-strands-agent`) with fallback to App Runner with `AGENTCORE_ENABLED=true`.
+     - AgentCore Memory (`clinical_agent_memory`, events expire after 30 days) for session persistence.
+     - Bedrock AgentCore Runtime (`clinical_strands_agent`). App Runner is used only with `APP_RUNNER_FALLBACK=true` (`-AppRunnerFallback`), because it bills for provisioned instances around the clock.
      - AgentCore Gateway endpoint for API routing and observability.
 - **Offline / CI Mode**: If model access is not yet activated, `strands-agents` safely falls back to the deterministic pure-code `SafetyGateEngine` and `MockBedrockModel`.
 
@@ -170,12 +170,14 @@ cd deployment\aws-scripts
 
 ```ini
 AWS_REGION="us-east-1"
-AGENT_NAME="clinical-strands-agent"
+AGENT_NAME="clinical_strands_agent"     # AgentCore names: [a-zA-Z][a-zA-Z0-9_]{0,47}
 ECR_REPO_NAME="strands-clinical-agents"
 IMAGE_TAG="latest"
 BEDROCK_MODEL_ID="global.anthropic.claude-opus-5-5"
 AGENT_ROLE_NAME="BedrockAgentCoreExecutionRole"
-MEMORY_NAME="clinical-agent-memory"
+MEMORY_NAME="clinical_agent_memory"
+MEMORY_EXPIRY_DAYS=30
+APP_RUNNER_FALLBACK=false               # true: deploy to App Runner if AgentCore fails (always-on billing)
 PORT=8000
 ```
 
@@ -186,7 +188,7 @@ PORT=8000
 AWS_REGION="us-east-1"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 ECR_REPO="strands-clinical-agents"
-AGENT_NAME="clinical-strands-agent"
+AGENT_NAME="clinical_strands_agent"
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
 
 # 2. Create Amazon ECR Repository
@@ -204,19 +206,31 @@ docker push "${ECR_URI}:latest"
 # 4. Create Bedrock AgentCore IAM Execution Role
 aws iam create-role \
   --role-name BedrockAgentCoreExecutionRole \
-  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["bedrock.amazonaws.com","lambda.amazonaws.com","build.apprunner.amazonaws.com","tasks.apprunner.amazonaws.com"]},"Action":"sts:AssumeRole"}]}'
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"bedrock-agentcore.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 
+# Least privilege: deploy.sh writes the full scoped policy (model invoke, this ECR repo,
+# /aws/bedrock-agentcore/* logs, X-Ray, this account's AgentCore memories).
 aws iam put-role-policy \
   --role-name BedrockAgentCoreExecutionRole \
-  --policy-name AgentCoreFullAccess \
-  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["bedrock:*","bedrock-agentcore:*","bedrock-agent-runtime:*","ecr:*","logs:*","secretsmanager:GetSecretValue"],"Resource":"*"}]}'
+  --policy-name ClinicalAgentRuntimeAccess \
+  --policy-document file://clinical-agent-runtime-policy.json
 
 ROLE_ARN="$(aws iam get-role --role-name BedrockAgentCoreExecutionRole --query Role.Arn --output text)"
 
-# 5. Provision AgentCore Memory Resource
-aws bedrock-agentcore create-memory-resource \
-  --cli-input-json "{\"name\":\"clinical-agent-memory\",\"description\":\"Session memory\",\"memoryExecutionRoleArn\":\"${ROLE_ARN}\"}" \
+# 5. Provision AgentCore Memory (control plane: bedrock-agentcore-control)
+aws bedrock-agentcore-control create-memory \
+  --name clinical_agent_memory --event-expiry-duration 30 \
+  --memory-execution-role-arn "${ROLE_ARN}" --region "${AWS_REGION}"
+
+# 6. Create the AgentCore Runtime
+aws bedrock-agentcore-control create-agent-runtime \
+  --agent-runtime-name "${AGENT_NAME}" \
+  --agent-runtime-artifact "{\"containerConfiguration\":{\"containerUri\":\"${ECR_URI}:latest\"}}" \
+  --role-arn "${ROLE_ARN}" --network-configuration '{"networkMode":"PUBLIC"}' \
   --region "${AWS_REGION}"
+
+# Resources created by hand are not in the teardown ledger: delete them yourself, or
+# run ./destroy.sh --discover to find the default-named ones.
 ```
 
 ### Verification & Testing
@@ -228,9 +242,11 @@ aws bedrock-agentcore create-memory-resource \
 
 ### Teardown
 ```bash
-./destroy.sh --force
+./destroy.sh              # plan: lists exactly what deploy.sh created, newest first
+./destroy.sh --yes        # delete it
 # or in PowerShell:
-.\destroy.ps1 -Force
+.\destroy.ps1            # plan
+.\destroy.ps1 -Yes       # delete
 ```
 
 ---
@@ -344,9 +360,11 @@ gcloud run deploy "${SERVICE_NAME}" \
 
 ### Teardown
 ```bash
-./destroy.sh --force
+./destroy.sh              # plan: lists exactly what deploy.sh created, newest first
+./destroy.sh --yes        # delete it
 # or in PowerShell:
-.\destroy.ps1 -Force
+.\destroy.ps1            # plan
+.\destroy.ps1 -Yes       # delete
 ```
 
 ---
@@ -467,9 +485,11 @@ az role assignment create \
 
 ### Teardown
 ```bash
-./destroy.sh --force
+./destroy.sh              # plan: lists exactly what deploy.sh created, newest first
+./destroy.sh --yes        # delete it
 # or in PowerShell:
-.\destroy.ps1 -Force
+.\destroy.ps1            # plan
+.\destroy.ps1 -Yes       # delete
 ```
 
 ---
@@ -534,3 +554,36 @@ curl -X POST "https://<YOUR_DEPLOYED_SERVICE_URL>/api/v1/query" \
    All `.env` files are listed in `.gitignore`. Credentials are injected at runtime via
    AWS Secrets Manager, Google Cloud Secret Manager, or Azure Key Vault references —
    never committed to the repository.
+
+---
+
+## 9. Cleanup & Cost Control
+
+Every deploy script appends each resource it **creates** to
+`deployment/<cloud>-scripts/.deployed/ledger.tsv` (git-ignored). `destroy.sh` /
+`destroy.ps1` run [`deployment/teardown.py`](teardown.py), which deletes exactly those
+resources, newest first, so dependents go before what they depend on. Resources a deploy
+only reused, such as a Foundry account or bucket you already had, are never recorded and
+never deleted.
+
+- **Plan first.** Without `--yes` / `-Yes` the scripts only print the plan.
+- **Failures are kept.** A resource that fails to delete stays in the ledger; re-run to retry.
+- **No ledger** (a deploy made before ledgers existed, or by hand): `--discover` finds the
+  default-named resources. On Azure it never deletes the resource group or a Foundry account
+  unless you pass `--delete-resource-group <name>`, because either may hold other work.
+- **IAM grants** (GCP project-level `roles/aiplatform.user`) are listed for review and removed
+  only with `--include-iam`. They cost nothing and may pre-date the deploy.
+
+| Cloud | Created by deploy → deleted by teardown | Bills while idle? | Not deployment-owned — check yourself |
+| :--- | :--- | :--- | :--- |
+| **GCP** | Cloud Run service, Agent Runtime (`--use-agent-runtime`), Artifact Registry repository, Secret Manager secret | Cloud Run scales to zero; Agent Runtime and image storage bill while present | Cloud Build bucket `gs://<project>_cloudbuild`, Agent Runtime staging bucket, skill-store bucket |
+| **AWS** | AgentCore runtime (+ its `/aws/bedrock-agentcore/runtimes/<id>*` log groups), AgentCore memory, App Runner service (opt-in fallback), ECR repository, IAM role and its inline policies | App Runner bills for provisioned instances around the clock; ECR and log storage bill while present | S3 skill-store bucket, a hand-deployed `agentcore-platform.yaml` stack (`aws cloudformation delete-stack`) |
+| **Azure** | Container App, its role assignment, Container Apps environment and the Log Analytics workspace it created, ACR, and — only when the deploy created them — the Foundry model deployment, project and account (account purged after delete), resource group | ACR (Basic) bills daily; Log Analytics bills for ingestion; Container Apps scale to zero | Skill-store storage account; a Foundry account you already had |
+
+After a demo, run the teardown for every cloud you deployed to:
+
+```bash
+deployment/gcloud-scripts/destroy.sh --yes
+deployment/aws-scripts/destroy.sh --yes
+deployment/az-scripts/destroy.sh --yes
+```

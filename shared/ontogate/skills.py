@@ -35,18 +35,12 @@ import yaml
 
 from ontogate.paths import domain_dir, ontology_dir, repo_root
 from ontogate.ports import TEXT_SUFFIXES, sha256_tree
-from ontogate.roles import RoleSpec, load_all_role_specs
+from ontogate.roles import RoleSpec, check_role_specs, load_all_role_specs
 
-CANONICAL_MCP_TOOLS = frozenset({
-    "parse_clinician_input",
-    "resolve_lab_term",
-    "evaluate_safety_gate",
-    "fetch_grounded_protocol",
-    "attest_computation",
-    "build_clarification_prompt",
-    "panel_workup",
-    "classify_lookalikes",
-})
+from ontogate.mcp_server import CLINICAL_MCP_TOOLS
+
+# The model-facing tool contract: exactly the tools the ontogate MCP server serves.
+CANONICAL_MCP_TOOLS = frozenset(CLINICAL_MCP_TOOLS)
 
 LOCK_SCHEMA_VERSION = "1.0.0"
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -279,7 +273,7 @@ def lint_skill_package(skill_dir: Path) -> List[SkillLintError]:
 
 def check_roles_and_skills(roles: Dict[str, RoleSpec], skills: Dict[str, SkillPackage]) -> List[SkillLintError]:
     """RoleSkillShape / ToolShape: roles, skills and tool grants agree in both directions."""
-    errors: List[SkillLintError] = []
+    errors: List[SkillLintError] = [SkillLintError(*e) for e in check_role_specs(roles)]
     domain_roles = {r for r, spec in roles.items() if spec.domain_skills}
     for role, spec in sorted(roles.items()):
         for tool in spec.tools:
@@ -521,6 +515,29 @@ def skills_for_role(role: str, *, domains: Optional[Iterable[str]] = None,
     return paths
 
 
+# --------------------------------------------------------------------------- developer skills
+DEVELOPER_SKILL_RULES_SKIPPED = {"NO_ROLES", "UNDECLARED_TOOL"}  # not role-scoped; they teach the tools
+
+
+def mirror_developer_skills(check: bool = False) -> List[str]:
+    """Mirror ``.agents/skills`` (source of truth) into ``.claude/skills`` for discovery.
+
+    Returns the relative paths that differ; with ``check`` nothing is written.
+    """
+    import shutil
+    source, target = repo_root() / ".agents" / "skills", repo_root() / ".claude" / "skills"
+    wanted = {p.relative_to(source).as_posix(): p for p in source.rglob("*") if p.is_file()}
+    present = {p.relative_to(target).as_posix(): p for p in target.rglob("*") if p.is_file()} if target.exists() else {}
+    drift = sorted(rel for rel in wanted.keys() | present.keys()
+                   if rel not in wanted or rel not in present
+                   or _read_normalised(wanted[rel]) != _read_normalised(present[rel]))
+    if not check and drift:
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
+    return drift
+
+
 # --------------------------------------------------------------------------- CLI
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="ontogate skills", description=__doc__.split("\n\n")[0])
@@ -532,6 +549,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     role_p.add_argument("role")
     pub_p = sub.add_parser("publish", help="upload locked archives to a store (gs://, s3://, azblob://, path)")
     pub_p.add_argument("store")
+    mir_p = sub.add_parser("mirror", help="copy developer skills .agents/skills into .claude/skills")
+    mir_p.add_argument("--check", action="store_true", help="fail if the mirror differs (no writes)")
     args = parser.parse_args(argv)
     try:
         if args.cmd == "build":
@@ -549,6 +568,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         elif args.cmd == "role":
             for p in skills_for_role(args.role):
                 print(p)
+        elif args.cmd == "mirror":
+            drift = mirror_developer_skills(check=args.check)
+            for path in drift:
+                print(f"drift: {path}")
+            if args.check:
+                return 1 if drift else 0
+            print(f"Mirrored developer skills into {repo_root() / '.claude' / 'skills'}")
         elif args.cmd == "publish":
             from ontogate.cloud_stores import store_from_url
             store = store_from_url(args.store)

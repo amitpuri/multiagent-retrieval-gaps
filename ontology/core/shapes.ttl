@@ -248,6 +248,17 @@ ag:RoleSkillShape
                   sh:message "ToolShape: a role may only be granted tools of the canonical MCP contract." ] ;
     sh:property [ sh:path ag:usesSkill ; sh:class ag:SkillPackage ;
                   sh:message "A role may only load skills that exist." ] ;
+    sh:property [ sh:path ag:delegatesTo ; sh:class ag:Role ;
+                  sh:message "A role may only hand off to a declared role." ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Hand-off to {?target}: a role never delegates to a code node or to itself." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?target WHERE {
+            $this ag:delegatesTo ?target .
+            { ?target ag:usesModel false } UNION { FILTER (?target = $this) }
+        }""" ;
+    ] ;
     sh:sparql [
         a sh:SPARQLConstraint ;
         sh:message "A code node (usesModel false) loads no skills ({?skill})." ;

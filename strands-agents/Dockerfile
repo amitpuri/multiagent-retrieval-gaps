@@ -1,6 +1,7 @@
 # Production Container for AWS Strands Agents SDK & Amazon Bedrock AgentCore
 # Build from the repository root:
 #   docker build -f strands-agents/Dockerfile -t strands-agents .
+# AgentCore Runtime runs ARM64 images; deploy.sh builds linux/arm64 + linux/amd64 (App Runner fallback).
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -38,11 +39,13 @@ RUN groupadd --gid 1001 appgroup && \
 
 USER appuser
 
-EXPOSE 8000
+# Amazon Bedrock AgentCore Runtime requires port 8080 (/ping, /invocations).
+ENV PORT=8080
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/healthz || exit 1
+    CMD curl -f http://localhost:${PORT}/ping || exit 1
 
 # Start continuous FastAPI service
-CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec uvicorn src.server:app --host 0.0.0.0 --port ${PORT}"]

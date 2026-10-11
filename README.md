@@ -132,6 +132,7 @@ multiagent-retrieval-gaps/
 ├── deployment/                          # ── Multi-Cloud Production Deployment Automation ─────
 │   ├── README.md                        # Multi-cloud deployment guide (GCP, AWS, Azure)
 │   ├── IMPLEMENTATION_PLAN.md           # Architecture, security & provisioning specification
+│   ├── teardown.py                      # Ledger-driven teardown: deletes what a deploy created (all clouds)
 │   ├── gcloud-scripts/                  # Google Cloud Agent Platform / Cloud Run
 │   │   ├── config.env                   # Project ID, region (europe-west1), service config
 │   │   ├── deploy.sh / deploy.ps1       # Release build + skill publish, Cloud Run, optional Agent Runtime
@@ -310,7 +311,7 @@ flowchart LR
 ```bash
 cd shared
 python -m pytest tests/ -v
-# 207 passed (pure Python, 0 LLM calls; the RDF/SHACL tests need `pip install -e ".[dev]"`)
+# 223 passed (pure Python, 0 LLM calls; the RDF/SHACL tests need `pip install -e ".[dev]"`)
 ```
 
 ---
@@ -665,20 +666,24 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Shared Core (ontogate) — 207 tests (gate, CQs, validator, skills, RDF/SHACL, stores)
+# Shared Core (ontogate) — 223 tests (gate, CQs, validator, skills, roles, RDF/SHACL, stores, AgentCards)
 cd shared && python -m pytest tests/ -v
 
-# Google ADK ≥2.11.0 — 198 tests
+# Google ADK ≥2.11.0 — 206 tests
 cd google-adk-agents && python -m pytest tests/ -v
 
-# AWS Strands SDK — 65 tests
+# AWS Strands SDK — 77 tests
 cd strands-agents && python -m pytest tests/ -v
 
 # Microsoft Agent Framework (MAF) — 50 tests
 cd agent-framework && python -m pytest tests/ -v
 
-# Cross-cloud conformance — 35 CQs × 3 frameworks
-python conformance/run.py
+# Cross-cloud conformance — 35 CQs × 3 frameworks, AgentCards, live runner per server
+python -m pytest conformance
+
+# Deployment teardown and answer graders
+python -m pytest deployment/tests
+python -m pytest evals
 ```
 
 ### One-Command Unified Execution Scripts
@@ -867,9 +872,9 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **Container Port** | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) |
 | **Safety gate** | `SafetyGateEngine` (shared deterministic code via `ontogate`) | `SafetyGateEngine` (shared deterministic code via `ontogate`) | `SafetyGateEngine` (shared deterministic code via `ontogate`) |
 | **Runtime skills** | `SkillToolset` per role (no script tool) | `AgentSkills` plugin per role (`strict=True`) | `SkillsProvider` per role (no scripts) |
-| **Tests** | **198 offline `pytest` tests** (OKF + Gate + Harness + Skills) | **65 offline `pytest` tests** (Invariants + Extensible + Roles + Skills) | **50 offline `pytest` tests** (Invariants + Pipeline + Harness + Declarative drift) |
+| **Tests** | **206 offline `pytest` tests** (OKF + Gate + Harness + Skills + Role agents) | **77 offline `pytest` tests** (Invariants + Extensible + Roles + Skills + AgentCore contract) | **50 offline `pytest` tests** (Invariants + Pipeline + Harness + Declarative drift) |
 
-> *Note: the shared core adds **207 tests** (`shared/tests/`) and `conformance/` checks all 35 competency questions on the three frameworks — **526 offline tests** in total.*
+> *Note: the shared core adds **223 tests** (`shared/tests/`); deployment teardown (29), cross-cloud conformance (11) and answer graders (11) bring the repository to **607 offline tests**.*
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |

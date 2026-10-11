@@ -10,7 +10,7 @@ import logging
 import os
 import uuid
 from typing import Any, Dict, Optional
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -61,6 +61,13 @@ class QueryResponse(BaseModel):
     clarification: Optional[str] = None
 
 
+@app.get("/.well-known/agent-card.json", tags=["A2A"])
+def agent_card(request: Request) -> Dict[str, Any]:
+    """A2A AgentCard for this deployment, generated from the role specs (identical on every cloud)."""
+    from ontogate.agent_cards import agent_card as build_card, entrypoint_role
+    return build_card(entrypoint_role(), str(request.base_url), framework="strands-agents")
+
+
 @app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Monitoring"])
 def healthz() -> Dict[str, str]:
     return {"status": "healthy", "service": "aws-strands-agents"}
@@ -93,11 +100,22 @@ def query_strands(req: QueryRequest) -> QueryResponse:
     route = result.get("route", "CLARIFY")
     res_status = result.get("status", "UNKNOWN")
     clarification = result.get("clarification")
+    attested = False
 
     if route == "PROCEED":
         concept = result.get("concept", {})
         protocol = result.get("protocol", {}).get("protocol", {})
-        text = f"[Attested ✓] Resolved LOINC: {concept.get('label')} ({concept.get('uri')}). Ref range: {protocol.get('reference_range')}."
+        parsed = result.get("parsed") or {}
+        if parsed.get("patient_value") is not None and concept.get("uri"):
+            # The badge is earned by a deterministic attestation, never assumed (invariant 5).
+            from src.tools import attest_computation
+            population = parsed.get("population") or {}
+            verdict = attest_computation(value=parsed["patient_value"], uri=concept["uri"], unit=parsed.get("unit") or "",
+                                         sex=population.get("sex", ""), age_band=population.get("age_band", ""))
+            attested = verdict.get("verdict") == "PASS"
+        badge = "[Attested ✓] " if attested else ""
+        text = (f"{badge}Resolved LOINC: {concept.get('label')} ({concept.get('uri')}). "
+                f"Ref range: {protocol.get('reference_range')}.")
     else:
         text = clarification or f"Safety gate flagged {res_status}. Clinician clarification required."
 
@@ -106,6 +124,18 @@ def query_strands(req: QueryRequest) -> QueryResponse:
         text=text,
         route=route,
         status=res_status,
-        attested=(route == "PROCEED"),
+        attested=attested,
         clarification=clarification,
     )
+
+
+# ── Amazon Bedrock AgentCore Runtime contract: GET /ping, POST /invocations on $PORT (8080) ──
+@app.get("/ping", tags=["AgentCore"])
+def ping() -> Dict[str, str]:
+    return {"status": "Healthy"}
+
+
+@app.post("/invocations", response_model=QueryResponse, tags=["AgentCore"])
+def invocations(req: QueryRequest) -> QueryResponse:
+    """AgentCore invocation payload ``{"prompt": ...}`` — the same handler as /api/v1/query."""
+    return query_strands(req)

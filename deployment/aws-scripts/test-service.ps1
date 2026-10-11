@@ -58,4 +58,14 @@ $body = @{
 $resp = Invoke-RestMethod -Uri "$ServiceUrl/api/v1/query" -Method Post -Body $body -ContentType "application/json"
 $resp | ConvertTo-Json -Depth 5
 
+
+# Every competency question this deployment can answer, against the live endpoint (P11.C2).
+Write-Host "`n[*] Running competency questions against $ServiceUrl..." -ForegroundColor Yellow
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$env:PYTHONPATH = "$repoRoot\shared"
+$liveArgs = @("--endpoint", $ServiceUrl)
+if ($env:HARNESS_API_TOKEN) { $liveArgs += @("--token", $env:HARNESS_API_TOKEN) }
+python (Join-Path $repoRoot "conformance\live.py") @liveArgs
+if ($LASTEXITCODE -ne 0) { throw "Competency questions failed against $ServiceUrl (report in dist\conformance)." }
+
 Write-Host "`n[+] AWS App Runner service verified successfully!" -ForegroundColor Green

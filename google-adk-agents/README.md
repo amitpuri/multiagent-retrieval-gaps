@@ -313,4 +313,5 @@ sh run-all-tests.sh
 | `tests/test_workflow_and_attestation.py` | **16 tests** | End-to-end workflow execution, state graph traversal, and attested computation verification. |
 | `tests/test_role_skills.py` | **4 tests** | Native `SkillToolset` per role from `agents/<role>.yaml`; `run_skill_script` never exposed; the safety guard loads none. |
 | `tests/test_agent_runtime_packaging.py` | **1 test** | The Agent Runtime package (`deployment/gcloud-scripts/agent_runtime.py --dry-run`) imports and verifies its release without the repository. |
-| **Total** | **198 tests** | **100% Passing** |
+| `tests/test_role_agents.py` | **8 tests** | Every model-backed agent is built from its role spec: shared instruction, exact tool grants, one AgentTool per delegate, declarable tools. |
+| **Total** | **206 tests** | **100% Passing** |

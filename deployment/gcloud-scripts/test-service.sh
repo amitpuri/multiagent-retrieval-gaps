@@ -56,4 +56,11 @@ curl -sS -X POST "${SERVICE_URL}/api/v1/query" \
   -H "Content-Type: application/json" \
   -d "${QUERY_PAYLOAD}" | jq . 2>/dev/null || curl -sS -X POST "${SERVICE_URL}/api/v1/query" -H "Content-Type: application/json" -d "${QUERY_PAYLOAD}"
 
+
+# Every competency question this deployment can answer, against the live endpoint (P11.C2).
+echo -e "\n[*] Running competency questions against ${SERVICE_URL}..."
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PYTHONPATH="${REPO_ROOT}/shared" python "${REPO_ROOT}/conformance/live.py" --endpoint "${SERVICE_URL}" \
+  ${HARNESS_API_TOKEN:+--token "${HARNESS_API_TOKEN}"}
+
 echo -e "\n[+] Tests completed successfully."

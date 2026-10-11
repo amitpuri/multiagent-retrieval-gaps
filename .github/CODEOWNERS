@@ -1,0 +1,24 @@
+# Review routing for knowledge and procedure (plan §8.9, P9.8).
+# Clinical content needs a clinical reviewer before `verified_by` can name a human.
+# Replace @amitpuri with the clinical-reviewer and ontology-owner teams when they exist.
+
+# Default
+*                               @amitpuri
+
+# Clinical procedure loaded by agents (risk_class: clinical) — clinical reviewer
+/skills/runtime/                @amitpuri
+/agents/                        @amitpuri
+
+# Domain knowledge and the skills rendered from it — ontology owner (+ clinical reviewer)
+/ontology/                      @amitpuri
+/skills/domains/                @amitpuri
+/skills/skills.lock.json        @amitpuri
+/config/scenarios/              @amitpuri
+
+# Deterministic gate and tool contract — engineering owner
+/shared/ontogate/detectors/     @amitpuri
+/shared/ontogate/mcp_server.py  @amitpuri
+
+# Model catalog and cloud deployments (cost and data-protection impact)
+/config/models.yaml             @amitpuri
+/deployment/                    @amitpuri

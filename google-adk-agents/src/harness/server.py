@@ -23,7 +23,7 @@ import logging
 import os
 import uuid
 from typing import Any, Dict, List, Optional
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -171,6 +171,13 @@ class SessionCreateResponse(BaseModel):
     session_id: str
     created_at: float
     message: str
+
+
+@app.get("/.well-known/agent-card.json", tags=["A2A"])
+def agent_card(request: Request) -> Dict[str, Any]:
+    """A2A AgentCard for this deployment, generated from the role specs (identical on every cloud)."""
+    from ontogate.agent_cards import agent_card as build_card, entrypoint_role
+    return build_card(entrypoint_role(), str(request.base_url), framework="google-adk")
 
 
 @app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Monitoring"])

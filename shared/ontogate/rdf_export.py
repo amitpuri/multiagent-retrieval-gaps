@@ -312,6 +312,8 @@ def add_agent_graph(g: "Graph", roles: Dict[str, Any], skills: Dict[str, Any],
         g.add((r, AG.usesModel, Literal(bool(spec.uses_model))))
         for tool in spec.tools:
             g.add((r, AG.grantedTool, ns.kb("tool", tool)))
+        for target in spec.delegates:
+            g.add((r, AG.delegatesTo, ns.kb("role", target)))
         for name in skill_names_for_role(spec, domains):
             g.add((r, AG.usesSkill, ns.kb("skill", name)))
     return g

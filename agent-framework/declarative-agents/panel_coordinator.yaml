@@ -11,9 +11,11 @@ instructions: |
   Coordinate specimen collection protocols and multi-department panel sequences.
   Use panel_workup to retrieve tube order and department assignments without reordering or merging.
   Enforce physical specimen collection rules (e.g. CSF lumbar puncture tube ordering) strictly.
+
+  Tools you may call: panel_workup.
 tools:
 - kind: function
   name: panel_workup
-  description: Ordered, department-scoped collection steps for a panel (Gap 11).
+  description: Ordered, department-scoped specimen collection steps for a panel.
   bindings:
     function: panel_workup

@@ -12,9 +12,11 @@ instructions: |
   Formulate unambiguous, human-in-the-loop clarification prompts for the clinician.
   Never guess, assume missing units, or suggest a "likely" answer.
   Offer only valid allowed facet values defined by the ontology.
+
+  Tools you may call: build_clarification_prompt.
 tools:
 - kind: function
   name: build_clarification_prompt
-  description: Deterministic clarification for a non-RESOLVED gate status.
+  description: Deterministic clarification text for a non-RESOLVED gate status.
   bindings:
     function: build_clarification_prompt

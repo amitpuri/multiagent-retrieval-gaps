@@ -10,7 +10,7 @@ import logging
 import os
 import uuid
 from typing import Any, Dict, Optional
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -59,6 +59,13 @@ class QueryResponse(BaseModel):
     clarification: Optional[str] = None
 
 
+@app.get("/.well-known/agent-card.json", tags=["A2A"])
+def agent_card(request: Request) -> Dict[str, Any]:
+    """A2A AgentCard for this deployment, generated from the role specs (identical on every cloud)."""
+    from ontogate.agent_cards import agent_card as build_card, entrypoint_role
+    return build_card(entrypoint_role(), str(request.base_url), framework="microsoft-agent-framework")
+
+
 @app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Monitoring"])
 def healthz() -> Dict[str, str]:
     return {"status": "healthy", "service": "azure-agent-framework"}
@@ -97,6 +104,6 @@ async def query_maf(req: QueryRequest) -> QueryResponse:
         text=resp.text,
         route=resp.route,
         status=resp.status,
-        attested=(resp.route == "PROCEED"),
+        attested=resp.attested,
         clarification=resp.clarification,
     )

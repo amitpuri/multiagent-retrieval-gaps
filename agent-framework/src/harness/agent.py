@@ -24,6 +24,7 @@ from src.harness.providers import (
     SafetyGateApprovalPolicy,
     TodoStatus,
 )
+from src.tools.safety_gate_tool import gate_arguments
 from src.tools import (
     parse_clinician_input,
     resolve_lab_term,
@@ -31,6 +32,7 @@ from src.tools import (
     fetch_grounded_protocol,
     build_clarification_prompt,
     panel_workup,
+    attest_computation,
 )
 
 DEFAULT_HARNESS_INSTRUCTIONS = """
@@ -67,6 +69,8 @@ class HarnessResponse(BaseModel):
     resolved: Dict[str, Any] = Field(default_factory=dict)
     gate: Dict[str, Any] = Field(default_factory=dict)
     protocol: Dict[str, Any] = Field(default_factory=dict)
+    # True only when the deterministic attestation of the reported value passed (invariant 5).
+    attested: bool = False
     clarification: Optional[str] = None
     tool_calls: List[ToolInvocation] = Field(default_factory=list)
     todos: List[Dict[str, Any]] = Field(default_factory=list)
@@ -109,6 +113,7 @@ class ClinicalHarnessAgent:
             "fetch_grounded_protocol": fetch_grounded_protocol,
             "build_clarification_prompt": build_clarification_prompt,
             "panel_workup": panel_workup,
+            "attest_computation": attest_computation,
         }
 
     def create_session(self, session_id: Optional[str] = None) -> HarnessSession:
@@ -176,13 +181,7 @@ class ClinicalHarnessAgent:
 
         # ── Step 3: Evaluate Safety Gate ────────────────────────────────────
         self.todo_provider.mark_in_progress(3)
-        gate_args = {
-            "term": resolved.get("term"),
-            "unit": resolved.get("unit"),
-            "qualifier": resolved.get("qualifier"),
-            "patient_value": resolved.get("patient_value"),
-            "status": resolved.get("status"),
-        }
+        gate_args = gate_arguments(parsed, resolved)
         gate_approval = self.approval_policy.check_approval("evaluate_safety_gate", gate_args)
         gate = self.tools["evaluate_safety_gate"](**gate_args)
         tool_calls.append(
@@ -227,6 +226,7 @@ class ClinicalHarnessAgent:
         protocol_data: Dict[str, Any] = {}
         clarification_text: Optional[str] = None
         output_text = ""
+        attested = False
 
         if route == "PROCEED":
             candidates = resolved.get("candidates", [])
@@ -256,12 +256,23 @@ class ClinicalHarnessAgent:
             candidate_label = concept.get("label", parsed.get("term", "Lab Test"))
             candidate_uri = concept.get("uri", "N/A")
 
+            attestation = "not run (no value reported)"
+            if parsed.get("patient_value") is not None and concept.get("uri"):
+                population = parsed.get("population") or {}
+                attest_args = {"value": parsed["patient_value"], "uri": concept["uri"], "unit": parsed.get("unit") or "",
+                               "sex": population.get("sex", ""), "age_band": population.get("age_band", "")}
+                verdict = self.tools["attest_computation"](**attest_args)
+                tool_calls.append(ToolInvocation(tool_name="attest_computation", args=attest_args,
+                                                 result=verdict, approved=True))
+                attested = verdict.get("verdict") == "PASS"
+                attestation = verdict.get("verdict", "FAIL")
+            badge = "[Attested ✓] " if attested else ""
             output_text = (
-                f"[PROCEED] Standardized LOINC concept: {candidate_label} [{candidate_uri}]\n"
+                f"[PROCEED] {badge}Standardized LOINC concept: {candidate_label} [{candidate_uri}]\n"
                 f"Patient Value: {parsed.get('patient_value')} {parsed.get('unit')}\n"
                 f"Reference Range: {ref_range}\n"
                 f"Panic Limits: {panic_limits}\n"
-                f"Status: Clinically validated. Safe to report."
+                f"Attestation: {attestation}"
             )
             self.todo_provider.mark_completed(4, {"route": "PROCEED", "uri": candidate_uri})
 
@@ -311,6 +322,7 @@ class ClinicalHarnessAgent:
             resolved=resolved,
             gate=gate,
             protocol=protocol_data,
+            attested=attested,
             clarification=clarification_text,
             tool_calls=tool_calls,
             todos=[item.model_dump() for item in self.todo_provider.get_todos()],

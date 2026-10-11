@@ -4,7 +4,9 @@ Google ADK agent definitions and multi-agent roles for laboratory medicine.
 
 from typing import Optional
 from google.adk import Agent
-from src.tools import fetch_grounded_protocol, resolve_lab_term, search_lab_kb
+from src.tools import search_lab_kb
+# Model-facing tool signatures (no registry parameter): the ontogate MCP contract.
+from ontogate.mcp_server import CLINICAL_MCP_TOOLS
 
 # Gemini model for ADK agents — resolved from config/models.yaml (never hard-coded).
 from ontogate.catalog import model_for
@@ -37,7 +39,7 @@ prompt_governed_agent = Agent(
 3. If RESOLVED: call fetch_grounded_protocol with the uri and interpret using ONLY
    the returned data. Name the concept you resolved to.
 4. Never fill gaps from general knowledge.""",
-    tools=[resolve_lab_term, fetch_grounded_protocol],
+    tools=[CLINICAL_MCP_TOOLS["resolve_lab_term"], CLINICAL_MCP_TOOLS["fetch_grounded_protocol"]],
 )
 
 # -------------------------------------------------------------------------

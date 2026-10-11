@@ -91,7 +91,31 @@ def run(framework: str) -> List[Dict[str, Any]]:
             record["workup"] = [(t["tube"], t["department"]) for t in workup.get("tubes", [])]
         results.append(record)
     set_default_registry(None)
+    results.append({"case": "_agent_card", **_agent_card(framework)})
     return results
+
+
+SERVER_MODULES = {"adk": "src.harness.server", "strands": "src.server", "maf": "src.harness.server"}
+
+
+def _agent_card(framework: str) -> Dict[str, Any]:
+    """The AgentCard the framework's server publishes, minus what legitimately differs (URL, label)."""
+    from ontogate.agent_cards import agent_card, entrypoint_role
+    if framework == "ontogate":
+        card = agent_card(entrypoint_role(), "http://testserver/")
+    else:
+        import importlib
+        from fastapi.testclient import TestClient
+        app = importlib.import_module(SERVER_MODULES[framework]).app
+        response = TestClient(app).get("/.well-known/agent-card.json")
+        response.raise_for_status()
+        card = response.json()
+    card = dict(card)
+    card.pop("url", None)
+    card.pop("documentationUrl", None)
+    for ext in card.get("capabilities", {}).get("extensions", []):
+        ext.get("params", {}).pop("framework", None)
+    return {"agent_card": card}
 
 
 def main() -> int:

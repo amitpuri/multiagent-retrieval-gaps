@@ -15,6 +15,14 @@ if [[ -f "${SCRIPT_DIR}/config.env" ]]; then
   source "${SCRIPT_DIR}/config.env"
 fi
 
+# Every resource this script CREATES is appended to the ledger; destroy.sh deletes
+# exactly those (deployment/teardown.py). Reused, pre-existing resources are not recorded.
+LEDGER="${SCRIPT_DIR}/.deployed/ledger.tsv"
+record_created() {  # kind name [key=value;key=value]
+  mkdir -p "$(dirname "${LEDGER}")"
+  printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}" >> "${LEDGER}"
+}
+
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "[-] ERROR: PROJECT_ID is not set. Run 'gcloud config set project <ID>'."
@@ -85,6 +93,7 @@ if ! gcloud artifacts repositories describe "${REPO_NAME}" --location="${REGION}
     --location="${REGION}" \
     --description="Clinical Agent Platform containers" \
     --project="${PROJECT_ID}" --quiet
+  record_created artifact-repository "${REPO_NAME}" "location=${REGION};project=${PROJECT_ID}"
 fi
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}:${IMAGE_TAG}"
 
@@ -140,6 +149,7 @@ SECRET_FLAG=()
 if [[ -n "${API_KEY}" ]]; then
   if ! gcloud secrets describe "${SECRET_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
     gcloud secrets create "${SECRET_NAME}" --replication-policy="automatic" --project="${PROJECT_ID}" --quiet
+    record_created secret "${SECRET_NAME}" "project=${PROJECT_ID}"
   fi
   printf "%s" "${API_KEY}" | gcloud secrets versions add "${SECRET_NAME}" --data-file=- --project="${PROJECT_ID}" --quiet
 
@@ -151,9 +161,14 @@ if [[ -n "${API_KEY}" ]]; then
     --role="roles/secretmanager.secretAccessor" \
     --project="${PROJECT_ID}" --quiet >/dev/null 2>&1 || true
 
-  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-    --member="serviceAccount:${COMPUTE_SA}" \
-    --role="roles/aiplatform.user" --quiet >/dev/null 2>&1 || true
+  if ! gcloud projects get-iam-policy "${PROJECT_ID}" --flatten="bindings[].members" \
+      --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${COMPUTE_SA}" \
+      --format="value(bindings.role)" 2>/dev/null | grep -q aiplatform; then
+    gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+      --member="serviceAccount:${COMPUTE_SA}" \
+      --role="roles/aiplatform.user" --quiet >/dev/null 2>&1 \
+      && record_created iam-binding "serviceAccount:${COMPUTE_SA}" "role=roles/aiplatform.user;project=${PROJECT_ID}"
+  fi
 
   SECRET_FLAG=("--set-secrets=GEMINI_API_KEY=${SECRET_NAME}:latest")
   echo "[+] GEMINI_API_KEY stored in Secret Manager + Vertex AI user role granted."
@@ -168,7 +183,8 @@ if [[ "${USE_AGENT_RUNTIME}" == "true" ]]; then
   STAGING_BUCKET="${STAGING_BUCKET:-gs://${PROJECT_ID}-agent-staging}"
   if python "${REPO_ROOT}/deployment/gcloud-scripts/agent_runtime.py" \
       --project "${PROJECT_ID}" --location "${REGION}" \
-      --staging-bucket "${STAGING_BUCKET}" --display-name "${AGENT_DISPLAY_NAME}"; then
+      --staging-bucket "${STAGING_BUCKET}" --display-name "${AGENT_DISPLAY_NAME}" \
+      --ledger "${LEDGER}"; then
     echo "[+] Agent Runtime deployment complete."
   else
     echo "[!] Agent Runtime deployment failed (output above); continuing with Cloud Run." >&2
@@ -202,7 +218,13 @@ if [[ ${#SECRET_FLAG[@]} -gt 0 ]]; then
   DEPLOY_ARGS+=("${SECRET_FLAG[@]}")
 fi
 
+SERVICE_EXISTED=false
+gcloud run services describe "${AGENT_RESOURCE_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null \
+  && SERVICE_EXISTED=true
 gcloud "${DEPLOY_ARGS[@]}"
+if [[ "${SERVICE_EXISTED}" == "false" ]]; then
+  record_created cloud-run-service "${AGENT_RESOURCE_NAME}" "region=${REGION};project=${PROJECT_ID}"
+fi
 
 SERVICE_URL="$(gcloud run services describe "${AGENT_RESOURCE_NAME}" \
   --platform=managed --region="${REGION}" --project="${PROJECT_ID}" \
@@ -210,12 +232,12 @@ SERVICE_URL="$(gcloud run services describe "${AGENT_RESOURCE_NAME}" \
 
 echo "[+] Cloud Run (Agent Platform) service deployed: ${SERVICE_URL}"
 
-# ─── STEP 7: Register with Vertex AI Agent Builder ────────────────────────────
-echo "[7/7] Registering agent with Vertex AI Agent Builder..."
+# ─── STEP 7: Console links ─────────────────────────────────────────────────────
+echo "[7/7] Console links..."
 echo "    Agent Platform endpoint: ${SERVICE_URL}"
 echo "    Vertex AI Console: https://console.cloud.google.com/vertex-ai/agents?project=${PROJECT_ID}"
 echo "    Agent Builder:     https://console.cloud.google.com/gen-app-builder/engines?project=${PROJECT_ID}"
-echo "[+] Agent registered with Vertex AI Agent Platform."
+echo "    Teardown (deletes what this deploy created): ${SCRIPT_DIR}/destroy.sh --yes"
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 echo ""

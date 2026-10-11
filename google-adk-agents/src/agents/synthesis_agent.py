@@ -74,11 +74,8 @@ def create_synthesize_agent(
         else ""
     )
 
-    instruction = (
-        "You are a clinical laboratory specialist. "
-        "Interpret the patient's value using ONLY the protocol data provided in the input. "
-        "Name the resolved LOINC concept, cite the reference range and panic limits, "
-        "and provide a calibrated, cautious interpretation. Never speculate beyond the provided protocol. "
+    # Runtime context for this concept, appended to the role spec's instruction.
+    context = (
         "If the protocol is deprecated or stale, say so explicitly and do not interpret further.\n\n"
         f"Trust guidance: {trust_phrase}{status_phrase}{stale_phrase}\n\n"
         "Citation rule: At the end of your response, cite the source as: "
@@ -88,13 +85,8 @@ def create_synthesize_agent(
         "do not compute or re-derive it yourself."
     )
 
-    return Agent(
-        name="clinical_synthesizer",
-        tools=skill_tools_for("clinical_synthesizer"),
-        model=chosen_model,
-        mode="single_turn",
-        instruction=instruction,
-    )
+    from src.agents.roles import build_role_agent
+    return build_role_agent("clinical_synthesizer", model=chosen_model, context=context, mode="single_turn")
 
 
 def create_synthesize_agent_from_payload(

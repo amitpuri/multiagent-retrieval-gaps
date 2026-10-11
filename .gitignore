@@ -66,3 +66,6 @@ Thumbs.db
 # Logs and databases
 *.log
 *.sqlite3
+
+# Teardown ledgers written by the deploy scripts (local deployment state)
+deployment/*/.deployed/

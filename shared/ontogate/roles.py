@@ -11,14 +11,14 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
 from ontogate.paths import repo_root
 
 ROLE_KEYS = {"role", "description", "uses_model", "model_tier", "tools", "skills",
-             "domain_skills", "output_schema", "base_instruction"}
+             "domain_skills", "delegates", "output_schema", "base_instruction"}
 MODEL_TIERS = {"reasoning", "flash", "none"}
 
 
@@ -34,6 +34,9 @@ class RoleSpec:
     # Load the domain skill of every loaded domain pack (domain-<pack id>), so a
     # new pack adds its guidance without editing any role spec.
     domain_skills: bool = False
+    # Roles this role may hand off to (agents-as-tools on Strands and ADK, workflow
+    # edges on MAF). The gate decides *whether* to hand off; this only grants *to whom*.
+    delegates: List[str] = field(default_factory=list)
     output_schema: str = "A2AMessage"
     base_instruction: str = ""
 
@@ -68,6 +71,7 @@ def load_role_spec(file_path: Path) -> RoleSpec:
         tools=list(data.get("tools") or []),
         skills=list(data.get("skills") or []),
         domain_skills=bool(data.get("domain_skills", False)),
+        delegates=list(data.get("delegates") or []),
         output_schema=data.get("output_schema", "A2AMessage"),
         base_instruction=str(data.get("base_instruction", "")).strip(),
     )
@@ -86,3 +90,50 @@ def get_role_spec(role: str) -> RoleSpec:
     if not path.is_file():
         raise KeyError(f"No role spec for '{role}' at {path}")
     return load_role_spec(path)
+
+
+def check_role_specs(specs: Dict[str, RoleSpec]) -> List[Tuple[str, str, str]]:
+    """Delegation rules: (role, rule, message) for each violation."""
+    errors: List[Tuple[str, str, str]] = []
+    for role, spec in sorted(specs.items()):
+        if spec.delegates and not spec.uses_model:
+            errors.append((role, "CODE_NODE_DELEGATES", "a code node does not hand off to agents"))
+        for target in spec.delegates:
+            if target == role:
+                errors.append((role, "SELF_DELEGATION", "a role cannot delegate to itself"))
+            elif target not in specs:
+                errors.append((role, "UNKNOWN_DELEGATE", f"delegates to unknown role '{target}'"))
+            elif not specs[target].uses_model:
+                errors.append((role, "DELEGATE_TO_CODE_NODE",
+                               f"'{target}' is a code node; call its tool instead of delegating"))
+    # Hand-offs must not loop back (a delegate chain is a tree, not a cycle).
+    def reaches(start: str, goal: str, seen: frozenset = frozenset()) -> bool:
+        for nxt in specs.get(start, RoleSpec(start, "", True, "flash")).delegates:
+            if nxt == goal or (nxt not in seen and reaches(nxt, goal, seen | {nxt})):
+                return True
+        return False
+    for role in sorted(specs):
+        if any(reaches(d, role) for d in specs[role].delegates if d != role and d in specs):
+            errors.append((role, "DELEGATION_CYCLE", "hand-offs lead back to this role"))
+    return errors
+
+
+def instruction_for(role: "RoleSpec | str", context: str = "",
+                    specs: Optional[Dict[str, RoleSpec]] = None) -> str:
+    """The one instruction text for a role, identical on every framework.
+
+    Base instruction from the role spec, the tools it is granted, the roles it
+    may hand off to, then any runtime ``context`` (e.g. the trust posture of the
+    concept being interpreted).
+    """
+    spec = role if isinstance(role, RoleSpec) else get_role_spec(role)
+    parts = [spec.base_instruction]
+    if spec.tools:
+        parts.append("Tools you may call: " + ", ".join(spec.tools) + ".")
+    if spec.delegates:
+        specs = specs or load_all_role_specs()
+        parts.append("Roles you may hand off to:\n" + "\n".join(
+            f"- {d}: {specs[d].description}" for d in spec.delegates))
+    if context.strip():
+        parts.append(context.strip())
+    return "\n\n".join(parts)

@@ -207,7 +207,7 @@ python -m src.main --offline
 
 ## Test Suite & Verification
 
-The test suite contains **65 tests** running deterministically in pure code without live external API calls:
+The test suite contains **77 tests** running deterministically in pure code without live external API calls:
 
 ```bash
 python -m pytest tests/ -v
@@ -224,4 +224,6 @@ sh run-all-tests.sh
 | `tests/test_multiagent_extensible.py` | **16 tests** | Shared ontology registry loading, dynamic YAML scenario extensions (Troponin), and detector unit tests. |
 | `tests/test_strands_agents.py` | **26 tests** | Strands tools, agent factories, offline model selection, AgentCore memory fallbacks, and end-to-end multi-agent orchestration. |
 | `tests/test_role_skills.py` | **11 tests** | Each role agent is built with an `AgentSkills` plugin holding exactly its skills (local, hash-verified `Skill` instances). |
-| **Total** | **65 tests** | **100% Passing** |
+| `tests/test_role_agents.py` | **7 tests** | Every agent is built from its role spec: shared system prompt, exact tool grants, one hand-off tool per delegate. |
+| `tests/test_agentcore_contract.py` | **5 tests** | AgentCore Runtime contract (`/ping`, `/invocations`, port 8080) and an earned `[Attested ✓]` badge. |
+| **Total** | **77 tests** | **100% Passing** |

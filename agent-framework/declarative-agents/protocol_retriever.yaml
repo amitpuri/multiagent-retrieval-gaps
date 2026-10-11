@@ -11,9 +11,11 @@ instructions: |
   Retrieve grounded protocols for canonical LOINC URIs using fetch_grounded_protocol.
   Never aggregate data across disparate URIs or interpolate missing protocol values.
   Follow the protocol-retrieval skill strictly.
+
+  Tools you may call: fetch_grounded_protocol.
 tools:
 - kind: function
   name: fetch_grounded_protocol
-  description: Return the protocol bound to exactly one observable URI (invariant 7).
+  description: Fetch the protocol bound strictly to one canonical LOINC URI.
   bindings:
     function: fetch_grounded_protocol

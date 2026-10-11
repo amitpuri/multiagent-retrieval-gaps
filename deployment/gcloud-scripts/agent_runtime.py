@@ -12,7 +12,8 @@ resolves the same pinned bundle and skills lock as every other cloud.
         --staging-bucket gs://P-agent-staging
 
 Deploying creates billable resources in the named project; deploy.sh asks for
-it explicitly (--use-agent-runtime).
+it explicitly (--use-agent-runtime) and records the resource so that
+``destroy.sh --yes`` deletes it.
 """
 from __future__ import annotations
 
@@ -105,6 +106,7 @@ def main(argv=None) -> int:
     parser.add_argument("--display-name", default="Clinical Decision Support Agent")
     parser.add_argument("--service-account")
     parser.add_argument("--dry-run", action="store_true", help="stage and import-check only; deploy nothing")
+    parser.add_argument("--ledger", help="teardown ledger to record the created resource in (deploy.sh passes it)")
     args = parser.parse_args(argv)
     if not args.dry_run and not (args.project and args.staging_bucket):
         parser.error("--project and --staging-bucket are required unless --dry-run")
@@ -118,6 +120,11 @@ def main(argv=None) -> int:
             return 0
         name = deploy(stage_dir, args, packages)
         os.chdir(REPO)
+    if args.ledger:  # deployment/teardown.py deletes it with `destroy.sh --yes`
+        ledger = Path(args.ledger)
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("a", encoding="utf-8") as fh:
+            fh.write(f"agent-runtime\t{name}\tlocation={args.location};project={args.project}\n")
     print(f"[+] Agent Runtime resource: {name}")
     return 0
 

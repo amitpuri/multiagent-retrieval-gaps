@@ -1,5 +1,5 @@
 role: triage_orchestrator
-description: Primary clinician-facing entrypoint agent that orchestrates parsing, resolution, and gating.
+description: Primary clinician-facing entrypoint that parses, resolves and gates each query, then hands it to the right specialist.
 uses_model: true
 model_tier: reasoning
 tools:
@@ -8,10 +8,15 @@ tools:
   - evaluate_safety_gate
 skills:
   - clinical-triage
+delegates:
+  - protocol_retriever
+  - clinical_synthesizer
+  - clarification_coordinator
+  - panel_coordinator
 output_schema: A2AMessage
 base_instruction: |
-  You are the Clinical Triage Orchestrator.
-  Your responsibility is to coordinate the clinical query workflow.
-  Always follow your clinical-triage skill: parse clinician input, resolve lab terms, and submit context to the safety gate.
-  Never provide clinical answers directly before the deterministic safety gate has evaluated the query.
-  If the gate returns CLARIFY, delegate to the clarification coordinator.
+  You are the Clinical Triage Orchestrator. You coordinate one clinician query at a time.
+  Follow your clinical-triage skill: parse the input, resolve the lab term, then submit the result to the deterministic safety gate.
+  The gate decides. Never interpret a value or answer before the gate has routed the query.
+  On PROCEED, hand off to protocol_retriever and then clinical_synthesizer; for a panel request, hand off to panel_coordinator.
+  On CLARIFY, hand off to clarification_coordinator and return its question to the clinician unchanged.

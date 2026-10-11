@@ -29,12 +29,16 @@
 [CmdletBinding()]
 param(
     [string]$AwsRegion        = "us-east-1",
-    [string]$AgentName        = "clinical-strands-agent",
+    [string]$AgentName        = "clinical_strands_agent",   # AgentCore: [a-zA-Z][a-zA-Z0-9_]{0,47}
+    [string]$AppRunnerName    = "clinical-strands-agent",
     [string]$EcrRepoName      = "strands-clinical-agents",
     [string]$ImageTag         = "latest",
     [string]$BedrockModelId   = "global.anthropic.claude-opus-5-5",
     [string]$AgentRoleName    = "BedrockAgentCoreExecutionRole",
-    [string]$MemoryName       = "clinical-agent-memory"
+    [string]$MemoryName       = "clinical_agent_memory",
+    [int]$MemoryExpiryDays    = 30,
+    # App Runner bills for provisioned instances around the clock: opt in explicitly.
+    [switch]$AppRunnerFallback
 )
 
 $ErrorActionPreference = "Continue"
@@ -50,6 +54,14 @@ function Write-JsonTemp {
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = (Resolve-Path "$scriptDir\..\..").Path
+
+# Every resource this script CREATES is appended to the ledger; destroy.ps1 deletes
+# exactly those (deployment/teardown.py). Reused, pre-existing resources are not recorded.
+$ledger = Join-Path $scriptDir ".deployed\ledger.tsv"
+function Record-Created([string]$Kind, [string]$Name, [string]$Attrs = "") {
+    New-Item -ItemType Directory -Force -Path (Split-Path $ledger) | Out-Null
+    [System.IO.File]::AppendAllText($ledger, "$Kind`t$Name`t$Attrs`n", (New-Object System.Text.UTF8Encoding $false))
+}
 
 Write-Host "==============================================================================" -ForegroundColor Cyan
 Write-Host " Amazon Bedrock AgentCore Deployment: $AgentName" -ForegroundColor Cyan
@@ -92,6 +104,7 @@ if ($LASTEXITCODE -ne 0 -or -not $repoCheck) {
     Write-Host "    Creating ECR repository..."
     aws ecr create-repository --repository-name $EcrRepoName --region $AwsRegion `
         --image-scanning-configuration scanOnPush=true --output json | Out-Null
+    if ($LASTEXITCODE -eq 0) { Record-Created "ecr-repository" $EcrRepoName "region=$AwsRegion" }
 } else { Write-Host "    ECR repository exists." }
 
 $ecrUri      = "$accountId.dkr.ecr.$AwsRegion.amazonaws.com/$EcrRepoName"
@@ -102,18 +115,32 @@ Write-Host "[4/8] Ensuring Bedrock AgentCore IAM Execution Role..." -ForegroundC
 $roleCheck = aws iam get-role --role-name $AgentRoleName 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $roleCheck) {
     Write-Host "    Creating IAM Role: $AgentRoleName..."
-    $trustPolicy = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["bedrock.amazonaws.com","lambda.amazonaws.com"]},"Action":"sts:AssumeRole"}]}'
+    $trustPolicy = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["bedrock-agentcore.amazonaws.com","build.apprunner.amazonaws.com","tasks.apprunner.amazonaws.com"]},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"aws:SourceAccount":"' + $accountId + '"}}}]}'
     $tempTrust = Write-JsonTemp -Json $trustPolicy
     aws iam create-role --role-name $AgentRoleName `
         --assume-role-policy-document "file://$tempTrust" `
         --description "Bedrock AgentCore execution role for clinical strands agents" | Out-Null
+    if ($LASTEXITCODE -eq 0) { Record-Created "iam-role" $AgentRoleName "region=$AwsRegion" }
     Remove-Item $tempTrust -Force -ErrorAction SilentlyContinue
 
-    # Grant Bedrock invoke + ECR pull + CloudWatch logs
-    $inlinePolicy = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream","bedrock:InvokeAgent","bedrock:GetFoundationModel","bedrock-agentcore:*","bedrock-agent-runtime:*"],"Resource":"*"},{"Effect":"Allow","Action":["ecr:GetDownloadUrlForLayer","ecr:BatchGetImage","ecr:GetAuthorizationToken"],"Resource":"*"},{"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"arn:aws:logs:*:*:*"},{"Effect":"Allow","Action":["secretsmanager:GetSecretValue"],"Resource":"*"}]}'
+    # Least privilege: invoke models, pull this repository, write runtime logs/traces, use this memory.
+    $inlinePolicy = @"
+{"Version":"2012-10-17","Statement":[
+ {"Effect":"Allow","Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream","bedrock:GetInferenceProfile"],
+  "Resource":["arn:aws:bedrock:*::foundation-model/*","arn:aws:bedrock:*:${accountId}:inference-profile/*"]},
+ {"Effect":"Allow","Action":["ecr:BatchGetImage","ecr:GetDownloadUrlForLayer"],
+  "Resource":"arn:aws:ecr:${AwsRegion}:${accountId}:repository/${EcrRepoName}"},
+ {"Effect":"Allow","Action":"ecr:GetAuthorizationToken","Resource":"*"},
+ {"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents","logs:DescribeLogStreams"],
+  "Resource":"arn:aws:logs:${AwsRegion}:${accountId}:log-group:/aws/bedrock-agentcore/*"},
+ {"Effect":"Allow","Action":["xray:PutTraceSegments","xray:PutTelemetryRecords"],"Resource":"*"},
+ {"Effect":"Allow","Action":["bedrock-agentcore:CreateEvent","bedrock-agentcore:GetEvent","bedrock-agentcore:ListEvents",
+  "bedrock-agentcore:ListSessions","bedrock-agentcore:RetrieveMemoryRecords"],
+  "Resource":"arn:aws:bedrock-agentcore:${AwsRegion}:${accountId}:memory/*"}]}
+"@
     $tempPolicy = Write-JsonTemp -Json $inlinePolicy
     aws iam put-role-policy --role-name $AgentRoleName `
-        --policy-name "AgentCoreFullAccess" `
+        --policy-name "ClinicalAgentRuntimeAccess" `
         --policy-document "file://$tempPolicy" | Out-Null
     Remove-Item $tempPolicy -Force -ErrorAction SilentlyContinue
     Write-Host "    Waiting 15s for IAM propagation..."
@@ -148,131 +175,89 @@ Write-Host "[5/9] Building and pushing container to ECR..." -ForegroundColor Yel
 Push-Location $repoRoot
 try {
     aws ecr get-login-password --region $AwsRegion | docker login --username AWS --password-stdin "$accountId.dkr.ecr.$AwsRegion.amazonaws.com"
-    docker build -f strands-agents/Dockerfile -t $fullImageUri .
-    if ($LASTEXITCODE -ne 0) { throw "Docker build failed." }
-    docker push $fullImageUri
-    if ($LASTEXITCODE -ne 0) { throw "Docker push failed." }
+    # AgentCore Runtime needs linux/arm64; the opt-in App Runner fallback needs linux/amd64.
+    docker buildx build --platform linux/arm64,linux/amd64 -f strands-agents/Dockerfile -t $fullImageUri --push .
+    if ($LASTEXITCODE -ne 0) { throw "Docker build/push failed." }
 } finally { Pop-Location }
 Write-Host "[+] Image pushed: $fullImageUri" -ForegroundColor Green
 
-# ─── STEP 6: Bedrock AgentCore Memory Resource ────────────────────────────────
-Write-Host "[6/8] Setting up AgentCore Memory (short+long term)..." -ForegroundColor Yellow
-$existingMemory = aws bedrock-agentcore list-memory-resources --region $AwsRegion 2>$null | ConvertFrom-Json
-$memoryExists = $existingMemory.memoryResources | Where-Object { $_.name -eq $MemoryName }
-if (-not $memoryExists) {
-    $memoryCfg = "{`"name`":`"$MemoryName`",`"description`":`"Clinical agent session memory for LOINC resolution context`",`"memoryExecutionRoleArn`":`"$agentRoleArn`"}"
-    $tempMem = Write-JsonTemp -Json $memoryCfg
-    $memResult = aws bedrock-agentcore create-memory-resource `
-        --cli-input-json "file://$tempMem" `
-        --region $AwsRegion --output json 2>$null | ConvertFrom-Json
-    Remove-Item $tempMem -Force -ErrorAction SilentlyContinue
-    if ($memResult -and $memResult.memoryId) {
-        $memoryId = $memResult.memoryId
-        Write-Host "[+] Memory resource created: $memoryId" -ForegroundColor Green
-    } else {
-        Write-Host "    [i] Memory API not yet available in this region — continuing without managed memory." -ForegroundColor DarkYellow
-        $memoryId = $null
-    }
+# ─── STEP 6: Bedrock AgentCore Memory ────────────────────────────────────────
+Write-Host "[6/8] Setting up AgentCore Memory..." -ForegroundColor Yellow
+# Memory ids are "<name>-<suffix>"; list-memories returns ids, not names.
+$memoryId = (aws bedrock-agentcore-control list-memories --region $AwsRegion `
+    --query "memories[?starts_with(id, '$MemoryName-')].id | [0]" --output text 2>$null)
+if ($memoryId -and $memoryId.Trim() -ne "None") {
+    $memoryId = $memoryId.Trim()
+    Write-Host "    Memory exists: $memoryId"
 } else {
-    $memoryId = $memoryExists.memoryId
-    Write-Host "    Memory resource exists: $memoryId"
+    $memoryId = (aws bedrock-agentcore-control create-memory --name $MemoryName `
+        --description "Clinical agent session memory (no PHI in long-term records)" `
+        --event-expiry-duration $MemoryExpiryDays --memory-execution-role-arn $agentRoleArn `
+        --region $AwsRegion --query "memory.id" --output text)
+    if ($LASTEXITCODE -eq 0 -and $memoryId) {
+        $memoryId = $memoryId.Trim()
+        Record-Created "agentcore-memory" $memoryId "region=$AwsRegion"
+        Write-Host "[+] Memory created: $memoryId" -ForegroundColor Green
+    } else {
+        $memoryId = ""
+        Write-Host "    [i] AgentCore Memory unavailable (see the error above); continuing without managed memory." -ForegroundColor DarkYellow
+    }
 }
 
-# ─── STEP 7: Deploy Bedrock AgentCore Runtime ──────────────────────────────────
+# ─── STEP 7: Deploy Bedrock AgentCore Runtime ────────────────────────────────
 Write-Host "[7/8] Deploying to Amazon Bedrock AgentCore Runtime..." -ForegroundColor Yellow
-
-# Build environment variables for the agent runtime
-$envVars = @(
-    @{ name = "AWS_REGION";       value = $AwsRegion },
-    @{ name = "ALLOWED_ORIGINS";  value = "*" },
-    @{ name = "MAX_SESSIONS";     value = "1000" },
-    @{ name = "BEDROCK_MODEL_ID"; value = $BedrockModelId }
-)
-if ($memoryId) { $envVars += @{ name = "AGENTCORE_MEMORY_ID"; value = $memoryId } }
-
-# Check if AgentCore runtime already exists
-$existingRuntimes = aws bedrock-agentcore list-agent-runtimes --region $AwsRegion 2>$null | ConvertFrom-Json
-$existingRuntime  = $existingRuntimes.agentRuntimes | Where-Object { $_.agentRuntimeName -eq $AgentName }
-
-if (-not $existingRuntime) {
-    Write-Host "    Creating new AgentCore runtime '$AgentName'..."
-    $runtimeCfg = @{
-        agentRuntimeName        = $AgentName
-        description             = "Clinical Decision Support - Strands Agents SDK on Bedrock AgentCore"
-        agentRuntimeArtifact    = @{
-            containerConfiguration = @{
-                containerUri = $fullImageUri
-            }
-        }
-        executionRoleArn        = $agentRoleArn
-        networkConfiguration    = @{ networkMode = "PUBLIC" }
-        environmentVariables    = ($envVars | ForEach-Object { @{ name = $_.name; value = $_.value } })
-        protocolConfiguration   = @{
-            serverProtocol = "HTTP"
-        }
-    } | ConvertTo-Json -Depth 10 -Compress
-
-    $tempRuntime = Write-JsonTemp -Json $runtimeCfg
-    $createResult = aws bedrock-agentcore create-agent-runtime `
-        --cli-input-json "file://$tempRuntime" `
-        --region $AwsRegion --output json 2>$null | ConvertFrom-Json
-    Remove-Item $tempRuntime -Force -ErrorAction SilentlyContinue
-
-    if ($createResult -and $createResult.agentRuntimeId) {
-        $runtimeId  = $createResult.agentRuntimeId
-        $runtimeArn = $createResult.agentRuntimeArn
-        Write-Host "[+] AgentCore runtime created: $runtimeId" -ForegroundColor Green
-    } else {
-        # AgentCore GA rollout may not be available yet — fall back to App Runner with AgentCore SDK
-        Write-Host "    [!] AgentCore Runtime API not yet available. Falling back to App Runner with AgentCore SDK integration..." -ForegroundColor DarkYellow
-
-        $sourceCfgJson = "{`"ImageRepository`":{`"ImageIdentifier`":`"$fullImageUri`",`"ImageConfiguration`":{`"Port`":`"8000`",`"RuntimeEnvironmentVariables`":{`"ALLOWED_ORIGINS`":`"*`",`"MAX_SESSIONS`":`"1000`",`"AWS_REGION`":`"$AwsRegion`",`"BEDROCK_MODEL_ID`":`"$BedrockModelId`",`"AGENTCORE_ENABLED`":`"true`"}},`"ImageRepositoryType`":`"ECR`"},`"AuthenticationConfiguration`":{`"AccessRoleArn`":`"$agentRoleArn`"},`"AutoDeploymentsEnabled`":false}"
-        $tempSrc = Write-JsonTemp -Json $sourceCfgJson
-        $instCfg = "{`"Cpu`":`"1024`",`"Memory`":`"2048`",`"InstanceRoleArn`":`"$agentRoleArn`"}"
-        $tempInst = Write-JsonTemp -Json $instCfg
-        $hcCfg = '{"Protocol":"HTTP","Path":"/healthz","Interval":10,"Timeout":5,"HealthyThreshold":1,"UnhealthyThreshold":3}'
-        $tempHc = Write-JsonTemp -Json $hcCfg
-
-        $appRunnerResult = aws apprunner create-service `
-            --service-name $AgentName `
-            --source-configuration "file://$tempSrc" `
-            --instance-configuration "file://$tempInst" `
-            --health-check-configuration "file://$tempHc" `
-            --region $AwsRegion --output json 2>$null | ConvertFrom-Json
-
-        Remove-Item $tempSrc, $tempInst, $tempHc -Force -ErrorAction SilentlyContinue
-
-        if ($appRunnerResult -and $appRunnerResult.Service) {
-            $runtimeId  = $appRunnerResult.Service.ServiceArn
-            $serviceUrl = "https://$($appRunnerResult.Service.ServiceUrl)"
-            Write-Host "[+] App Runner (AgentCore-enabled) deployed: $serviceUrl" -ForegroundColor Green
-        } else {
-            Write-Error "Both AgentCore Runtime and App Runner fallback failed."; exit 1
-        }
-    }
-} else {
-    Write-Host "    Runtime '$AgentName' exists. Updating image..."
-    $runtimeId = $existingRuntime.agentRuntimeId
-    $updateCfg = "{`"agentRuntimeId`":`"$runtimeId`",`"agentRuntimeArtifact`":{`"containerConfiguration`":{`"containerUri`":`"$fullImageUri`"}}}"
-    $tempUpdate = Write-JsonTemp -Json $updateCfg
-    aws bedrock-agentcore update-agent-runtime `
-        --cli-input-json "file://$tempUpdate" `
+$artifactFile = Write-JsonTemp -Json "{`"containerConfiguration`":{`"containerUri`":`"$fullImageUri`"}}"
+$networkFile  = Write-JsonTemp -Json '{"networkMode":"PUBLIC"}'
+$envFile      = Write-JsonTemp -Json "{`"AWS_REGION`":`"$AwsRegion`",`"BEDROCK_MODEL_ID`":`"$BedrockModelId`",`"AGENTCORE_MEMORY_ID`":`"$memoryId`",`"ALLOWED_ORIGINS`":`"*`",`"MAX_SESSIONS`":`"1000`"}"
+$serviceUrl = ""
+$runtimeId = (aws bedrock-agentcore-control list-agent-runtimes --region $AwsRegion `
+    --query "agentRuntimes[?agentRuntimeName=='$AgentName'].agentRuntimeId | [0]" --output text 2>$null)
+if ($runtimeId -and $runtimeId.Trim() -ne "None") {
+    $runtimeId = $runtimeId.Trim()
+    Write-Host "    Runtime '$AgentName' exists ($runtimeId). Updating image..."
+    aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id $runtimeId `
+        --agent-runtime-artifact "file://$artifactFile" --role-arn $agentRoleArn `
+        --network-configuration "file://$networkFile" --environment-variables "file://$envFile" `
         --region $AwsRegion --output json | Out-Null
-    Remove-Item $tempUpdate -Force -ErrorAction SilentlyContinue
     Write-Host "[+] AgentCore runtime updated." -ForegroundColor Green
-}
-
-# ─── STEP 8: AgentCore Gateway Endpoint ───────────────────────────────────────
-Write-Host "[8/8] Configuring AgentCore Gateway endpoint..." -ForegroundColor Yellow
-$gatewayResult = aws bedrock-agentcore list-agent-runtime-endpoints `
-    --agent-runtime-id $runtimeId `
-    --region $AwsRegion --output json 2>$null | ConvertFrom-Json
-
-if ($gatewayResult -and $gatewayResult.agentRuntimeEndpoints -and $gatewayResult.agentRuntimeEndpoints.Count -gt 0) {
-    $endpoint = $gatewayResult.agentRuntimeEndpoints[0]
-    $gatewayUrl = $endpoint.liveVersion ?? $endpoint.endpointUrl ?? "Provisioning..."
 } else {
-    $gatewayUrl = "Use AWS Console: https://console.aws.amazon.com/bedrock/home?region=$AwsRegion#/agentcore"
+    $runtimeId = (aws bedrock-agentcore-control create-agent-runtime --agent-runtime-name $AgentName `
+        --description "Clinical Decision Support - Strands Agents SDK on Bedrock AgentCore" `
+        --agent-runtime-artifact "file://$artifactFile" --role-arn $agentRoleArn `
+        --network-configuration "file://$networkFile" --environment-variables "file://$envFile" `
+        --region $AwsRegion --query "agentRuntimeId" --output text)
+    if ($LASTEXITCODE -eq 0 -and $runtimeId) {
+        $runtimeId = $runtimeId.Trim()
+        Record-Created "agentcore-runtime" $runtimeId "region=$AwsRegion"
+        Write-Host "[+] AgentCore runtime created: $runtimeId" -ForegroundColor Green
+    } elseif ($AppRunnerFallback) {
+        Write-Host "    [!] AgentCore Runtime creation failed. -AppRunnerFallback: deploying to App Runner (billed while running)..." -ForegroundColor DarkYellow
+        $sourceFile = Write-JsonTemp -Json "{`"ImageRepository`":{`"ImageIdentifier`":`"$fullImageUri`",`"ImageConfiguration`":{`"Port`":`"8080`",`"RuntimeEnvironmentVariables`":{`"AWS_REGION`":`"$AwsRegion`",`"BEDROCK_MODEL_ID`":`"$BedrockModelId`",`"ALLOWED_ORIGINS`":`"*`"}},`"ImageRepositoryType`":`"ECR`"},`"AuthenticationConfiguration`":{`"AccessRoleArn`":`"$agentRoleArn`"},`"AutoDeploymentsEnabled`":false}"
+        $serviceArn = (aws apprunner create-service --service-name $AppRunnerName `
+            --source-configuration "file://$sourceFile" `
+            --instance-configuration "{`"Cpu`":`"1024`",`"Memory`":`"2048`",`"InstanceRoleArn`":`"$agentRoleArn`"}" `
+            --region $AwsRegion --query "Service.ServiceArn" --output text)
+        Remove-Item $sourceFile -Force -ErrorAction SilentlyContinue
+        if ($LASTEXITCODE -ne 0 -or -not $serviceArn) { throw "App Runner deployment failed." }
+        Record-Created "app-runner-service" $serviceArn.Trim() "region=$AwsRegion"
+        $serviceUrl = "https://" + (aws apprunner describe-service --service-arn $serviceArn.Trim() --region $AwsRegion `
+            --query "Service.ServiceUrl" --output text).Trim()
+        $runtimeId = ""
+        Write-Host "[+] App Runner service deployed: $serviceUrl" -ForegroundColor Green
+    } else {
+        Remove-Item $artifactFile, $networkFile, $envFile -Force -ErrorAction SilentlyContinue
+        throw "AgentCore Runtime creation failed (see the error above). Pass -AppRunnerFallback to deploy to App Runner instead (billed while running)."
+    }
+}
+Remove-Item $artifactFile, $networkFile, $envFile -Force -ErrorAction SilentlyContinue
+
+# ─── STEP 8: Runtime endpoint ────────────────────────────────────────────────
+Write-Host "[8/8] Resolving the runtime endpoint..." -ForegroundColor Yellow
+$gatewayUrl = $serviceUrl
+if (-not $gatewayUrl -and $runtimeId) {
+    $runtimeArn = (aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id $runtimeId `
+        --region $AwsRegion --query "agentRuntimeArn" --output text 2>$null)
+    $gatewayUrl = "aws bedrock-agentcore invoke-agent-runtime --agent-runtime-arn $runtimeArn ..."
 }
 
 Write-Host ""
@@ -283,7 +268,8 @@ Write-Host " Runtime ID:     $runtimeId" -ForegroundColor Green
 Write-Host " Region:         $AwsRegion" -ForegroundColor Green
 Write-Host " Model:          $BedrockModelId" -ForegroundColor Green
 Write-Host " Memory:         $memoryId" -ForegroundColor Green
-Write-Host " Gateway URL:    $gatewayUrl" -ForegroundColor Green
+Write-Host " Invoke:         $gatewayUrl" -ForegroundColor Green
+Write-Host " Teardown:       $scriptDir\destroy.ps1 -Yes   (deletes what this deploy created)" -ForegroundColor Green
 Write-Host " Image:          $fullImageUri" -ForegroundColor Green
 Write-Host "" -ForegroundColor Green
 Write-Host " AgentCore Capabilities Enabled:" -ForegroundColor Green

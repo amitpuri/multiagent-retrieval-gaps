@@ -60,7 +60,7 @@ shared/
 │       ├── range_collision.py  # RangeCollisionDetector (Look-Alikes)
 │       ├── specimen_sequence.py# SpecimenSequenceDetector (Gap 11)
 │       └── population_context.py# PopulationContextDetector
-└── tests/                      # 207 tests: gate, CQs, validator, skills, RDF/SHACL, stores, packaging
+└── tests/                      # 223 tests: gate, CQs, validator, skills, roles, RDF/SHACL, stores, AgentCards
 ```
 
 ---
@@ -84,5 +84,5 @@ RUN pip install --no-cache-dir "/tmp/shared[mcp]" && rm -rf /tmp/shared
 ```bash
 cd shared
 python -m pytest tests/ -v
-# 207 passed (pure Python, 0 LLM calls; install the dev extra first: pip install -e ".[dev]")
+# 223 passed (pure Python, 0 LLM calls; install the dev extra first: pip install -e ".[dev]")
 ```

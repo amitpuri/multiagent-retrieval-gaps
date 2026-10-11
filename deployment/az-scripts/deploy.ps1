@@ -33,6 +33,15 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path "$scriptDir\..\..").Path
 
+# Every resource this script CREATES is appended to the ledger; destroy.ps1 deletes
+# exactly those (deployment/teardown.py). Reused, pre-existing resources (for example
+# a Foundry account you already had) are not recorded and are never deleted.
+$ledger = Join-Path $scriptDir ".deployed\ledger.tsv"
+function Record-Created([string]$Kind, [string]$Name, [string]$Attrs = "") {
+    New-Item -ItemType Directory -Force -Path (Split-Path $ledger) | Out-Null
+    [System.IO.File]::AppendAllText($ledger, "$Kind`t$Name`t$Attrs`n", (New-Object System.Text.UTF8Encoding $false))
+}
+
 # Load configuration from config.env if present
 $cfgPath = Join-Path $scriptDir "config.env"
 if (Test-Path $cfgPath) {
@@ -80,6 +89,7 @@ $rgExists = az group show --name $ResourceGroup 2>$null
 if (-not $rgExists) {
     Write-Host "    Creating Resource Group $ResourceGroup in $Location..."
     az group create --name $ResourceGroup --location $Location -o none
+    if ($LASTEXITCODE -eq 0) { Record-Created "resource-group" $ResourceGroup "location=$Location" }
 } else {
     Write-Host "    Resource Group $ResourceGroup exists."
 }
@@ -99,6 +109,7 @@ if (-not $acrExists) {
         Write-Error "ACR creation failed in '$Location'. Try a different region (e.g. eastus, northeurope)."
         exit 1
     }
+    Record-Created "acr" $AcrName "resource_group=$ResourceGroup"
 } else {
     Write-Host "    ACR '$AcrName' exists."
 }
@@ -185,6 +196,9 @@ if ($aiAccountCheck) {
             --location $aiAccountCheck.location `
             --description "Clinical Decision Support multi-agent project for Microsoft Agent Framework" `
             -o none
+        if ($LASTEXITCODE -eq 0) {
+            Record-Created "foundry-project" $AiFoundryProject "account=$AiFoundryAccount;resource_group=$targetAiRg"
+        }
         $projectCheck = az cognitiveservices account project show --name $AiFoundryAccount --resource-group $targetAiRg --project-name $AiFoundryProject 2>$null | ConvertFrom-Json
         if ($projectCheck -and $projectCheck.properties -and $projectCheck.properties.endpoints) {
             $foundryProjectEndpoint = $projectCheck.properties.endpoints.'AI Foundry API'
@@ -199,6 +213,9 @@ if ($aiAccountCheck) {
         --sku S0 `
         --location $Location `
         --yes -o none
+    if ($LASTEXITCODE -eq 0) {
+        Record-Created "foundry-account" $AiFoundryAccount "resource_group=$ResourceGroup;location=$Location"
+    }
 
     $aiAccountCheck = az cognitiveservices account show --name $AiFoundryAccount --resource-group $ResourceGroup | ConvertFrom-Json
     $aiAccountId = $aiAccountCheck.id
@@ -212,6 +229,9 @@ if ($aiAccountCheck) {
         --project-name $AiFoundryProject `
         --location $Location `
         -o none
+    if ($LASTEXITCODE -eq 0) {
+        Record-Created "foundry-project" $AiFoundryProject "account=$AiFoundryAccount;resource_group=$ResourceGroup"
+    }
 
     # Deploy model
     Write-Host "    Deploying foundation model '$FoundryModel'..."
@@ -227,6 +247,8 @@ if ($aiAccountCheck) {
         -o none
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Model deployment '$FoundryModel' ($FoundryModelVersion, $FoundrySku) failed. Check regional availability in '$Location' or set -FoundrySku / -Location."
+    } else {
+        Record-Created "foundry-model-deployment" $FoundryModel "account=$AiFoundryAccount;resource_group=$ResourceGroup"
     }
 
     $projectCheck = az cognitiveservices account project show --name $AiFoundryAccount --resource-group $ResourceGroup --project-name $AiFoundryProject 2>$null | ConvertFrom-Json
@@ -247,6 +269,15 @@ $envExists = az containerapp env show --name $EnvironmentName --resource-group $
 if (-not $envExists) {
     Write-Host "    Creating Container Apps Environment in $Location..."
     az containerapp env create --name $EnvironmentName --resource-group $ResourceGroup --location $Location -o none
+    if ($LASTEXITCODE -eq 0) {
+        # `env create` provisions a Log Analytics workspace in the group; it bills for ingestion.
+        $wsCid = az containerapp env show --name $EnvironmentName --resource-group $ResourceGroup `
+            --query "properties.appLogsConfiguration.logAnalyticsConfiguration.customerId" -o tsv 2>$null
+        $wsName = az monitor log-analytics workspace list --resource-group $ResourceGroup `
+            --query "[?customerId=='$wsCid'].name | [0]" -o tsv 2>$null
+        if ($wsName) { Record-Created "log-analytics-workspace" $wsName.Trim() "resource_group=$ResourceGroup" }
+        Record-Created "containerapp-env" $EnvironmentName "resource_group=$ResourceGroup"
+    }
 } else {
     Write-Host "    Environment '$EnvironmentName' exists."
 }
@@ -286,6 +317,7 @@ if (-not $appExists) {
         --max-replicas 5 `
         --env-vars $envVarsList `
         -o none
+    if ($LASTEXITCODE -eq 0) { Record-Created "container-app" $AppName "resource_group=$ResourceGroup" }
 } else {
     Write-Host "    Updating existing Container App..."
     az containerapp update `
@@ -301,12 +333,17 @@ if (-not $appExists) {
 $appPrincipalId = (az containerapp show --name $AppName --resource-group $ResourceGroup --query "identity.principalId" -o tsv 2>$null).Trim()
 if ($appPrincipalId -and $aiAccountId) {
     Write-Host "    Assigning RBAC: 'Cognitive Services OpenAI User' to Container App Identity ($appPrincipalId)..."
-    az role assignment create `
-        --assignee-object-id $appPrincipalId `
-        --assignee-principal-type "ServicePrincipal" `
-        --role "Cognitive Services OpenAI User" `
-        --scope $aiAccountId `
-        -o none 2>$null
+    $raId = az role assignment list --assignee $appPrincipalId --role "Cognitive Services OpenAI User" `
+        --scope $aiAccountId --query "[0].id" -o tsv 2>$null
+    if (-not $raId) {
+        $raId = az role assignment create `
+            --assignee-object-id $appPrincipalId `
+            --assignee-principal-type "ServicePrincipal" `
+            --role "Cognitive Services OpenAI User" `
+            --scope $aiAccountId `
+            --query "id" -o tsv 2>$null
+        if ($LASTEXITCODE -eq 0 -and $raId) { Record-Created "role-assignment" $raId.Trim() }
+    }
     Write-Host "[+] Keyless RBAC granted for Azure AI Foundry access." -ForegroundColor Green
 }
 

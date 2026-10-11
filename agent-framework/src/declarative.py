@@ -19,8 +19,8 @@ from typing import Dict
 
 import yaml
 
-from ontogate import tools as canonical_tools
-from ontogate.roles import RoleSpec, load_all_role_specs
+from ontogate.mcp_server import CLINICAL_MCP_TOOLS
+from ontogate.roles import RoleSpec, instruction_for, load_all_role_specs
 
 AGENT_DIR = Path(__file__).resolve().parent.parent / "declarative-agents"
 HEADER = "# Generated from agents/{role}.yaml by `python -m src.declarative`. Do not edit.\n"
@@ -35,7 +35,7 @@ yaml.SafeDumper.add_representer(
 
 
 def _tool_description(name: str) -> str:
-    doc = inspect.getdoc(getattr(canonical_tools, name)) or name
+    doc = inspect.getdoc(CLINICAL_MCP_TOOLS[name]) or name
     return doc.splitlines()[0]
 
 
@@ -46,7 +46,7 @@ def render_agent(spec: RoleSpec) -> str:
         "name": spec.role,
         "description": spec.description,
         "model": {"options": {"allowMultipleToolCalls": False, "chatToolMode": "auto"}},
-        "instructions": _Literal(spec.base_instruction.rstrip() + "\n"),
+        "instructions": _Literal(instruction_for(spec).rstrip() + "\n"),
         "tools": [{
             "kind": "function",
             "name": tool,

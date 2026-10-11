@@ -256,3 +256,37 @@ def test_lock_is_computed_from_disk_without_writing(tmp_path):
     before = (repo_root() / "skills" / "skills.lock.json").read_bytes()
     assert compute_lock() == load_lock()
     assert (repo_root() / "skills" / "skills.lock.json").read_bytes() == before
+
+
+# --------------------------------------------------------------------------- delegation (P8.4)
+def _deleg(role, delegates=(), uses_model=True):
+    return RoleSpec(role=role, description=f"{role} role", uses_model=uses_model,
+                    model_tier="flash" if uses_model else "none", delegates=list(delegates), base_instruction="x")
+
+
+@pytest.mark.parametrize("specs,rule", [
+    ({"a": _deleg("a", ["ghost"])}, "UNKNOWN_DELEGATE"),
+    ({"a": _deleg("a", ["a"])}, "SELF_DELEGATION"),
+    ({"a": _deleg("a", ["gate"]), "gate": _deleg("gate", uses_model=False)}, "DELEGATE_TO_CODE_NODE"),
+    ({"a": _deleg("a", ["b"]), "b": _deleg("b", ["a"])}, "DELEGATION_CYCLE"),
+    ({"gate": _deleg("gate", ["b"], uses_model=False), "b": _deleg("b")}, "CODE_NODE_DELEGATES"),
+])
+def test_delegation_rule_fires(specs, rule):
+    from ontogate.roles import check_role_specs
+    assert rule in {r for _, r, _ in check_role_specs(specs)}
+
+
+def test_committed_role_specs_delegate_cleanly():
+    from ontogate.roles import check_role_specs
+    assert check_role_specs(load_all_role_specs()) == []
+
+
+def test_instruction_text_is_shared_and_complete():
+    from ontogate.roles import instruction_for
+    specs = load_all_role_specs()
+    text = instruction_for("triage_orchestrator", "Runtime note.")
+    assert text.startswith(specs["triage_orchestrator"].base_instruction)
+    assert "Tools you may call: parse_clinician_input, resolve_lab_term, evaluate_safety_gate." in text
+    for target in specs["triage_orchestrator"].delegates:
+        assert f"- {target}: {specs[target].description}" in text
+    assert text.endswith("Runtime note.")

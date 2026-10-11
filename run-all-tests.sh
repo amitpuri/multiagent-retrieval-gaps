@@ -16,6 +16,9 @@ echo "=== SHACL over the ontology and the agent meta-graph ==="
 python -m ontogate rdf validate
 python -m ontogate rdf validate --domain cardiology
 
+echo "=== Developer skills mirror (.claude/skills) ==="
+python -m ontogate skills mirror --check
+
 echo "=== MAF declarative agents match the role specs ==="
 (cd agent-framework && python -m src.declarative --check)
 
@@ -31,7 +34,13 @@ python -m pytest strands-agents/tests
 echo "=== agent-framework tests ==="
 python -m pytest agent-framework/tests
 
-echo "=== Cross-cloud conformance (ADK / Strands / MAF) ==="
-python conformance/run.py
+echo "=== Deployment teardown (ledger, handlers, script coverage) ==="
+python -m pytest deployment/tests
+
+echo "=== Cross-cloud conformance (ADK / Strands / MAF), AgentCards and live runner ==="
+python -m pytest conformance
+
+echo "=== Answer graders (P13.3) ==="
+python -m pytest evals
 
 echo "=== All checks passed ==="
