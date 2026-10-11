@@ -6,7 +6,7 @@ By Dr. Amit Puri · October 2026
 
 > **In continuation to:** *[Information Retrieval Part I](https://www.linkedin.com/pulse/information-retrieval-dr-amit-puri-ahcec/)*, *[Part II: When Similarity Isn't Enough!](https://www.linkedin.com/pulse/information-retrieval-when-similarity-isnt-enough-dr-amit-puri-2rnzc/)*, and *[Recap & Closing](https://www.linkedin.com/pulse/recap-where-retrieval-gaps-diagnose-fix-dr-amit-puri-fhlwf)*.
 
-> **Research write-up:** *[When the Retriever Has to Decide: Ontology-Governed Deterministic Gating for Portable Multi-Agent Clinical Decision Support](docs/RESEARCH_PAPER.md)* — architecture, evaluation method, results, code coverage and open items for the current state of this repository.
+> **Research write-up:** *[When the Retriever Has to Decide: Ontology-Governed Deterministic Gating for Portable Multi-Agent Clinical Decision Support](docs/RESEARCH_PAPER.md)* — architecture, the functional usage of the ontology (ontology-engineering lifecycle, construct-to-runtime contract, worked traces), evaluation method, results, code coverage and open items for the current state of this repository.
 
 ---
 

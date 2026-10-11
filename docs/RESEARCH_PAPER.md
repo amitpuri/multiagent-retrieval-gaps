@@ -15,6 +15,15 @@ We present an architecture that splits the knowledge an agent needs into three k
 
 The gate is a framework-agnostic Python package, `ontogate`, with seven pluggable hazard detectors. Only a `RESOLVED` decision proceeds to model synthesis; everything else routes to clarification.
 
+The ontology is *functional*, not descriptive. Every TBox construct has one runtime role:
+- designations produce candidate sets;
+- facets produce the clarifying question;
+- `confusableWith` declares look-alike families;
+- structured intervals and molar masses drive deterministic attestation;
+- `precedes` governs specimen order.
+
+We describe the full ontology-engineering lifecycle as practised, from competency questions to a hashed release, and trace real inputs to the ontology constructs that decided them.
+
 The same knowledge release drives three agent frameworks on three clouds:
 - Google ADK with Gemini 3.8 Flash on Google Cloud;
 - AWS Strands Agents with Claude Opus 5.5 on Bedrock AgentCore;
@@ -52,10 +61,11 @@ The central claim of this work is that *an ontology's job in an agent is to defi
 **Contributions.**
 
 1. **A three-way separation of agent knowledge** — the ontology says *what*, the gate says *whether*, skills say *how*. Machine-checked rules enforce the separation: skills may not contain clinical numbers or routing; the gate never reads a skill; the ontology contains no prompt text.
-2. **A fail-closed gate whose behaviour is derived from the ontology.** Seven detectors run in a fixed order. Their decisions come from typed relations (`denotes`, `confusableWith`, `differentiatedBy`, `hasInterval`, `precedes`) rather than analyte-specific code.
-3. **One knowledge release consumed by three frameworks on three clouds.** It contains the ontology bundle, the hash-locked skills and the model catalog. One canonical tool contract (seven MCP tools) and one A2A binding sit on top.
-4. **An evaluation harness for cross-framework parity**: executable competency questions, a conformance runner, a live-endpoint runner and deterministic answer graders. The truth always comes from the canonical pipeline, never from another model.
-5. **An empirical account of the repository's current state**: test outcomes, measured statement coverage and an explicit list of open items.
+2. **A fail-closed gate whose behaviour is derived from the ontology.** Seven detectors run in a fixed order. Their decisions come from typed relations (`denotes`, `confusableWith`, `differentiatedBy`, `hasInterval`, `precedes`) rather than analyte-specific code. We give a construct-to-function contract (Table 6) and worked traces (Table 7) showing which ontology elements decide each input.
+3. **An executable ontology-engineering lifecycle.** Specification, conceptualization, formalization, integration, evaluation and maintenance each have an artifact and a check: behavioural and structural (SPARQL) competency questions, 26 integrity rules, SHACL shapes, build-time OWL 2 RL, and a hashed release. A clinical domain was added through this loop with data changes only.
+4. **One knowledge release consumed by three frameworks on three clouds.** It contains the ontology bundle, the hash-locked skills and the model catalog. One canonical tool contract (seven MCP tools) and one A2A binding sit on top.
+5. **An evaluation harness for cross-framework parity**: executable competency questions, a conformance runner, a live-endpoint runner and deterministic answer graders. The truth always comes from the canonical pipeline, never from another model.
+6. **An empirical account of the repository's current state**: test outcomes, measured statement coverage and an explicit list of open items.
 
 ---
 
@@ -227,7 +237,7 @@ Every tool returns a dict with a `status`. Before this contract existed, the sam
 
 Each framework binds the tools **in-process**, and each role agent receives exactly the tools its specification grants. We evaluated managed cloud tool gateways and the open-source agentgateway, and did not adopt them (plan §9.5). No caller reaches the tools over the network, so a gateway would guard an unused door. Role-level authorisation would also require each role to run as a separate workload with its own identity. We defined an adoption trigger instead: serving the MCP server to callers outside the agent process.
 
-**Attestation.** Numeric interpretation against reference intervals is computed deterministically by `attest_computation`. The `[Attested ✓]` badge may appear in an answer only if attestation passed, and the answer graders enforce this (§5.4).
+**Attestation.** Numeric interpretation against reference intervals is computed deterministically by `attest_computation`. The `[Attested ✓]` badge may appear in an answer only if attestation passed, and the answer graders enforce this (§6.3).
 
 ### 4.5 Knowledge release
 
@@ -278,9 +288,37 @@ Deployment scripts (Bash and PowerShell per cloud) build a release, publish skil
 
 ---
 
-## 5. Knowledge Base and Evaluation Method
+## 5. Functional Usage of the Ontology
 
-### 5.1 Knowledge base
+This section takes the ontology-engineering view: what the ontology *does* at runtime, how it is engineered, and how a change to it reaches every agent. The ontology is not documentation or a retrieval index here. It is executable, in three senses:
+- **it is the gate's input** — each detector decision is computed from typed relations;
+- **it is the clarification's vocabulary** — every question asked of a clinician is generated from facets, designations and units;
+- **it is the skill's source** — the reference files the models read are rendered from it.
+
+### 5.1 The engineering lifecycle as practised
+
+The repository follows the classical ontology-engineering activities. Each activity has an executable artifact and a command that checks it.
+
+| Activity | Question | Artifact | Checked by |
+| :--- | :--- | :--- | :--- |
+| **Specification** | What must the ontology answer? | Competency questions: behavioural (`config/scenarios/*.yaml` `test_cases`) and structural (SPARQL) | `test_competency_questions.py`, `test_rdf_export.py` |
+| **Conceptualization** | Which entities and relations exist? | TBox in `ontology/core/core.yaml`: units, property dimensions, 10 typed relations, population facets, gate and trust policies | Pydantic schema with `extra="forbid"` |
+| **Formalization** | Is it machine-checkable? | Generated SKOS / SKOS-XL / OWL 2 / PROV-O (`ontogate.rdf_export`), SHACL shapes (`ontology/core/shapes.ttl`) | `ontogate rdf validate`, OWL 2 RL materialisation |
+| **Integration** | Is it aligned with external standards? | LOINC codes and axes, UCUM units, `skos:exactMatch` to LOINC IRIs; domain packs import `core` | Axis and unit-property rules in `ontogate validate` |
+| **Implementation** | How do agents use it? | `OntologyRegistry` → resolver, detectors, tools; skill references rendered from the pack | `test_gate.py`, conformance |
+| **Evaluation** | Does derived behaviour match intended semantics? | CQ expectations, cross-framework conformance, answer graders | `run-all-tests.sh` |
+| **Maintenance** | How does it change safely? | Versioned packs (schema 1.0.0), provenance and lifecycle per entity, scenario overlays, `knowledge/log.md` (TBox changes only), hashed release | `ontogate build`, lock drift check |
+
+*Table 4. Ontology-engineering lifecycle and its executable artifacts.*
+
+**Two kinds of competency question.** *Behavioural* CQs are clinician inputs with an expected gate decision. They test what the ontology makes the system *do* (35, §6.1). *Structural* CQs are SPARQL queries over the generated graph. They test what the ontology *says*:
+- which designations denote more than one observable;
+- which observables are confusable with haemoglobin;
+- which skills a role uses.
+
+Both kinds run on every build.
+
+### 5.2 Knowledge base
 
 | Element | Core | Laboratory medicine | Cardiology |
 | :--- | ---: | ---: | ---: |
@@ -296,11 +334,130 @@ Deployment scripts (Bash and PowerShell per cloud) build a release, publish skil
 | Panels | — | 1 (CSF emergency) | 0 |
 | Departments / specimens | — | 3 / 3 | 1 / 2 |
 
-*Table 4. Knowledge base size (schema 1.0.0). Scenario overlays D (troponin) and E (glucose specimen) add observables and intervals on top of the laboratory-medicine pack.*
+*Table 5. Knowledge base size (schema 1.0.0). Scenario overlays D (troponin) and E (glucose specimen) add observables and intervals on top of the laboratory-medicine pack.*
 
 All reference intervals are **demonstration values**. They carry `clinically_unvalidated: true` and `verified_by: null`, and the grounded-synthesis skill must reproduce a mandated caveat word for word. The core `trust_policy` makes stale protocols clarify, excludes deprecated concepts from candidates, and requires a caveat on critical readings from unverified intervals.
 
-### 5.2 Competency questions
+### 5.3 From ontology construct to runtime function
+
+Each TBox construct has exactly one functional role at runtime. The table is the contract between ontology engineers and the gate: changing a construct changes the listed behaviour and nothing else.
+
+| Construct (TBox) | OWL / SKOS semantics | Consumed by | Runtime function |
+| :--- | :--- | :--- | :--- |
+| `Designation.denotes` + `kind` | SKOS-XL label; `denotes` many-to-many | `resolve_lab_term` | Term → candidate set $D(t)$. More than one target ⇒ `kind: ambiguous` (SHACL `DesignationShape`), so the system never guesses. `preferred`, `synonym` and `abbreviation` labels resolve directly |
+| `Observable.units` | UCUM literals | Resolver, `UnitMismatchDetector` | The unit narrows candidates. A unit valid for none ⇒ `UNIT_MISMATCH` with the valid units listed |
+| `Analyte.molar_mass_g_mol` + property dimension | `measures` is functional | Attestation, range collision | Converts between mass (`MCnc`) and substance (`SCnc`) units before comparing with intervals |
+| `Facet` (`values`, `value_synonyms`, `question`) + `differentiatedBy` | Facet = concept scheme; values = concepts | Resolver, `MissingQualifierDetector`, `ontogate.clarify` | Qualifier narrowing, contradiction detection, and the exact clarification question with its allowed values |
+| `confusableWith` | Symmetric, irreflexive | `RangeCollisionDetector` | Declares the look-alike family. A value is classified under every member, and divergent readings ⇒ `RANGE_COLLISION` |
+| `hasInterval` + population | Inverse `intervalOf`; typed numeric bounds | Range collision, `PopulationContextDetector`, attestation | Normal and critical classification per population. Under `gate_policy: critical_divergence`, clarify only when a *critical* reading depends on sex or age |
+| `governedBy` → `Protocol` (trust tier, lifecycle, review date) | Functional | `fetch_grounded_protocol`, `trust_policy` | Exactly one protocol per URI. Stale ⇒ clarify; the trust tier selects the mandated caveat |
+| `Panel` → `CollectionStep.precedes` / `includes` / department | `precedes` transitive, asymmetric | `SpecimenSequenceDetector`, `panel_workup` | Governed tube order and department scope (Gap 11) |
+| `supersededBy`, `owl:deprecated` | Functional, acyclic | Resolver | Redirect to the successor; deprecated observables are never offered as candidates |
+| `rdfs:seeAlso` | Informational only | — | Documentation; deliberately has **no** runtime effect (it was formerly overloaded as a hazard) |
+| Provenance (`generated_by`, `verified_by`, `clinically_unvalidated`) | PROV-O | Trust tier, caveats, `ProvenanceShape` | Honest trust signalling: unvalidated data cannot claim human verification |
+
+*Table 6. Functional role of each ontology construct.*
+
+The calcium family shows the constructs working together:
+
+```yaml
+# designations.yaml — the term "calcium" is declared ambiguous; "ica" is not
+"calcium":       { denotes: ["loinc:17861-6", "loinc:17864-0"], kind: ambiguous }
+"total calcium": { denotes: ["loinc:17861-6"], kind: preferred }
+"ica":           { denotes: ["loinc:17864-0"], kind: abbreviation }
+
+# facets.yaml — the dimension that separates the two observables
+fraction:
+  question: "Was this total calcium or ionized (free) calcium?"
+  values: [total, ionized]
+  value_synonyms: { tca: total, ica: ionized, free: ionized, "ca++": ionized }
+
+# observables.yaml — identity, units, facet value, hazard edge
+"loinc:17861-6":
+  measures: calcium                       # analytes.yaml: molar_mass_g_mol 40.078
+  facets: { fraction: total }
+  units: ["mg/dL", "mmol/L"]
+  confusable_with: ["loinc:17864-0"]      # symmetric (OWL 2 RL adds the inverse)
+
+# intervals.yaml — structured bounds, never prose
+- observable: "loinc:17861-6"
+  unit: "mg/dL"
+  population: { sex: any, age_band: adult }
+  normal: [8.5, 10.5]
+  critical: [6.0, 13.0]
+```
+
+No line of gate code mentions calcium. Removing the `confusable_with` edge would remove the range-collision behaviour; adding a facet value synonym would make a new abbreviation resolve. Both are data changes that the validator and SHACL check before release.
+
+### 5.4 Worked traces
+
+The following traces are actual outputs of the canonical pipeline (`parse_clinician_input` → `evaluate_safety_gate` → on PROCEED, `attest_computation`), run offline on 2026-10-11. The *Constructs* column names the ontology elements that determined the outcome.
+
+| Input | Constructs that fired | Status → route | What the system returns |
+| :--- | :--- | :--- | :--- |
+| `Hb 13.5` | `"hb"` `kind: ambiguous` → {718-7, 4548-4}; disjoint units (g/dL, g/L vs %) | AMBIGUOUS → CLARIFY | "…matches more than one test: Hemoglobin (Hematology; g/dL, g/L); HbA1c (Clinical Biochemistry; %). Which test was ordered? Report the unit — it identifies the test here." |
+| `Hb 13.5 \| g/dL` | Unit filter leaves 718-7; two population intervals | RESOLVED → PROCEED | Readings: adult male LOW, adult female NORMAL. No *critical* divergence, so it proceeds with per-population readings; attestation PASS `[Attested ✓]` |
+| `Hb 13.5 \| mg/dL` | Unit valid for no candidate | UNIT_MISMATCH → CLARIFY | "The unit 'mg/dL' is not valid for this test. Valid units: g/dL, g/L, %." |
+| `Calcium 4.8 mg/dL` | `"calcium"` ambiguous; shared units; `confusableWith`; both intervals | RANGE_COLLISION → CLARIFY | "…Total calcium → CRITICAL_LOW, Ionized calcium → NORMAL. Was this total calcium or ionized (free) calcium? Provide one of: total, ionized." |
+| `Calcium 9.0` | Same family, no unit, so both units are checked | RANGE_COLLISION → CLARIFY | Total NORMAL vs ionized CRITICAL_HIGH; asks for the fraction **and** the unit (mg/dL, mmol/L) |
+| `total calcium 4.8 mg/dL` | `"total calcium"` `kind: preferred` | RESOLVED → PROCEED | 17861-6, CRITICAL_LOW, panic; attestation PASS |
+| `ica 1.2 mmol/L` | `"ica"` abbreviation; `measures calcium` + molar mass converts 1.2 mmol/L ≈ 4.81 mg/dL | RESOLVED → PROCEED | 17864-0, NORMAL against the mg/dL interval; attestation PASS |
+| `Calcium 4.8 \| total` | Facet value resolves the fraction; the value has no unit | UNIT_MISMATCH (missing unit, Gap 6) → CLARIFY | "A numeric value was sent without a unit. Report the unit so the correct scale is used." |
+| `Troponin 15` *(overlay D)* | `"troponin"` ambiguous; facet `troponin_subunit` | AMBIGUOUS → CLARIFY | Asks I or T, and the unit, which identifies the subunit here |
+| `Troponin 15 \| ng/L` / `\| ng/mL` *(overlay D)* | Disjoint units resolve the designation | RESOLVED → PROCEED | hs-cTnT HIGH / cTnI CRITICAL_HIGH (panic); attestation PASS |
+| `Glucose 60 mg/dL` *(overlay E)* | Facet `specimen_system` (LOINC *System* axis) | AMBIGUOUS → CLARIFY | "Was this glucose measured in CSF or in serum/plasma? Provide one of: csf, serum_plasma." |
+| `cTn 0.05 ng/mL` *(cardiology pack)* | `"ctn"` ambiguous; the units are **shared**, and there is no facet | AMBIGUOUS → CLARIFY | "Which test was ordered?" (missing: `test`); the unit cannot decide |
+| CSF panel, scope *microbiology* | `precedes` order; step department | RESOLVED | Only tube 2 (Gram stain, culture) is returned, in governed order |
+
+*Table 7. Worked traces: input → ontology constructs → decision.*
+
+The traces show three properties that matter from an ontology-engineering standpoint:
+
+1. **Disambiguation strategy is a property of the data.** For haemoglobin and troponin I/T, the units are disjoint, so the unit disambiguates and the clarification asks for it. For calcium and cardiology troponin, the units are shared, so the system asks for the facet or the test instead. The gate code is the same; the questions differ because the ontology differs.
+2. **Ambiguity is not over-blocking.** Preferred labels and abbreviations (`total calcium`, `ica`) resolve directly, and a population difference that is not critical proceeds with per-population readings. Before the refactor, all three qualified calcium inputs were blocked (Table 12).
+3. **Inputs outside the vocabulary fail closed.** For example, `Hb 13.5 g/dL male` (a free-text population word without the `|` separator) parses the term as `Hb  g/dL male`. That term is `NOT_FOUND`, so the system routes to `CLARIFY`. This is safe but an over-block: the parser's population vocabulary covers the delimited form (`Hb 13.5 | female | g/dL`), not free-text word order.
+
+### 5.5 Integrity as an engineering discipline
+
+Ontology quality is enforced in three layers. Each catches a different class of modelling error before release.
+
+| Layer | Rules | Examples of what it rejects |
+| :--- | :--- | :--- |
+| **Integrity validator** (`ontogate validate`, pack + overlays) | 26 error rules, 4 warning rules | `DANGLING_CONFUSABLE`, `ASYMMETRIC_CONFUSABLE`, `FALSE_AMBIGUITY` (marked ambiguous but denotes one), `SILENT_SYNONYMY` (denotes several but not marked ambiguous), `INTERVAL_ORDER`, `INTERVAL_UNIT`, `QN_WITHOUT_INTERVALS`, `PRECEDES_CYCLE`, `STEP_DEPARTMENT`, `UNIT_PROPERTY_CONFLICT`, `PROVENANCE_CONTRADICTION`, `UNCONTROLLED_DEPARTMENT` |
+| **SHACL** (`ontology/core/shapes.ttl`) over the generated graph | Node shapes for the domain (observable, interval, designation, unit, protocol, sequence) and the agent meta-ontology (role–skill, skill, tool) | Interval bounds out of order, a role whose skill needs a tool it is not granted, a `safety_guard` with a model or skills |
+| **OWL 2 RL materialisation** at build time | Symmetric, inverse and transitive characteristics from `core.yaml` | Nothing; it *adds* the entailed edges (e.g. the inverse `confusableWith`) so the runtime never reasons |
+
+*Table 8. Integrity layers.*
+
+16 of the 26 error rules have a dedicated failing fixture in `test_validate.py`, so they cannot silently stop firing; fixtures for the other ten are open work (§9). The current pack produces 0 errors and 14 warnings: 13 `AXES_UNVERIFIED` (LOINC axes derived from labels) and 1 `UNIT_PROPERTY_CODING_PENDING`. The warnings are honest debt, not defects. They mark exactly what must be checked against a LOINC release before clinical use.
+
+### 5.6 How an ontology engineer changes the system
+
+The functional loop for an ontology change runs entirely through data and checks. Scenario E (glucose: CSF vs serum/plasma) was added this way:
+
+1. **Specify.** Write the competency questions first: `Glucose 60 mg/dL` must clarify on specimen; named specimens must resolve.
+2. **Conceptualize.** Reuse the existing pattern. The two observables share the LOINC *Component* and differ on the *System* axis, so the difference is a facet (`specimen_system`), not a new relation.
+3. **Author.** Write a scenario overlay that adds the serum/plasma observable, its interval, designations and the facet. No Python changes.
+4. **Validate.** Run `ontogate validate` (integrity), `ontogate rdf validate` (SHACL) and `ontogate skills build`. The skill references (designation index, facet questions) regenerate from the pack, so no `SKILL.md` is edited.
+5. **Evaluate.** The new CQs pass, and `conformance/run.py` shows that the three frameworks agree.
+6. **Release.** `ontogate build` stamps new bundle and skill-lock hashes. Deployed runtimes refuse to start unless they load exactly that release.
+
+The cardiology pack applied the same loop at the scale of a whole domain: a new `domain.yaml` importing `core`, with its own designations, look-alikes, intervals, protocols and domain skill. Gate code and role specifications were unchanged.
+
+### 5.7 TBox / ABox separation
+
+The ontology holds terminological knowledge (TBox) only. Patient observations (ABox) are never written into the knowledge corpus:
+- `knowledge/log.md` records ontology mutations only;
+- runtime decisions are audited through `AuditPort` with the bundle and skill-lock hashes and no raw patient values;
+- memory stores may not hold procedures learned from conversations.
+
+Before the refactor, every run appended a patient value to the git-tracked log (14 entries and growing). Keeping the ABox out of the ontology is what makes the ontology a reusable, releasable artifact rather than a growing record of patient data.
+
+---
+
+## 6. Evaluation Method
+
+### 6.1 Competency questions
 
 Each scenario file under `config/scenarios/` declares test cases with an input, an expected gap and route, and, where relevant, an expected concept and candidate set. These are the ontology's competency questions; `test_competency_questions.py` executes them.
 
@@ -314,9 +471,9 @@ Each scenario file under `config/scenarios/` declares test cases with an input, 
 | F — Cardiology troponin (2nd pack) | Shared units, so the assay must be named | 6 | 2 | AMBIGUOUS 1, RANGE_COLLISION 1, UNIT_MISMATCH 1, NOT_FOUND 1 |
 | **Total** | | **35** | **17** | **18** |
 
-*Table 5. Competency questions by scenario and expected outcome. Roughly half of the questions must stop, which tests over-blocking as well as under-blocking.*
+*Table 9. Competency questions by scenario and expected outcome. Roughly half of the questions must stop, which tests over-blocking as well as under-blocking.*
 
-### 5.3 Conformance
+### 6.2 Conformance
 
 `conformance/run.py` runs every CQ, plus the AgentCard (36 cases), through each framework's **own tool wrappers** in a separate process. It then compares the results with the canonical `ontogate` pipeline field by field:
 - status;
@@ -331,7 +488,7 @@ Any difference is a divergence. The runner also checks the fail-closed invariant
 
 `conformance/live.py` applies the same check to a running server, local or deployed. It also verifies that the served bundle and skill-lock hashes equal the local release. It asks one question through the AgentCard's A2A URL and fails if the answer disagrees with the REST API.
 
-### 5.4 Answer graders
+### 6.3 Answer graders
 
 Model answers cannot be compared byte for byte, so `evals/graders.py` checks them against facts derived from the canonical pipeline:
 
@@ -344,9 +501,9 @@ Model answers cannot be compared byte for byte, so `evals/graders.py` checks the
 | `clarification_precision` | On CLARIFY, the question offers every allowed facet value or candidate unit |
 | `no_suggestion` | On CLARIFY, no "likely", "probably" or "I assume" — the model never picks |
 
-*Table 6. Deterministic answer graders. Truth comes from the canonical pipeline, never from a judge model.*
+*Table 10. Deterministic answer graders. Truth comes from the canonical pipeline, never from a judge model.*
 
-### 5.5 Test suites and coverage measurement
+### 6.4 Test suites and coverage measurement
 
 All suites run offline with zero model calls, through `run-all-tests.sh`. The script also runs the integrity validator, skills check, SHACL validation (both packs) and drift checks for generated artifacts.
 
@@ -354,9 +511,9 @@ Statement coverage was measured with coverage.py 7.16.2 on Python 3.14.5 (Window
 
 ---
 
-## 6. Results
+## 7. Results
 
-### 6.1 Verification outcomes
+### 7.1 Verification outcomes
 
 | Check | Result |
 | :--- | :--- |
@@ -379,9 +536,9 @@ Statement coverage was measured with coverage.py 7.16.2 on Python 3.14.5 (Window
 | `evals` (graders) | 11 | pass |
 | **Total** | **620** | **all pass** |
 
-*Table 7. Offline verification, 2026-10-11.*
+*Table 11. Offline verification, 2026-10-11.*
 
-### 6.2 Before and after the ontology refactor
+### 7.2 Before and after the ontology refactor
 
 The ontology-engineering review ([`ONTOLOGY_ENGINEERING_PLAN.md`](ONTOLOGY_ENGINEERING_PLAN.md) §14) set acceptance metrics against the starting state. Current values:
 
@@ -400,9 +557,9 @@ The ontology-engineering review ([`ONTOLOGY_ENGINEERING_PLAN.md`](ONTOLOGY_ENGIN
 | Cross-framework gate parity | not measured | 100 % offline |
 | Config-only extension | not possible | shown (troponin overlay, glucose overlay, cardiology pack) |
 
-*Table 8. Acceptance metrics.*
+*Table 12. Acceptance metrics.*
 
-### 6.3 Code coverage
+### 7.3 Code coverage
 
 | Component | Statements | Covered |
 | :--- | ---: | ---: |
@@ -418,7 +575,7 @@ The ontology-engineering review ([`ONTOLOGY_ENGINEERING_PLAN.md`](ONTOLOGY_ENGIN
 | `conformance` | 296 | 42.9 % |
 | **Total** | **6,710** | **70.8 %** |
 
-*Table 9. Statement coverage by component.*
+*Table 13. Statement coverage by component.*
 
 The uncovered code falls into three groups:
 
@@ -430,7 +587,7 @@ One finding is worth acting on. Measured with the shared suite alone, `attestati
 
 ---
 
-## 7. Discussion
+## 8. Discussion
 
 **Determinism where it matters, models where they help.**
 - The model never routes. The gate is pure code, and `safety_guard` has no model and no skills; SHACL `RoleSkillShape` enforces this.
@@ -448,7 +605,7 @@ Rendering skill references from the ontology closes the remaining drift path bet
 
 **Restraint in infrastructure.** Two integrations were evaluated against an explicit adoption trigger rather than added by default: cloud tool gateways and agentgateway. The same restraint applies to the LLM gateway pattern. Cross-provider failover would break per-cloud conformance, and it would add a network hop that sees PHI-bearing prompts.
 
-### 7.1 Threats to validity
+### 8.1 Threats to validity
 
 - **Clinical validity.** Reference intervals and protocols are demonstration values generated for structural proof. Provenance is honest (unvalidated, unverified), but no clinical claim follows from these results.
 - **Terminology fidelity.** Thirteen LOINC axis sets are derived from labels and await verification against a LOINC release. One unit-to-property coding is pending.
@@ -458,7 +615,7 @@ Rendering skill references from the ontology closes the remaining drift path bet
 
 ---
 
-## 8. Limitations and Future Work
+## 9. Limitations and Future Work
 
 | Item | Status | Needs |
 | :--- | :--- | :--- |
@@ -471,11 +628,12 @@ Rendering skill references from the ontology closes the remaining drift path bet
 | Bundle and skill signing (cosign / Notation) | open | release pipeline |
 | agentgateway in front of the MCP server | deferred with an adoption trigger | external MCP callers |
 | Typed decision models as a routing tier | analysed only | eval parity against the gate cascade |
-| Direct unit tests for attestation and concept graph in the shared suite | open (§6.3) | — |
+| Direct unit tests for attestation and concept graph in the shared suite | open (§7.3) | — |
+| Failing fixtures for the remaining ten validator rules; free-text population words in the parser | open (§5.4–5.5) | — |
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 Retrieval gaps do not disappear when retrieval becomes agentic; they become decisions. We showed that a small, explicit discipline makes those decisions deterministic, auditable and portable:
 - the ontology defines what terms mean;
@@ -514,14 +672,14 @@ Measure with `--source` set to `shared/ontogate`, the three framework `src` dire
 
 | Path | Role in this paper |
 | :--- | :--- |
-| `ontology/core`, `ontology/domains/*` | Knowledge base (§5.1) |
-| `config/scenarios/*.yaml` | Competency questions (§5.2) |
+| `ontology/core`, `ontology/domains/*` | Knowledge base and its functional roles (§5.2–5.3) |
+| `config/scenarios/*.yaml` | Competency questions (§5.1, §6.1) |
 | `shared/ontogate/detectors/` | The gate (§4.3) |
 | `shared/ontogate/tools.py`, `mcp_server.py` | Canonical tool contract (§4.4) |
 | `shared/ontogate/a2a.py`, `agent_cards.py` | A2A binding and AgentCards (§4.6) |
 | `agents/*.yaml`, `skills/` | Role specs and Agent Skills (§4.4) |
 | `google-adk-agents/`, `strands-agents/`, `agent-framework/` | Framework adapters (§4.6) |
-| `conformance/`, `evals/` | Evaluation harness (§5.3–5.4) |
+| `conformance/`, `evals/` | Evaluation harness (§6.2–6.3) |
 | `deployment/` | Multicloud deploy and ledger-driven teardown (§4.6) |
 
 ## References
