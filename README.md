@@ -876,11 +876,12 @@ flowchart TD
 
 ### Multi-Cloud Service Matrix
 
-| Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Authentication & Secrets | Port | Health Checks |
+| Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Skill Store | Authentication & Secrets | Port | Health Checks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Google Cloud** | **`google-adk-agents/`** | **Google Cloud Agent Platform** (Cloud Run + Vertex AI Engine) | Gemini 3.8 Flash | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
-| **AWS** | **`strands-agents/`** | **Amazon Bedrock AgentCore Runtime** (Memory, Gateway, ECS) | Claude Sonnet 4.5 | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
-| **Microsoft Azure** | **gent-framework/** | **Azure Container Apps** (ACA) | Azure AI Foundry / Azure OpenAI (gpt-6.1-sol) | System-Assigned Managed Identity (Cognitive Services OpenAI User) | 8000 | /healthz, /readyz |
+| **Google Cloud** | **google-adk-agents/** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (gemini-3.8-flash) | GCP Skill Registry (projects/.../skills) | Secret Manager (GEMINI_API_KEY) + ADC (
+oles/aiplatform.user) | 8000 | /healthz, /readyz |
+| **AWS** | **strands-agents/** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (claude-opus-5-5) / Sonnet 4.5 | S3 Skill Store (s3://.../skills/<release>/) | IAM Execution Role (BedrockAgentCoreExecutionRole) | 8000 | /healthz, /readyz |
+| **Microsoft Azure** | **gent-framework/** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (gpt-6.1-sol) | Foundry Skills API (Foundry-Features: Skills=V1Preview) | System-Assigned Managed Identity (Cognitive Services OpenAI User) | 8000 | /healthz, /readyz |
 
 ### Automated Deployment Scripts
 
