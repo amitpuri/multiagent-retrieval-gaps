@@ -12,10 +12,11 @@ By Dr. Amit Puri · October 2026
 
 - **An agent is a retriever that has to decide.** Every one of the 7 classical/RAG retrieval gaps still applies. Agents introduce four new failure modes: guessing instead of asking (Gap 8), safety rules relegated to probabilistic prompts (Gap 9), un-evaluated execution trajectories (Gap 10), and tool output treated as unscoped, trusted context (Gap 11).
 - **An ontology's job in an agent is to define what a term means, and when to stop.** In laboratory medicine, terms like `"Hb"`, `"Calcium"`, `"CSF panel"`, and `"Troponin"` each conceal multiple distinct assays with different clinical units, reference ranges, or owning laboratory departments.
-- **Same clinical logic, three agent frameworks.** The deterministic `SafetyGateEngine`, Pydantic models, YAML config, and A2A contracts are framework-independent. Three complete implementations demonstrate portability:
+- **Same clinical logic, three agent frameworks.** The deterministic `SafetyGateEngine`, Pydantic models, YAML config, and A2A contracts are framework-independent and centralized in the shared `ontogate` package (`shared/`). Three complete agent framework implementations demonstrate portability:
 
-| Framework | Folder | Model | Production Target | Status |
+| Framework / Component | Folder | Model | Production Target | Status |
 | :--- | :--- | :--- | :--- | :--- |
+| **Shared Core (`ontogate`)** | `shared/` | Pure Python / Deterministic Gate / FastMCP | Framework-Agnostic Core (`ontogate` v1.0.0) | ✅ Complete |
 | **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.8 Flash | Google Cloud Agent Platform / Cloud Run | ✅ Complete |
 | **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | AWS Bedrock AgentCore / ECS Fargate | ✅ Complete |
 | **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | `gpt-6.1-sol` via Azure AI Foundry / OpenAI | Azure Container Apps + AI Foundry | ✅ Complete |
@@ -31,18 +32,61 @@ By Dr. Amit Puri · October 2026
 ```text
 multiagent-retrieval-gaps/
 │
-├── config/                              # Shared declarative YAML — all frameworks consume this
-│   ├── domains/
-│   │   └── laboratory_medicine/
-│   │       ├── concepts.yaml            # Controlled vocabulary, LOINC mappings, synonyms, units
-│   │       ├── protocols.yaml           # Clinical reference protocols & panic limits keyed by URI
-│   │       ├── ranges.yaml              # Reference/critical limits & look-alike collision families
-│   │       └── specimen_rules.yaml      # Specimen handling, aliquot rules & CSF tube sequencing
-│   └── scenarios/
-│       ├── scenario_a_hemoglobin.yaml       # Hb ambiguity & unit mismatch (Gap 2 & 8)
-│       ├── scenario_b_csf_panel.yaml        # CSF emergency panel tube ordering (Gap 11)
+├── shared/                              # ── Shared Core: Framework-Agnostic Ontology & Gate ──
+│   ├── pyproject.toml                   # ontogate v1.0.0 package specification (pip installable)
+│   ├── pytest.ini                       # Test configuration (pythonpath = . ontogate)
+│   ├── ontogate/                        # Shared ontogate library (pure Python, zero cloud SDK deps)
+│   │   ├── models.py                    # Pydantic schemas (TrustTier, ConceptDefinition, etc.)
+│   │   ├── config.py                    # YAML pack loader & OntologyRegistry
+│   │   ├── paths.py                     # Repository root & knowledge artifact discovery
+│   │   ├── parsing.py                   # Ontology-aware clinician input parsing
+│   │   ├── clarify.py                   # Deterministic clinical clarification generation
+│   │   ├── resolver.py                  # LOINC concept resolution & semantic mapping
+│   │   ├── units.py                     # Canonical UCUM unit checks & conversions
+│   │   ├── concept_graph.py             # Concept graph traversal, look-alikes & protocols
+│   │   ├── okf_index.py                 # Progressive disclosure catalog index (OKF §7.1)
+│   │   ├── okf_writer.py                # Knowledge writeback & log.md maintenance
+│   │   ├── attestation.py               # Deterministic numeric range attestation (OKF §5.4)
+│   │   ├── catalog.py                   # Model catalog loader (config/models.yaml)
+│   │   ├── tools.py                     # Canonical clinical tool contract implementations
+│   │   ├── mcp_server.py                # FastMCP server (6 clinical tools via MCP protocol)
+│   │   ├── validate.py                  # Ontology integrity & schema validation rules
+│   │   ├── ports.py                     # Runtime ports (audit, telemetry, stores)
+│   │   ├── release.py                   # Knowledge release stamping & manifests
+│   │   └── detectors/                   # 7 pluggable deterministic gap detectors + SafetyGateEngine
+│   │       ├── engine.py                # SafetyGateEngine (deterministic gate, fail-closed)
+│   │       ├── ambiguity.py             # AmbiguityDetector (Gap 8)
+│   │       ├── unit_mismatch.py         # UnitMismatchDetector (Gap 2)
+│   │       ├── missing_qualifier.py     # MissingQualifierDetector (Gap 5)
+│   │       ├── missing_unit.py          # MissingUnitDetector
+│   │       ├── range_collision.py       # RangeCollisionDetector (Look-Alikes)
+│   │       ├── specimen_sequence.py     # SpecimenSequenceDetector (Gap 11)
+│   │       └── population_context.py    # PopulationContextDetector
+│   └── tests/                           # 78 deterministic unit & invariant tests
+│
+├── ontology/                            # ── Clinical Knowledge Packs & Upper Ontology ─────────
+│   ├── core/                            # Upper ontology schema & meta-models (core.yaml)
+│   └── domains/laboratory_medicine/     # Laboratory medicine domain pack
+│       ├── domain.yaml                  # Domain specification, version & author metadata
+│       ├── vocabulary.yaml              # Synonyms & clinical aliases mapped to canonical IRIs
+│       ├── analytes.yaml                # Primary analytes (Hb, Calcium, Troponin, CSF)
+│       ├── observables.yaml             # Observable definitions, LOINC codes, UCUM units
+│       ├── facets.yaml                  # Clinical qualifiers (total, ionized, arterial, venous)
+│       ├── intervals.yaml               # Reference & critical intervals across populations
+│       ├── panels.yaml                  # Multi-analyte panels (CSF emergency workup, etc.)
+│       ├── protocols.yaml               # Clinical protocols & emergency escalation rules
+│       └── designations.yaml            # Display names & terminology bindings
+│
+├── knowledge/                           # ── Knowledge Base Audit & Change Tracking ────────────
+│   └── log.md                           # Append-only TBox ontology mutation log (OKF §7.5)
+│
+├── config/                              # Declarative runtime configuration
+│   ├── models.yaml                      # Model catalog mapping framework roles to LLMs
+│   └── scenarios/                       # Clinical evaluation scenarios & overlays
+│       ├── scenario_a_hemoglobin.yaml   # Hb ambiguity & unit mismatch (Gap 2 & 8)
+│       ├── scenario_b_csf_panel.yaml    # CSF emergency panel tube ordering (Gap 11)
 │       ├── scenario_c_calcium_collision.yaml # Calcium look-alike range collision
-│       └── scenario_d_troponin.yaml          # Dynamic extension: Troponin I vs T (zero-code)
+│       └── scenario_d_troponin.yaml     # Dynamic extension: Troponin I vs T (zero-code)
 │
 ├── deployment/                          # ── Multi-Cloud Production Deployment Automation ─────
 │   ├── README.md                        # Multi-cloud deployment guide (GCP, AWS, Azure)
@@ -58,31 +102,23 @@ multiagent-retrieval-gaps/
 │   │   ├── destroy.sh / destroy.ps1     # Clean resource teardown
 │   │   └── test-service.sh / .ps1       # End-to-end integration & health verification
 │   └── az-scripts/                      # Azure Container Apps + AI Foundry
-│       ├── config.env                   # Azure region (eastus), AI Foundry project config
-│       ├── deploy.sh / deploy.ps1       # Keyless Managed Identity + ACA deployment
-│       ├── destroy.sh / destroy.ps1     # Clean resource teardown
-│       └── test-service.sh / .ps1       # End-to-end integration & health verification
+│   │   ├── config.env                   # Azure region (eastus), AI Foundry project config
+│   │   ├── deploy.sh / deploy.ps1       # Keyless Managed Identity + ACA deployment
+│   │   ├── destroy.sh / destroy.ps1     # Clean resource teardown
+│   │   └── test-service.sh / .ps1       # End-to-end integration & health verification
 │
 ├── google-adk-agents/                   # ── Framework 1: Google ADK 2.0 ──────────────────────
 │   ├── README.md                        # Framework 1 documentation, OKF v0.2 & Harness details
 │   ├── Dockerfile                       # Cloud Run / GKE production container (port 8000)
-│   ├── pytest.ini
+│   ├── pytest.ini                       # pythonpath = . src ../shared
 │   ├── src/
 │   │   ├── .env                         # GEMINI_API_KEY (gitignored)
 │   │   ├── env.example                  # Template
 │   │   ├── a2a/contracts.py             # A2AMessage, AgentRole, A2AAction, A2ATaskState
-│   │   ├── core/
-│   │   │   ├── models.py                # Pydantic schemas (TrustTier, ConceptDefinition...)
-│   │   │   ├── config.py                # YAML loader & OntologyRegistry
-│   │   │   ├── okf_index.py             # Progressive disclosure catalog index (OKF §7.1)
-│   │   │   ├── concept_graph.py         # Typed concept graph walk & look-alikes (OKF §4, §8.2)
-│   │   │   ├── okf_writer.py            # Knowledge writeback & log.md maintenance (OKF §5.2, §7.5)
-│   │   │   ├── attestation.py           # Deterministic numeric range attestation (OKF §5.4, §9)
-│   │   │   └── detectors/               # 6 pluggable gap detectors + SafetyGateEngine
 │   │   ├── agents/                      # 6 specialized ADK agent roles (OKF trust-aware synthesis)
 │   │   ├── harness/                     # Agent Harness — 4-step MCP continuous loop
 │   │   │   ├── agent.py                 # Step 1: ClinicalADKHarness continuous reasoning loop
-│   │   │   ├── mcp_server.py            # Step 2: FastMCP server (6 clinical tools)
+│   │   │   ├── mcp_server.py            # Step 2: FastMCP server (delegates to ontogate.mcp_server)
 │   │   │   ├── mcp_client.py            # Step 2: Gemini function_call ↔ MCP bridge
 │   │   │   ├── context.py               # Step 3: Token budgeting & OKF progressive disclosure
 │   │   │   ├── session.py               # Step 3: Turn-by-turn conversation session state
@@ -90,22 +126,17 @@ multiagent-retrieval-gaps/
 │   │   │   └── console.py               # Step 4: Interactive CLI debugging console
 │   │   ├── orchestration/a2a_orchestrator.py # ADK Workflow with OKF pre-scoping
 │   │   ├── runner.py                    # Scenarios A–D runner (supports --harness flag)
+│   │   ├── workflow.py                  # ADK workflow definition & safety guard node
+│   │   ├── tools.py                     # Canonical tool bindings (delegates to ontogate.tools)
 │   │   └── main.py                      # CLI entrypoint
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
-│   └── tests/
-│       ├── test_gate.py                 # 27 deterministic safety invariant tests
-│       ├── test_gate_hardening.py       # 14 safety gate hardening & bypass regression tests
-│       ├── test_harness.py              # 49 harness tests: session, MCP dispatch, context, scenarios
-│       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
-│       ├── test_okf_index_graph_attestation.py # 25 OKF tests (index, graph, attestation, log)
-│       ├── test_okf_trust_and_lifecycle.py # 46 OKF tests (trust tiers, loader, resolver, synthesis)
-│       └── test_workflow_and_attestation.py # 16 workflow & attestation integration tests
+│   └── tests/                           # 193 deterministic safety invariant, OKF & harness tests
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
 │   ├── Dockerfile                       # ECS / App Runner production container (port 8000)
-│   ├── pytest.ini
+│   ├── pytest.ini                       # pythonpath = . src ../shared
 │   ├── requirements.txt
 │   ├── .env.example                     # Bedrock / AgentCore template
 │   ├── src/
@@ -114,21 +145,18 @@ multiagent-retrieval-gaps/
 │   │   ├── server.py                    # Production FastAPI ASGI server (REST + healthz + MCP tools)
 │   │   ├── models/provider.py           # AnthropicModel (claude-sonnet-4-5) or BedrockModel
 │   │   ├── a2a/contracts.py             # Shared A2A contracts (same schema as ADK)
-│   │   ├── core/                        # Shared detectors & Pydantic models
 │   │   ├── agents/                      # 6 Strands agent roles
 │   │   ├── memory/session.py            # Bedrock AgentCore managed session / local fallback
 │   │   ├── orchestration/               # Strands workflow coordinator
+│   │   ├── tools/                       # Strands @tool wrappers over ontogate.tools
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint
-│   └── tests/
-│       ├── test_gate.py                 # 12 deterministic safety invariant tests
-│       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
-│       └── test_strands_agents.py       # 26 deterministic offline tests
+│   └── tests/                           # 54 deterministic offline & invariant tests
 │
 ├── agent-framework/                     # ── Framework 3: Microsoft Agent Framework (MAF) ────
 │   ├── README.md                        # Framework 3 documentation & declarative workflow details
 │   ├── Dockerfile                       # Azure Container Apps production container (port 8000)
-│   ├── pytest.ini
+│   ├── pytest.ini                       # pythonpath = . src ../shared
 │   ├── requirements.txt
 │   ├── load_env.sh
 │   ├── declarative-agents/              # 6 × kind: Prompt YAML agent definitions
@@ -144,36 +172,29 @@ multiagent-retrieval-gaps/
 │   │   ├── .env                         # Azure / OpenAI credentials (gitignored)
 │   │   ├── env.example
 │   │   ├── a2a/contracts.py             # Shared A2A contracts (parity with ADK & Strands)
-│   │   ├── core/                        # Namespace shim importing shared Pydantic models
 │   │   ├── harness/                     # MAF Agent Harness
 │   │   │   ├── agent.py                 # ClinicalHarnessAgent + create_clinical_harness_agent()
 │   │   │   ├── session.py               # HarnessSession — per-turn history & state
 │   │   │   ├── server.py                # Production FastAPI ASGI server (REST + healthz + MCP tools)
-│   │   │   ├── providers.py             # ClinicalTodoProvider, ClinicalModeProvider,
-│   │   │   │                            #   SafetyGateApprovalPolicy
+│   │   │   ├── providers.py             # ClinicalTodoProvider, ClinicalModeProvider, SafetyGateApprovalPolicy
 │   │   │   └── console.py               # Terminal UX — /todos /mode /scenario /status
-│   │   ├── tools/                       # 6 plain Python tools bound via YAML bindings
+│   │   ├── tools/                       # Plain Python tool wrappers over ontogate.tools
 │   │   ├── models/provider.py           # Credential auto-detection (Foundry, Azure OpenAI, OpenAI)
 │   │   ├── orchestration/workflow_runner.py # Live MAF workflow + offline fast path
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint (--harness, --harness-scenario)
-│   └── tests/
-│       ├── test_gate.py                 # 23 deterministic safety invariant tests
-│       ├── test_offline_pipeline.py     # 10 offline pipeline & fail-closed tests
-│       └── test_harness.py              # 11 harness: session, todos, modes, approval, pipeline
+│   └── tests/                           # 44 deterministic safety invariant & harness tests
 │
-├── docs/
-│   ├── ai-agent-memory-architecture.md
-│   ├── healthcare_multi_agent_architecture.md
-│   └── ontology-kg-okf-for-ai-agents.md # Open Knowledge Format (OKF v0.2) reference
-│
+├── docs/                                # Architectural blueprints, OKF specs & memory models
+├── run-all-tests.sh                     # Runs all 369 tests across shared core & 3 frameworks
+├── run-all.sh                           # Runs all 4 clinical scenarios across all 3 frameworks
 └── .gitignore
 ```
 
 > [!IMPORTANT]
-> **`config/`** is the single source of truth for all clinical knowledge. All three framework
-> implementations read from the same `config/domains/` and `config/scenarios/` YAML files —
-> no Python code changes are needed to add a new gap scenario.
+> **`ontology/` and `config/`** provide the single source of truth for all clinical knowledge and scenarios. All three framework
+> implementations read from the same `ontology/domains/` and `config/scenarios/` YAML files through the shared
+> **`ontogate`** library (`shared/`) — no Python code changes are needed to add a new gap scenario.
 
 ---
 
@@ -181,14 +202,68 @@ multiagent-retrieval-gaps/
 
 | Gap | Level | Addressed In | Implementation |
 | :--- | :--- | :--- | :--- |
-| **Gap 2: Unit Mismatch** | Agent Loop | `core/detectors/unit_mismatch.py` | Standalone detector that explicitly rejects units not valid for any matched concept (e.g. `mg/dL` for Hemoglobin). |
-| **Gap 5: Missing Qualifier** | Agent Loop | `core/detectors/missing_qualifier.py` | Flags numeric results in look-alike assay families (Calcium, Troponin) when no qualifier is supplied. |
-| **Gap 8: Ambiguity & Silent Guessing** | Agent Loop | `core/detectors/ambiguity.py` | Returns explicit `AMBIGUOUS`, `UNIT_MISMATCH`, or `NOT_FOUND` statuses instead of silent guesses. |
-| **Gap 9: Safety Rule in Prompt** | Agent Loop | `orchestration/` | Deterministic routing `safety_guard_node`; fails closed on uncertainty. Human-in-the-loop pause. |
-| **Gap 10: Trajectory Never Evaluated** | Agent Loop | `tests/` | Pure-code `pytest` suite verifying invariants in milliseconds without LLM calls. |
-| **Gap 11: Tool Output Trusted, Unscoped** | Agent Loop | `core/detectors/specimen_sequence.py` | Enforces CSF panel tube sequencing and department scope boundaries. |
-| **Range Collisions (Look-Alikes)** | Clinical Safety | `core/detectors/range_collision.py` | Evaluates numeric values against look-alike assay families to prevent lethal classification errors. |
+| **Gap 2: Unit Mismatch** | Agent Loop | `shared/ontogate/detectors/unit_mismatch.py` | Standalone detector that explicitly rejects units not valid for any matched concept (e.g. `mg/dL` for Hemoglobin). |
+| **Gap 5: Missing Qualifier** | Agent Loop | `shared/ontogate/detectors/missing_qualifier.py` | Flags numeric results in look-alike assay families (Calcium, Troponin) when no qualifier is supplied. |
+| **Gap 8: Ambiguity & Silent Guessing** | Agent Loop | `shared/ontogate/detectors/ambiguity.py` | Returns explicit `AMBIGUOUS`, `UNIT_MISMATCH`, or `NOT_FOUND` statuses instead of silent guesses. |
+| **Gap 9: Safety Rule in Prompt** | Agent Loop | `shared/ontogate/detectors/engine.py` | Deterministic routing `SafetyGateEngine` and `safety_guard_node`; fails closed on uncertainty. Human-in-the-loop pause. |
+| **Gap 10: Trajectory Never Evaluated** | Agent Loop | `shared/tests/`, `*/tests/` | Pure-code `pytest` suite verifying invariants in milliseconds without LLM calls (369 tests total). |
+| **Gap 11: Tool Output Trusted, Unscoped** | Agent Loop | `shared/ontogate/detectors/specimen_sequence.py` | Enforces CSF panel tube sequencing and department scope boundaries. |
+| **Range Collisions (Look-Alikes)** | Clinical Safety | `shared/ontogate/detectors/range_collision.py` | Evaluates numeric values against look-alike assay families to prevent lethal classification errors. |
 | **Dynamic Gap Extensibility** | Framework | `config/scenarios/` | New gaps declared entirely in YAML — zero changes to Python code. |
+
+---
+
+## Shared Core — Framework-Agnostic Ontology & Gate (`shared/`)
+
+The **`shared/`** directory contains **`ontogate`** (`ontogate` v1.0.0), a pure-Python, zero-cloud-dependency package that implements the deterministic core of the entire multi-agent system. All three agent frameworks (Google ADK, AWS Strands, and Microsoft Agent Framework) import and delegate to `ontogate`.
+
+### Core Responsibilities
+
+```mermaid
+flowchart LR
+    subgraph SharedCore["shared/ontogate (Pure Python — No LLM — No Cloud SDK)"]
+        direction TB
+        Models["Pydantic Models<br/>• ConceptDefinition<br/>• ReferenceInterval<br/>• AttestedComputation"]
+        Parser["ontogate.parsing<br/>• Ontology-Aware Parser"]
+        Resolver["ontogate.resolver<br/>• LOINC Resolution<br/>• UCUM Unit Normalization"]
+        Gate["SafetyGateEngine<br/>• 7 Pluggable Detectors<br/>• Fail-Closed Deterministic Code"]
+        Attest["ontogate.attestation<br/>• Attested Range Evaluation<br/>• [Attested ✓] Badge"]
+        Tools["ontogate.tools<br/>• Canonical Tool Logic"]
+        FastMCP["ontogate.mcp_server<br/>• Canonical FastMCP Server"]
+    end
+
+    SharedCore --> ADK["Google ADK 2.0<br/>(google-adk-agents/)"]
+    SharedCore --> Strands["AWS Strands SDK<br/>(strands-agents/)"]
+    SharedCore --> MAF["Microsoft Agent Framework<br/>(agent-framework/)"]
+```
+
+1. **Deterministic Safety Gating (Gap 9):**
+   `SafetyGateEngine` executes 7 pluggable gap detectors in pure Python with **zero LLM calls** and **fail-closed routing** (only `RESOLVED` proceeds; `AMBIGUOUS`, `UNIT_MISMATCH`, `RANGE_COLLISION`, `NOT_FOUND` all route to `CLARIFY`).
+2. **Canonical Data Models & Protocols:**
+   Strict Pydantic v2 schemas (`ConceptDefinition`, `Observable`, `Facet`, `ReferenceInterval`, `ProtocolDefinition`, `AttestedComputation`).
+3. **Ontology Pack Loading & Dynamic Scenarios:**
+   Loads upper ontology (`ontology/core/core.yaml`), domain packs (`ontology/domains/laboratory_medicine/*.yaml`), and runtime scenario overlays (`config/scenarios/*.yaml`).
+4. **Attested Numeric Computation (OKF §5.4):**
+   Evaluates patient lab values against age/sex/qualifier reference intervals deterministically and stamps the `[Attested ✓]` compliance badge.
+5. **Canonical FastMCP Tool Server:**
+   Exposes the 6 canonical clinical decision-support tools via FastMCP:
+   - `resolve_lab_term`
+   - `evaluate_safety_gate`
+   - `fetch_grounded_protocol`
+   - `classify_lookalikes`
+   - `panel_workup`
+   - `build_clarification_prompt`
+6. **Cross-Framework Consumption:**
+   - **Local Dev / Testing:** Each framework includes `shared/` on `PYTHONPATH` (e.g. `pytest.ini` with `pythonpath = . src ../shared` and automatic discovery via `ontogate.paths`).
+   - **Production Containers:** Dockerfiles install the package directly: `pip install "/tmp/shared[mcp]"`.
+
+### Running Shared Core Invariant Tests
+
+```bash
+cd shared
+python -m pytest tests/ -v
+# 78 passed in ~0.6 s (pure Python, 0 LLM calls, 100% deterministic)
+```
 
 ---
 
@@ -500,6 +575,9 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
+# Shared Core (ontogate) — 78 tests (~0.6 s)
+cd shared && python -m pytest tests/ -v
+
 # Google ADK ≥2.11.0 — 193 tests (~12.2 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
@@ -509,7 +587,7 @@ cd strands-agents && python -m pytest tests/ -v
 # Microsoft Agent Framework (MAF) — 44 tests (~6.1 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 291 deterministic safety invariants verified across all 3 frameworks!
+# Total: 369 deterministic safety invariants & contracts verified across the repository!
 ```
 
 ### One-Command Unified Execution Scripts
@@ -517,7 +595,7 @@ cd agent-framework && python -m pytest tests/ -v
 From the repository root, run the entire multi-cloud agent fleet and test suites using the top-level bash scripts:
 
 ```bash
-# 1. Run all test suites across all 3 frameworks (291 tests in ~26 s)
+# 1. Run all test suites across shared core and all 3 frameworks (369 tests in ~27 s)
 sh run-all-tests.sh
 
 # 2. Run end-to-end multi-agent clinical scenarios A–D across all 3 frameworks
@@ -688,6 +766,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 
 | Layer | Google ADK | AWS Strands | Microsoft MAF / Azure AI Foundry |
 | :--- | :--- | :--- | :--- |
+| **Shared Core Library** | `ontogate` (`shared/`) | `ontogate` (`shared/`) | `ontogate` (`shared/`) |
 | **Agent framework** | Google ADK ≥2.11.0 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
 | **Model** | Gemini 3.8 Flash | Claude Sonnet 4.5 | `gpt-6.1-sol` via Azure AI Foundry / OpenAI |
 | **Session memory** | ADK `InMemorySessionService` + `HarnessSession` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
@@ -695,8 +774,10 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | FastMCP tools & REST bridge via `src/server.py` | FastMCP tools & REST bridge via `src/harness/server.py` |
 | **Production Target** | Google Cloud Agent Platform / Cloud Run | AWS Bedrock AgentCore / ECS Fargate | Azure Container Apps + AI Foundry |
 | **Container Port** | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) |
-| **Safety gate** | `SafetyGateEngine` (shared deterministic code) | `SafetyGateEngine` (shared deterministic code) | `SafetyGateEngine` (shared deterministic code) |
+| **Safety gate** | `SafetyGateEngine` (shared deterministic code via `ontogate`) | `SafetyGateEngine` (shared deterministic code via `ontogate`) | `SafetyGateEngine` (shared deterministic code via `ontogate`) |
 | **Tests** | **193 offline `pytest` tests** (OKF v0.2 + Gate + Harness) | **54 offline `pytest` tests** (Invariants + Extensible + Roles) | **44 offline `pytest` tests** (Invariants + Pipeline + Harness) |
+
+> *Note: Includes an additional **78 deterministic tests** in the shared core (`shared/tests/`), bringing total repository test coverage to **369 offline tests**.*
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |
