@@ -1,4 +1,4 @@
-# Laboratory Medicine Decision Support — Multi-Agent Retrieval-Gap System
+# Clinical Decision Support — Multi-Agent Retrieval-Gap System
 
 *When the Retriever Has to Decide: Reusable Multi-Agent Architecture, Configurable Gaps, and Deterministic Gating*
 
