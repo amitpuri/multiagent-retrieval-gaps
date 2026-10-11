@@ -10,7 +10,7 @@ Part of the **Multi-Agent Retrieval-Gap Framework** ([Root Project README](../RE
 
 In clinical laboratory medicine, ambiguous acronyms, colliding reference ranges, specimen tube collection sequences, and unverified calculations can lead to catastrophic medical misinterpretations.
 
-This package implements an extensible multi-agent clinical decision support system built on the **Google Agent Development Kit (ADK 2.0)** and **Gemini 3.5 Flash**. The architecture solves classical retrieval gaps (Gaps 1–7) and agent-specific failure modes (Gaps 8–11) by pairing LLM capabilities with:
+This package implements an extensible multi-agent clinical decision support system built on the **Google Agent Development Kit (ADK 2.0)** and **Gemini 3.8 Flash**. The architecture solves classical retrieval gaps (Gaps 1–7) and agent-specific failure modes (Gaps 8–11) by pairing LLM capabilities with:
 1. **Deterministic Safety Gating (`SafetyGateEngine`)**: Pure-code, prompt-free detectors that fail closed on clinical ambiguities or safety violations.
 2. **Structured A2A Contracts (`A2AMessage`)**: Schema-validated task payloads passed between specialized agent roles.
 3. **Open Knowledge Format (OKF v0.2)**: An ontology and knowledge graph grounding layer providing provenance, trust tiers, freshness boundaries, typed relationships, progressive disclosure indexing, and attested computations.
@@ -206,11 +206,12 @@ google-adk-agents/
 │   └── main.py                    # Interactive CLI runner
 └── tests/
     ├── test_gate.py               # Deterministic safety gate tests (Gap 10, 27 tests)
-    ├── test_multiagent_extensible.py # Registry, scenario extensions, detector tests
-    ├── test_okf_refinement.py     # OKF Phases 1-4 tests (trust tiers, loader, resolver, synthesis)
-    ├── test_okf_phases_5_8.py     # OKF Phases 5-8 tests (index, graph, writeback, attestation)
-    ├── test_harness.py            # 35 harness tests: session, MCP, context window, scenario parity
-    └── test_code_review_regressions.py # 15 regression tests: T1–T15 (patient safety & gate bypass prevention)
+    ├── test_gate_hardening.py     # Safety gate hardening & bypass regression tests (14 tests)
+    ├── test_harness.py            # Harness tests: session, MCP dispatch, context window, scenario parity (49 tests)
+    ├── test_multiagent_extensible.py # Registry, dynamic scenario extensions, detector tests (16 tests)
+    ├── test_okf_index_graph_attestation.py # Progressive disclosure index, graph traversal, attestation (25 tests)
+    ├── test_okf_trust_and_lifecycle.py # Trust tiers, staleness filtering, lifecycle status, synthesis (46 tests)
+    └── test_workflow_and_attestation.py # Workflow execution and attestation integration (16 tests)
 ```
 
 ---
@@ -250,7 +251,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 Execute the multi-scenario runner (ADK workflow graph, A2A multi-agent fleet):
 
 ```bash
-# Live Gemini (all 4 scenarios)
+# Live Gemini (gemini-3.8-flash, all 4 scenarios)
 python -m src.runner
 
 # Offline / stub mode (no API key needed)
@@ -284,7 +285,7 @@ uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 
 ## Test Suite & Verification
 
-The suite includes **163 comprehensive unit and trajectory tests** running deterministically in pure code:
+The suite includes **193 comprehensive unit and trajectory tests** running deterministically in pure code:
 
 ```bash
 # Full test suite
@@ -293,8 +294,8 @@ python -m pytest tests/ -v
 # Harness tests only
 python -m pytest tests/test_harness.py -v
 
-# Regression tests (T1–T15)
-python -m pytest tests/test_code_review_regressions.py -v
+# Or run from workspace root:
+sh run-all-tests.sh
 ```
 
 ### Test Coverage Summary
@@ -302,9 +303,10 @@ python -m pytest tests/test_code_review_regressions.py -v
 | Test File | Test Count | Focus Area |
 | :--- | :--- | :--- |
 | `tests/test_gate.py` | **27 tests** | Classical retrieval gaps & deterministic gate verification without LLMs. |
-| `tests/test_multiagent_extensible.py` | 16 tests | Baseline registry, dynamic scenario extensions (Troponin), and 6 safety detectors. |
-| `tests/test_okf_refinement.py` | 46 tests | OKF trust tier derivation, staleness filtering, lifecycle status, and calibrated synthesis instructions. |
-| `tests/test_okf_phases_5_8.py` | 24 tests | Progressive disclosure index, typed graph traversal, audit writeback log, and numeric attestation gate. |
-| `tests/test_harness.py` | 35 tests | Session state, MCP tool registry & dispatch, context window management, and end-to-end harness scenario parity (offline). |
-| `tests/test_code_review_regressions.py` | **15 tests** | Patient safety invariants, live harness gate enforcement, reported unit preservation, and fail-closed defaults (T1–T15). |
-| **Total** | **163 tests** | **100% Passing** |
+| `tests/test_gate_hardening.py` | **14 tests** | Safety gate hardening, bypass prevention, and strict fail-closed boundary enforcement. |
+| `tests/test_harness.py` | **49 tests** | Session state, MCP tool registry & dispatch, context window token budgeting, and scenario parity. |
+| `tests/test_multiagent_extensible.py` | **16 tests** | Baseline registry, dynamic scenario extensions (Troponin), and 6 safety detectors. |
+| `tests/test_okf_index_graph_attestation.py` | **25 tests** | Progressive disclosure index, typed graph traversal, audit writeback log, and numeric attestation gate. |
+| `tests/test_okf_trust_and_lifecycle.py` | **46 tests** | OKF trust tier derivation, staleness filtering, lifecycle status, and calibrated synthesis instructions. |
+| `tests/test_workflow_and_attestation.py` | **16 tests** | End-to-end workflow execution, state graph traversal, and attested computation verification. |
+| **Total** | **193 tests** | **100% Passing** |

@@ -16,9 +16,9 @@ It is the third framework port alongside:
 
 | Framework | Directory | Model |
 |:---|:---|:---|
-| Google ADK | [`google-adk-agents/`](../google-adk-agents/) | Gemini 3.5 Flash |
+| Google ADK | [`google-adk-agents/`](../google-adk-agents/) | Gemini 3.8 Flash |
 | AWS Strands | [`strands-agents/`](../strands-agents/) | Claude Sonnet 4.5 on Bedrock |
-| **Microsoft MAF** | **`agent-framework/`** (this directory) | **gpt-5 via Azure AI Foundry / OpenAI** |
+| **Microsoft MAF** | **`agent-framework/`** (this directory) | **`gpt-6.1-sol` via Azure AI Foundry / OpenAI** |
 
 All three frameworks share the same **deterministic `SafetyGateEngine`**, the same **A2A message
 contracts**, and the same **`config/` YAML knowledge base** — zero code change is required to add a
@@ -155,12 +155,12 @@ response = await agent.run("Hb 13.5 | g/dL", mode=AgentMode.EXECUTE)
 | **Workflow** | `WorkflowFactory` + `InvokeAgent / If` in `declarative-workflows/` |
 | **Agent Harness** | `ClinicalHarnessAgent` + `create_clinical_harness_agent()` factory in `src/harness/` |
 | **Agent loader** | `AgentFactory.create_agent_from_yaml_path()` (experimental) |
-| **Model** | `gpt-5` via Azure AI Foundry · Azure OpenAI · OpenAI Agents SDK (local) |
+| **Model** | `gpt-6.1-sol` via Azure AI Foundry · Azure OpenAI · OpenAI Agents SDK (local) |
 | **Tool binding** | Plain Python functions — no `@tool` or `@kernel_function` decorator |
 | **Safety gate** | `SafetyGateEngine` (shared — identical to ADK and Strands) |
 | **Knowledge config** | `../config/` YAML (shared across all three frameworks) |
 | **A2A contracts** | `A2AMessage` Pydantic schema (identical across frameworks) |
-| **Tests** | 44 offline `pytest` invariants — 0 LLM calls, ~1.2 s |
+| **Tests** | 44 offline `pytest` invariants — 0 LLM calls, ~6.1 s |
 
 ---
 
@@ -197,11 +197,11 @@ Edit `src/.env`. Choose **one** option:
 ```ini
 # Option A — Azure AI Foundry (production)
 AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=https://your-project.api.azureml.ms
-FOUNDRY_MODEL=gpt-5
+FOUNDRY_MODEL=gpt-6.1-sol
 
 # Option B — Azure OpenAI direct
 # AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-# AZURE_OPENAI_DEPLOYMENT=gpt-5
+# AZURE_OPENAI_DEPLOYMENT=gpt-6.1-sol
 
 # Option C — OpenAI API key (local / fallback)
 # OPENAI_API_KEY=sk-...
@@ -260,8 +260,11 @@ python src/main.py --harness-scenario all # All four scenarios via harness
 ### 8. Run the test suite
 
 ```bash
-# All 44 deterministic safety invariants — no LLM calls, ~1.2 s
+# All 44 deterministic safety invariants — no LLM calls, ~6.1 s
 python -m pytest tests/ -v --rootdir=. -p no:logfire
+
+# Or run from workspace root:
+sh run-all-tests.sh
 ```
 
 ---
@@ -404,4 +407,4 @@ without duplicating any clinical logic.
 
 > **Status**: ✅ Implementation complete — 44/44 tests passing.
 > Includes: WorkflowFactory declarative pipeline + MAF Agent Harness (session, todos, modes, approval policy, terminal UX).
-> Model: `gpt-5` via `OPENAI_API_KEY` (local) or Azure AI Foundry (production).
+> Model: `gpt-6.1-sol` via `OPENAI_API_KEY` (local) or Azure AI Foundry (production).

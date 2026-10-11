@@ -207,17 +207,20 @@ python -m src.main --offline
 
 ## Test Suite & Verification
 
-The test suite contains **50 tests** running deterministically in pure code without live external API calls:
+The test suite contains **54 tests** running deterministically in pure code without live external API calls:
 
 ```bash
 python -m pytest tests/ -v
+
+# Or run from workspace root:
+sh run-all-tests.sh
 ```
 
 ### Test Coverage Summary
 
 | Test File | Test Count | Focus Area |
 | :--- | :--- | :--- |
-| `tests/test_gate.py` | 12 tests | Deterministic safety invariants for Gaps 2, 5, 8, and 11 without LLM dependencies. |
-| `tests/test_multiagent_extensible.py` | 16 tests | Shared ontology registry loading, dynamic YAML scenario extensions (Troponin), and detector unit tests. |
-| `tests/test_strands_agents.py` | 22 tests | Strands tools, agent factories, offline model selection, AgentCore memory fallbacks, and end-to-end multi-agent orchestration. |
-| **Total** | **50 tests** | **100% Passing** |
+| `tests/test_gate.py` | **12 tests** | Deterministic safety invariants for Gaps 2, 5, 8, and 11 without LLM dependencies. |
+| `tests/test_multiagent_extensible.py` | **16 tests** | Shared ontology registry loading, dynamic YAML scenario extensions (Troponin), and detector unit tests. |
+| `tests/test_strands_agents.py` | **26 tests** | Strands tools, agent factories, offline model selection, AgentCore memory fallbacks, and end-to-end multi-agent orchestration. |
+| **Total** | **54 tests** | **100% Passing** |
