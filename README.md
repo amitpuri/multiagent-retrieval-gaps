@@ -231,7 +231,7 @@ multiagent-retrieval-gaps/
 │   └── tests/                           # safety invariants, harness, declarative drift & skills tests
 │
 ├── conformance/                         # Cross-cloud parity: every CQ through ADK, Strands & MAF wrappers
-├── docs/                                # Architectural blueprints, OKF specs & memory models
+├── docs/                                # Architectural blueprints, OKF specs, memory models & decision models tracking
 ├── run-all-tests.sh                     # Integrity, skills, SHACL, generated-file drift, all suites, conformance
 ├── run-all.sh                           # Runs all 4 clinical scenarios across all 3 frameworks
 └── .gitignore
@@ -889,6 +889,55 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 > [!WARNING]
 > **Safety rules must live in deterministic code, not in prompts.** This is Gap 9.
 > The `SafetyGateEngine` runs before any LLM synthesis — regardless of which agent framework is used.
+
+---
+
+## Decision Models Tracking (Hyperscalers & Open Weights)
+
+As analyzed in [`docs/Decision-Models-Trend-Evidence-and-Outlook.md`](docs/Decision-Models-Trend-Evidence-and-Outlook.md), **typed decision models** have emerged since late 2026 as a distinct product category and the control layer of multi-agent systems. Rather than generating unconstrained natural language tokens, these single-pass models score fixed option sets and output calibrated probabilities, categorical choices, or scalar ratings over predefined schemas (e.g. predicates, multi-class selections, or rubric scores).
+
+In this repository's clinical decision-support architecture, decision models represent the middle tier of a **3-tier control cascade**:
+1. **Tier 1 — Deterministic Code Gate (`SafetyGateEngine`)**: Pure-Python deterministic invariants enforcing clinical safety guardrails (Gap 9: zero LLM calls, fail-closed routing).
+2. **Tier 2 — Typed Decision Models (Control & Gating Layer)**: Sub-100 ms routing, skill dispatch, intervention filtering, and triage classification (e.g., evaluating `SKILL.md` rules without re-prompting lengthy instructions).
+3. **Tier 3 — Frontier Generative Models (Gemini 3.8 Flash, Claude Opus 5.5, GPT-6.1 Sol)**: Open-ended clinical synthesis, complex reasoning, and multimodal trajectory generation.
+
+### Decision Models Comparison Matrix (October 2026)
+
+| Model / API | Provider / Lab | Release | Architecture & Backbone | Delivery / Catalog | Pricing (per 1M input tokens) | Latency (p50) | Accuracy (Benchmark) | Calibration Score | Robustness (Flip Rate) | Agent & Workflow Integration |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| [**Microsoft-Decision-1**](https://commandline.microsoft.com/microsoft-decision-1-model-foundry/) | Microsoft (Office of the CTO) | Oct 9, 2026 | Post-trained Qwen3.5-9B (rebase: MAI / OpenAI) | [Azure AI Foundry](https://ai.azure.com/catalog/models/Microsoft-Decision-1) & [OpenRouter](https://openrouter.ai/microsoft/microsoft-decision-1) | **$0.042** (Output free) | **85 ms** (p95: 125 ms) | **83.5%** (#1 across 36 blind benchmarks) | 92.2 (#3 behind Jev & Quyet) | **1.3%** perturbation flip (0% on reordering / paraphrase) | Skill-based decisions, agent control flow (continue/stop/retry/handoff), UI action selection |
+| [**OpenAI Decisions API**](https://aiweekly.co/alerts/openai-launches-decisions-api-public-beta-on-gpt-6-luna) | OpenAI | Oct 6, 2026 | `gpt-6-luna` (Public Beta) | OpenAI API endpoint | $0.10 (Output free) | ~300 ms (up to 10× faster than Responses API) | 79.4% (JevBench #7) | 89.9 | High order-sensitivity (30% answer flips across 5 reorderings on 77-option task) | Predicate, choice & score endpoints; text and image input |
+| [**Cloudflare Clef / Clef-flash**](https://letsdatascience.com/news/cloudflare-releases-open-weight-clef-decision-models-c52886d6) | Cloudflare | Oct 1, 2026 | 27B params, 64K context, vision (Apache 2.0) | Open weights & Workers AI | Open weights / Workers AI | **38.8 ms** (Clef-flash median) | Competitive with Jev baseline | High | Jev-compatible API; customer RL fine-tuning on proprietary decisions | Edge classification, low-latency triage distillation |
+| [**AWS Strands Decider 2B**](https://www.beri.net/article/cloudflare-clef-amazon-strands-decider-open-weight-decision-models-vs-jev-benchmarks-pricing) | AWS Strands Labs | Oct 1, 2026 | Qwen3.5-2B + ~1M pointer head (LM head removed) | Open weights, code & scripts (no hosted Bedrock endpoint yet) | Free / self-hosted compute (~11h on 1× RTX 3090) | ~115 ms (RTX 3090) / ~153 ms (M3 Mac) / ~1.6 s (Xeon CPU) | JevBench 0.762 (54.8% on 23-benchmark subset) | Short classification only | First-option bias & order-sensitivity | Gating Strands agent actions via intervention hooks (proceed / deny / confirm / feedback) |
+| [**TypeSafe Jev (1.13.0)**](https://www.vktr.com/ai-platforms/chatgpt-cocreator-launches-typesafe-ai-with-jev/) | TypeSafe AI | Sep 15, 2026 | Dedicated "System One" model (RLCD trained) | TypeSafe API, Vercel AI Gateway | **$0.042** (Output free) | 240 ms | 82.3% (#2 across 36 blind benchmarks) | **93.7** (#1 calibration score) | ≤4% flip rate on option reordering | General-purpose typed decisions, LangChain tool call screening middleware |
+| **Perplexity pplx-decider** | Perplexity | Sep 29, 2026 | 27B params (Apache 2.0) | Open weights / Perplexity infra | Open weight | Sub-100 ms | Competitive open 27B | Standard | Open-weight entrant | Search query classification, candidate reranking |
+| **OpenJev / DiffusionGemma** | Google Ecosystem | Oct 2026 | DiffusionGemma (up to 8 images per request) | Open weights / Google ADK Codelab | Compute-dependent | Parallel ADK step | High multimodal | Backbone-dependent | Multimodal image evaluation | Visual & parallel decision nodes inside Google ADK agent workflows |
+| **Haiku 5.5 Emulation Wrapper** | Community / Anthropic | Oct 2026 | Claude Haiku 5.5 (prompt-engineered wrapper) | Anthropic API | Standard Haiku pricing | ~400–600 ms | Matched Jev/OpenAI on 4 of 5 datasets (BoolQ: 87.2% vs Jev 91.0%) | Moderate | 22% answer flips on option reordering | Low-cost fallback for structured decision triage |
+
+### Hyperscaler & AI Lab Landscape (October 2026)
+
+| Lab / Platform | Status | Strategic Footprint & Notable Detail |
+| :--- | :--- | :--- |
+| **Microsoft** | Shipping (GA) | Shipped [Microsoft-Decision-1](https://commandline.microsoft.com/microsoft-decision-1-model-foundry/) on [Azure AI Foundry](https://ai.azure.com/catalog/models/Microsoft-Decision-1) and [OpenRouter](https://openrouter.ai/microsoft/microsoft-decision-1). Leads in benchmark accuracy (83.5%), latency (85 ms p50), and perturbation robustness (1.3% flip rate, 0% on reordering/paraphrasing). Internal Xbox Research validation showed 14–18× speedups and 200× cost reduction vs GPT-6 Sol. Formally targets **skill-based decisions** and agent control flow. |
+| **OpenAI** | Public Beta | Public beta Decisions API on `gpt-6-luna`. Offers predicate, choice, and score outputs with text and vision input. However, independent tests reveal significant order-sensitivity (30% decision-flip rate across option reorderings). |
+| **Google DeepMind** | Ecosystem Integration | No dedicated first-party API endpoint announced yet. Active ecosystem presence via OpenJev (built on DiffusionGemma, accepting up to 8 images per request) and official Google codelabs demonstrating Jev and DiffusionGemma as parallel decision models inside Google ADK workflows. |
+| **AWS** | Open Source Release | Strands Labs released Strands Decider 2B (Qwen3.5-2B + 1M pointer head) with public weights, code, and training recipe. Integrated into the open-source Strands Agents intervention system, but lacks a managed Amazon Bedrock catalog endpoint as of early October 2026. |
+| **Cloudflare** | Generally Available | Released open-weight Clef (27B, Apache 2.0) and Clef-flash (38.8 ms median latency) with Jev-compatible API and customer RL fine-tuning on proprietary decision datasets. |
+| **Nvidia** | Framework Support | NeMo Agents pull request introduced native decision-model abstractions, allowing agents to execute without a conversational LLM and fall back gracefully when unconfigured. |
+| **Anthropic** | Community Emulation | No dedicated model or API announced. Third-party emulation wraps Haiku 5.5; matches Jev on several benchmarks but exhibits 22% order-sensitivity. |
+| **Meta Superintelligence Labs** | Absent / Open Weights | No decision model announced (nearest small model is Muse Spark). Open causal weights can be converted to decision models without training via Nokia AnyJev. |
+
+### Architectural Implications for Multi-Agent Retrieval & Skills
+
+1. **Skill Routing as Typed Classification:**
+   Rather than asking a heavyweight reasoning model to parse lengthy prompts or multi-thousand token `SKILL.md` files on every turn, a lightweight decision model evaluates structured option sets (e.g. matching clinician requests to `skills/runtime/*`) in under 100 ms at a fraction of the cost ($0.042/1M tokens).
+2. **Deterministic Rules Must Remain in Code (Gap 9 Invariant):**
+   Decision models cannot emit an invalid schema option, but **valid is not necessarily correct**. Critical safety rules (such as look-alike range collisions, tube sequencing, and units) must remain in deterministic Python (`SafetyGateEngine`), not delegated even to trained decision models.
+3. **Guard Against Order Sensitivity & Correlated Escalation:**
+   Empirical audits show that some decision models suffer from first-option bias or answer flipping under option reordering (up to 30%). Furthermore, studies reveal that LLM escalation judges repeat decision-model errors in 96% of cases on hard calls; escalation paths must therefore utilize genuinely independent verification rather than mirroring reasoning paths.
+
+> [!NOTE]
+> For the complete research briefing, calibration evidence, benchmark tables, and governance outlook, see [`docs/Decision-Models-Trend-Evidence-and-Outlook.md`](docs/Decision-Models-Trend-Evidence-and-Outlook.md).
 
 ---
 
