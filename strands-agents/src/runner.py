@@ -24,9 +24,10 @@ from src.orchestration.strands_orchestrator import (
     build_strands_orchestrator,
     parse_clinician_input_direct,
 )
-from src.core.config import get_default_registry, load_scenario_extension
-from src.tools.safety_gate_tool import run_safety_gate
-from src.tools_legacy import csf_workup, check_calcium
+from ontogate.config import get_default_registry, load_scenario_extension
+from src.tools.safety_gate_tool import evaluate_safety_gate
+from ontogate.tools import classify_lookalikes
+from src.tools.panel_tool import panel_workup
 
 
 def is_live_mode() -> bool:
@@ -93,25 +94,23 @@ async def run_scenario_a_interactive():
                     )
 
 
+def _print_workup(workup: dict) -> None:
+    for tube in workup.get("tubes", []):
+        print(f"\n  Tube {tube['tube']} — {tube['department']}")
+        for t in tube["tests"]:
+            print(f"    - {t['test_name']} [{t['uri']}]")
+
+
 def run_scenario_b_csf():
     """Execute Scenario B (Q6): CSF emergency panel hierarchical taxonomy & tube ordering."""
     print("\n" + "=" * 80)
     print("SCENARIO B: Q6 (CSF Emergency Panel - Governed Tube Ordering, Closing Gap 11)")
     print("=" * 80)
 
-    full_workup = csf_workup()
-    print("\nFull Emergency CSF Workup (Pre-scoped by department & tube order):")
-    for dept, tests in full_workup.items():
-        print(f"\n  Department: {dept}")
-        for t in tests:
-            print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
-
+    print("\nFull Emergency CSF Workup (ordered by the ontology's precedes relation):")
+    _print_workup(panel_workup("csf_emergency_panel"))
     print("\nDepartment-Scoped Workup (Hematology only):")
-    hemat = csf_workup("hemat")
-    for dept, tests in hemat.items():
-        print(f"  Department: {dept}")
-        for t in tests:
-            print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
+    _print_workup(panel_workup("csf_emergency_panel", "hemat"))
 
 
 def run_scenario_c_calcium():
@@ -121,22 +120,18 @@ def run_scenario_c_calcium():
     print("=" * 80)
 
     val = 4.8
-    unqualified = check_calcium(val)
-    print(f"\nUnqualified result for Calcium {val} mg/dL:")
-    print(f"  Status: {unqualified['status']}")
-    for assay, interpretation in unqualified["readings"].items():
+    readings = classify_lookalikes("calcium", val, "mg/dL")["readings"]
+    gate = evaluate_safety_gate(term="calcium", unit="mg/dL", patient_value=val)
+    print(f"\nUnqualified Calcium {val} mg/dL:")
+    for assay, interpretation in readings.items():
         print(f"    - {assay}: {interpretation}")
-    print("  Outcome: Critical low vs Normal collision -> Routed to CLARIFY, prevents lethal IV calcium error.")
+    print(f"  Gate: {gate['status']} -> {gate['route']}")
+    print(f"  Clarification: {gate['clarification_prompt']}")
 
-    qualified_total = check_calcium(val, "total")
-    print(f"\nQualified 'Total Calcium' {val} mg/dL:")
-    print(f"  Status: {qualified_total['status']}")
-    print(f"  Readings: {qualified_total['readings']}")
-
-    qualified_ionized = check_calcium(val, "ionized")
-    print(f"\nQualified 'Ionized Calcium' {val} mg/dL:")
-    print(f"  Status: {qualified_ionized['status']}")
-    print(f"  Readings: {qualified_ionized['readings']}")
+    for qualifier in ("total", "ionized"):
+        gate = evaluate_safety_gate(term="calcium", unit="mg/dL", qualifier=qualifier, patient_value=val)
+        print(f"\nQualified '{qualifier}' Calcium {val} mg/dL:")
+        print(f"  Gate: {gate['status']} -> {gate['route']}  Readings: {gate['details'].get('readings')}")
 
 
 async def run_scenario_d_multiagent_troponin():

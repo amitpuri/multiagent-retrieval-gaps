@@ -17,11 +17,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY agent-framework/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Shared ontology core + deterministic safety gate (ontogate)
+COPY shared/ /tmp/shared/
+RUN pip install --no-cache-dir "/tmp/shared[mcp]" && rm -rf /tmp/shared
+
 # Copy declarative agents, workflows, source, and domain configuration
 COPY agent-framework/declarative-agents/ /app/declarative-agents/
 COPY agent-framework/declarative-workflows/ /app/declarative-workflows/
 COPY agent-framework/src/ /app/src/
+COPY ontology/ /app/ontology/
 COPY config/ /app/config/
+COPY skills/ /app/skills/
+ENV ONTOGATE_REPO_ROOT=/app
 COPY agent-framework/pytest.ini /app/
 COPY agent-framework/README.md /app/
 

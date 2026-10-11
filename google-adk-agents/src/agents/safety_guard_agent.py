@@ -7,8 +7,8 @@ from __future__ import annotations
 from typing import Any, Dict
 from google.adk import Event
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
-from src.core.detectors.engine import SafetyGateEngine
-from src.core.models import EvaluationContext, ResolutionStatus
+from ontogate.detectors.engine import SafetyGateEngine
+from ontogate.models import EvaluationContext, ResolutionStatus
 
 
 def safety_guard_node(node_input: Dict[str, Any]) -> Event:

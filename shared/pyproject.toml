@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ontogate"
+version = "1.0.0"
+description = "Shared ontology, deterministic safety gate, skills build and MCP contract for the multi-agent retrieval-gap system."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "Jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+rdf = ["rdflib>=7.0", "pyshacl>=0.26", "owlrl>=6.0"]
+mcp = ["mcp>=1.20"]
+
+[project.scripts]
+ontogate = "ontogate.cli:main"
+
+[project.entry-points."ontogate.detectors"]
+ambiguity = "ontogate.detectors.ambiguity:AmbiguityDetector"
+unit_mismatch = "ontogate.detectors.unit_mismatch:UnitMismatchDetector"
+missing_qualifier = "ontogate.detectors.missing_qualifier:MissingQualifierDetector"
+missing_unit = "ontogate.detectors.missing_unit:MissingUnitDetector"
+range_collision = "ontogate.detectors.range_collision:RangeCollisionDetector"
+specimen_sequence = "ontogate.detectors.specimen_sequence:SpecimenSequenceDetector"
+population_context = "ontogate.detectors.population_context:PopulationContextDetector"
+
+[tool.setuptools.packages.find]
+include = ["ontogate*"]
+
+[tool.setuptools.package-data]
+ontogate = ["py.typed"]

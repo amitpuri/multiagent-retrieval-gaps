@@ -39,7 +39,7 @@ class ContextWindowManager:
         objects adhering to Gemini's required role sequence:
             user → model (with function_call parts) → user (with function_response parts) → model
 
-        Fix 7: tool responses MUST use role="user" containing
+        tool responses MUST use role="user" containing
         Part.from_function_response(...) parts, NOT role="tool".
         Submitting role="tool" causes Gemini to reject the request on turn 2.
 
@@ -72,7 +72,7 @@ class ContextWindowManager:
                     contents.append(types.Content(role="model", parts=parts))
 
             elif msg.role == "tool":
-                # Fix 7: Gemini requires function responses in role="user" Content,
+                # Gemini requires function responses in role="user" Content,
                 # each wrapped in Part.from_function_response.
                 # The sequence is: model (function_call) → user (function_response).
                 parts = []

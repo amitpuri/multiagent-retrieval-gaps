@@ -18,7 +18,7 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 AGENT_NAME="${AGENT_NAME:-clinical-strands-agent}"
 ECR_REPO_NAME="${ECR_REPO_NAME:-strands-clinical-agents}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-BEDROCK_MODEL_ID="${BEDROCK_MODEL_ID:-anthropic.claude-sonnet-4-5-20251203-v1:0}"
+BEDROCK_MODEL_ID="${BEDROCK_MODEL_ID:-global.anthropic.claude-opus-5-5}"
 AGENT_ROLE_NAME="${AGENT_ROLE_NAME:-BedrockAgentCoreExecutionRole}"
 MEMORY_NAME="${MEMORY_NAME:-clinical-agent-memory}"
 PORT="${PORT:-8000}"
@@ -43,8 +43,15 @@ fi
 echo "[+] Account: ${ACCOUNT_ID}  ARN: ${CALLER_ARN}"
 
 # ─── STEP 2: Verify Bedrock Model Access ──────────────────────────────────────
-echo "[2/8] Verifying Bedrock foundation model access..."
-if aws bedrock get-foundation-model --model-identifier "${BEDROCK_MODEL_ID}" --region "${AWS_REGION}" &>/dev/null; then
+echo "[2/8] Verifying Bedrock model access (${BEDROCK_MODEL_ID})..."
+# Cross-region IDs (global./us./eu.) are inference profiles; bare IDs are foundation models.
+case "${BEDROCK_MODEL_ID}" in
+  global.*|us.*|eu.*|apac.*|au.*|jp.*)
+    MODEL_CHECK=(aws bedrock get-inference-profile --inference-profile-identifier "${BEDROCK_MODEL_ID}") ;;
+  *)
+    MODEL_CHECK=(aws bedrock get-foundation-model --model-identifier "${BEDROCK_MODEL_ID}") ;;
+esac
+if "${MODEL_CHECK[@]}" --region "${AWS_REGION}" &>/dev/null; then
   echo "[+] Model access confirmed for ${BEDROCK_MODEL_ID} in ${AWS_REGION}."
 else
   echo "    [!] Model '${BEDROCK_MODEL_ID}' may not be enabled."

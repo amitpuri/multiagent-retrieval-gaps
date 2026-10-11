@@ -1,8 +1,7 @@
 """
-Workflow routing and parsing compatibility helpers.
+Workflow routing and parsing helpers (shared parser, fail-closed routing).
 Provides route_for and parse for pure-code deterministic evaluation.
 """
-import re
 from typing import Any, Dict
 
 
@@ -18,7 +17,7 @@ def route_for(status: str) -> str:
 
 
 def parse(node_input: Any) -> Event:
-    """Parser node: extracts test term, optional value, and reported unit."""
+    """Parser node: shared ontology-aware parse (``ontogate.parsing``)."""
     if hasattr(node_input, "parts") and node_input.parts:
         text = node_input.parts[0].text
     elif isinstance(node_input, dict) and "text" in node_input:
@@ -26,21 +25,6 @@ def parse(node_input: Any) -> Event:
     else:
         text = str(node_input)
 
-    left, _, unit = text.partition("|")
-    left_str = left.strip()
-    unit_str = unit.strip()
+    from ontogate.parsing import parse_clinician_text
 
-    val_match = re.search(r"\b(\d+(?:\.\d+)?)\b", left_str)
-    patient_value = float(val_match.group(1)) if val_match else None
-
-    cleaned_term = re.sub(r"\b\d+(?:\.\d+)?\b", "", left_str).strip()
-    term = cleaned_term if cleaned_term else left_str
-
-    return Event(
-        output={
-            "term": term,
-            "unit": unit_str,
-            "patient_value": patient_value,
-            "raw_text": text,
-        }
-    )
+    return Event(output=parse_clinician_text(text))

@@ -3,7 +3,7 @@ Production Deployment Server for Google ADK Agent Harness.
 Implements Step 4: Moves the agentic harness to a production environment
 where it can run continuously, serving REST endpoints and MCP discovery.
 
-Security fixes (Fix 11)
+Security fixes
 -----------------------
 * Session IDs are ALWAYS server-generated UUIDs.  Any client-supplied
   session_id in POST /api/v1/query is ignored for new sessions — only
@@ -12,7 +12,7 @@ Security fixes (Fix 11)
 * Session count is capped at MAX_SESSIONS (default 1000, env-configurable).
 * Prompt length is capped at 2000 characters.
 
-Monitoring fix (Fix 6)
+Monitoring fix
 ----------------------
 * /readyz returns status="degraded" when offline_mode is True so
   load-balancers and dashboards can alert on stub-mode operation.
@@ -61,13 +61,13 @@ app.add_middleware(
 _SESSIONS: Dict[str, HarnessSession] = {}
 _HARNESS: Optional[ClinicalADKHarness] = None
 
-# Fix 11: configurable session cap to prevent unbounded memory growth
+# configurable session cap to prevent unbounded memory growth
 MAX_SESSIONS: int = int(os.environ.get("MAX_SESSIONS", "1000"))
 
-# Fix 11: configurable prompt length cap
+# configurable prompt length cap
 MAX_PROMPT_LENGTH: int = int(os.environ.get("MAX_PROMPT_LENGTH", "2000"))
 
-# Fix 11: static auth token list (replace with real IdP / OAuth2 in production)
+# static auth token list (replace with real IdP / OAuth2 in production)
 # Format: comma-separated Bearer tokens stored in the HARNESS_API_TOKENS env var.
 # Example: HARNESS_API_TOKENS=token-abc123,token-def456
 _RAW_TOKENS = os.environ.get("HARNESS_API_TOKENS", "")
@@ -100,7 +100,7 @@ def _evict_oldest_sessions() -> None:
 
 def require_auth(authorization: Optional[str] = Header(None)) -> str:
     """
-    Fix 11: Bearer-token authentication stub.
+    Bearer-token authentication stub.
 
     Validates the Authorization header against HARNESS_API_TOKENS.
     Returns the token on success; raises HTTP 401 on failure.
@@ -148,7 +148,7 @@ class QueryRequest(BaseModel):
     @field_validator("prompt")
     @classmethod
     def check_prompt_length(cls, v: str) -> str:
-        """Fix 11: reject prompts exceeding the configured length cap."""
+        """reject prompts exceeding the configured length cap."""
         if len(v) > MAX_PROMPT_LENGTH:
             raise ValueError(
                 f"Prompt length {len(v)} exceeds maximum allowed length of {MAX_PROMPT_LENGTH} characters."
@@ -184,7 +184,7 @@ def readyz() -> Dict[str, Any]:
     """
     Readiness probe.
 
-    Fix 6: returns status="degraded" when offline_mode=True so load-balancers
+    returns status="degraded" when offline_mode=True so load-balancers
     and dashboards can alert.  HTTP 200 is still returned (the process is alive),
     but the status field distinguishes live from stub mode.
     """
@@ -205,12 +205,12 @@ def readyz() -> Dict[str, Any]:
     tags=["Sessions"],
 )
 def create_session(
-    _token: str = Depends(require_auth),  # Fix 11: auth required on all /api/v1 routes
+    _token: str = Depends(require_auth),  # auth required on all /api/v1 routes
 ) -> SessionCreateResponse:
     """Create a new isolated clinician conversation session."""
     harness = get_harness()
     _evict_oldest_sessions()
-    # Fix 11: always server-generated UUID — never accept client IDs here.
+    # always server-generated UUID — never accept client IDs here.
     session = harness.create_session()
     _SESSIONS[session.session_id] = session
     return SessionCreateResponse(
@@ -223,7 +223,7 @@ def create_session(
 @app.get("/api/v1/sessions/{session_id}", tags=["Sessions"])
 def get_session(
     session_id: str,
-    _token: str = Depends(require_auth),  # Fix 11: auth required
+    _token: str = Depends(require_auth),  # auth required
 ) -> Dict[str, Any]:
     """Retrieve turn history and state for an active session."""
     if session_id not in _SESSIONS:
@@ -241,19 +241,19 @@ def get_session(
 @app.post("/api/v1/query", response_model=QueryResponse, tags=["Agent Harness"])
 async def query_harness(
     req: QueryRequest,
-    _token: str = Depends(require_auth),  # Fix 11: auth required on all /api/v1 routes
+    _token: str = Depends(require_auth),  # auth required on all /api/v1 routes
 ) -> QueryResponse:
     """
     Execute a turn against the continuous agent harness.
     Manages inputs, MCP tool execution, context window updates, and safety gating.
 
-    Fix 11: client-supplied session_id is only honoured if it matches an
+    client-supplied session_id is only honoured if it matches an
     EXISTING server-known session.  Unknown IDs are silently ignored and a new
     server-generated session is started.  This prevents session fixation.
     """
     harness = get_harness()
 
-    # Fix 11: session fixation prevention
+    # session fixation prevention
     if req.session_id and req.session_id in _SESSIONS:
         # Resume known existing session
         session = _SESSIONS[req.session_id]
@@ -295,7 +295,7 @@ async def query_harness(
 
 @app.get("/api/v1/mcp/tools", tags=["MCP Tools"])
 def list_mcp_tools(
-    _token: str = Depends(require_auth),  # Fix 11: auth required on all /api/v1 routes
+    _token: str = Depends(require_auth),  # auth required on all /api/v1 routes
 ) -> Dict[str, Any]:
     """Inspect all tools registered on the FastMCP server."""
     harness = get_harness()

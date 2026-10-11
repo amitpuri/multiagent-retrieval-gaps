@@ -24,7 +24,9 @@ ACR_NAME="${ACR_NAME:-}"
 AI_FOUNDRY_ACCOUNT_NAME="${AI_FOUNDRY_ACCOUNT_NAME:-ais-clinical-agents}"
 AI_FOUNDRY_PROJECT_NAME="${AI_FOUNDRY_PROJECT_NAME:-aiproj-clinical-agents}"
 AI_FOUNDRY_RESOURCE_GROUP="${AI_FOUNDRY_RESOURCE_GROUP:-rg-clinical-agents}"
-FOUNDRY_MODEL="${FOUNDRY_MODEL:-gpt-5}"
+FOUNDRY_MODEL="${FOUNDRY_MODEL:-gpt-6.1-sol}"          # config/models.yaml → deployments.azure.default
+FOUNDRY_MODEL_VERSION="${FOUNDRY_MODEL_VERSION:-2026-09-29}"
+FOUNDRY_SKU="${FOUNDRY_SKU:-GlobalStandard}"
 PORT="${PORT:-8000}"
 CPU="${CPU:-1.0}"
 MEMORY="${MEMORY:-2.0Gi}"
@@ -181,12 +183,15 @@ else
     --name "${AI_FOUNDRY_ACCOUNT_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
     --deployment-name "${FOUNDRY_MODEL}" \
-    --model-name "gpt-4o" \
-    --model-version "2024-08-06" \
+    --model-name "${FOUNDRY_MODEL}" \
+    --model-version "${FOUNDRY_MODEL_VERSION}" \
     --model-format OpenAI \
     --sku-capacity 10 \
-    --sku-name "Standard" \
-    -o none 2>/dev/null || true
+    --sku-name "${FOUNDRY_SKU}" \
+    -o none || {
+      echo "[-] WARNING: model deployment '${FOUNDRY_MODEL}' (${FOUNDRY_MODEL_VERSION}, ${FOUNDRY_SKU}) failed."
+      echo "    Check regional availability in '${LOCATION}' or set FOUNDRY_SKU / LOCATION (deployment/README.md)."
+    }
 
   PROJ_JSON="$(az cognitiveservices account project show --name "${AI_FOUNDRY_ACCOUNT_NAME}" --resource-group "${RESOURCE_GROUP}" --project-name "${AI_FOUNDRY_PROJECT_NAME}" -o json)"
   FOUNDRY_PROJECT_ENDPOINT="$(echo "${PROJ_JSON}" | grep -o 'https://[^"]*services.ai.azure.com/api/projects/[^"]*' | head -n1 || true)"

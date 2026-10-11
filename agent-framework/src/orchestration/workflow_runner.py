@@ -33,17 +33,17 @@ WORKFLOW_DIR = _agent_framework_dir / "declarative-workflows"
 
 from src.tools import (
     parse_clinician_input,
-    resolve_ontology,
-    run_safety_gate,
-    fetch_protocol,
+    resolve_lab_term,
+    evaluate_safety_gate,
+    fetch_grounded_protocol,
     build_clarification_prompt,
 )
 
 TOOL_BINDINGS: Dict[str, Any] = {
     "parse_clinician_input":    parse_clinician_input,
-    "resolve_ontology":         resolve_ontology,
-    "run_safety_gate":          run_safety_gate,
-    "fetch_protocol":           fetch_protocol,
+    "resolve_lab_term":         resolve_lab_term,
+    "evaluate_safety_gate":          evaluate_safety_gate,
+    "fetch_grounded_protocol":           fetch_grounded_protocol,
     "build_clarification_prompt": build_clarification_prompt,
 }
 
@@ -90,13 +90,13 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
 
     # ── Step 1: Deterministic tool chain (safety gate NEVER delegated to LLM) ──
     parsed = parse_clinician_input(raw_query)
-    resolved = resolve_ontology(
+    resolved = resolve_lab_term(
         term=parsed["term"],
         unit=parsed["unit"],
         qualifier=parsed["qualifier"],
         patient_value=parsed["patient_value"],
     )
-    gate = run_safety_gate(
+    gate = evaluate_safety_gate(
         term=resolved["term"],
         unit=resolved["unit"],
         qualifier=resolved["qualifier"],
@@ -114,8 +114,8 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
         if candidates:
             resolved_uri = candidates[0].get("uri", "")
             concept = candidates[0]
-            protocol_data = fetch_protocol(
-                resolved_uri=resolved_uri,
+            protocol_data = fetch_grounded_protocol(
+                uri=resolved_uri,
                 concept=concept,
                 patient_value=parsed["patient_value"],
             )
@@ -148,7 +148,7 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
             "protocol": protocol_data,
             "output": output_text or (
                 f"{prefix} PROCEED — {resolved.get('status')} | "
-                f"Protocol fetched for {protocol_data.get('resolved_uri', 'N/A')}"
+                f"Protocol fetched for {protocol_data.get('uri', 'N/A')}"
             ),
         }
 
@@ -186,13 +186,13 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
 def _offline_pipeline(raw_query: str) -> Dict[str, Any]:
     """Deterministic offline pipeline — calls tools directly, no LLM or AgentFactory."""
     parsed = parse_clinician_input(raw_query)
-    resolved = resolve_ontology(
+    resolved = resolve_lab_term(
         term=parsed["term"],
         unit=parsed["unit"],
         qualifier=parsed["qualifier"],
         patient_value=parsed["patient_value"],
     )
-    gate = run_safety_gate(
+    gate = evaluate_safety_gate(
         term=resolved["term"],
         unit=resolved["unit"],
         qualifier=resolved["qualifier"],
@@ -207,8 +207,8 @@ def _offline_pipeline(raw_query: str) -> Dict[str, Any]:
         if candidates:
             resolved_uri = candidates[0].get("uri", "")
             concept = candidates[0]
-            protocol_data = fetch_protocol(
-                resolved_uri=resolved_uri,
+            protocol_data = fetch_grounded_protocol(
+                uri=resolved_uri,
                 concept=concept,
                 patient_value=parsed["patient_value"],
             )
@@ -223,7 +223,7 @@ def _offline_pipeline(raw_query: str) -> Dict[str, Any]:
             "gate": gate,
             "protocol": protocol_data,
             "output": f"[OFFLINE] PROCEED — {resolved.get('status')} | "
-                      f"Protocol fetched for {protocol_data.get('resolved_uri', 'N/A')}",
+                      f"Protocol fetched for {protocol_data.get('uri', 'N/A')}",
         }
 
     clarification = build_clarification_prompt(

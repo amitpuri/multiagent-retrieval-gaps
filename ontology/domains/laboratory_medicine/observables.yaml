@@ -1,0 +1,186 @@
+# Observables (LOINC-coded lab tests). Term → observable mapping lives in
+# designations.yaml; numbers live in intervals.yaml. Axes are derived from the
+# LOINC long common name and flagged for verification (axes_verified: false).
+
+schema_version: "1.0.0"
+
+_provenance_loinc: &prov_human
+  status: stable
+  stale_after: "2028-01-01T00:00:00Z"
+  generated_by: "reference_agent/gemini-2.5-pro"
+  generated_at: "2026-10-01T00:00:00Z"
+  verified_by: "human:dr_puri"
+
+_provenance_import: &prov_import
+  status: stable
+  stale_after: "2028-01-01T00:00:00Z"
+  generated_by: "reference_agent/gemini-2.5-pro"
+  generated_at: "2026-10-01T00:00:00Z"
+  verified_by: "process:automated-loinc-import"
+
+observables:
+  "loinc:718-7":
+    label: "Hemoglobin [Mass/volume] in Blood"
+    display_name: "Hemoglobin"
+    axes: { component: "Hemoglobin", property: MCnc, time: Pt, system: Bld, scale: Qn }
+    axes_verified: false
+    measures: hemoglobin
+    units: ["g/dL", "g/L"]
+    specimen: "specimen:whole_blood"
+    department: "dept:hematology"
+    confusable_with: ["loinc:4548-4"]
+    governed_by: "protocol:hemoglobin-adult"
+    <<: *prov_human
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 412 }
+    links:
+      - target_uri: "loinc:4548-4"
+        kind: see_also
+        description: "Look-alike: HbA1c shares 'Hb' abbreviation — different LOINC, different department"
+
+  "loinc:4548-4":
+    label: "Hemoglobin A1c/Hemoglobin.total in Blood"
+    display_name: "HbA1c"
+    axes: { component: "Hemoglobin A1c/Hemoglobin.total", property: MFr, time: Pt, system: Bld, scale: Qn }
+    axes_verified: false
+    measures: hba1c
+    units: ["%"]
+    specimen: "specimen:whole_blood"
+    department: "dept:clinical_biochemistry"
+    confusable_with: ["loinc:718-7"]
+    governed_by: "protocol:hba1c-glycemic-control"
+    <<: *prov_human
+    sources:
+      - { id: "ada-2026", author: "American Diabetes Association", last_modified: "2026-06-01", usage_count: 389 }
+    links:
+      - target_uri: "loinc:718-7"
+        kind: see_also
+        description: "Look-alike: Hemoglobin (CBC) shares 'Hb' abbreviation — different LOINC, different department"
+
+  "loinc:17861-6":
+    label: "Calcium [Mass/volume] in Serum or Plasma"
+    display_name: "Total calcium"
+    axes: { component: "Calcium", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+    axes_verified: false
+    measures: calcium
+    facets: { fraction: total }
+    # mmol/L results are a different LOINC Property (SCnc). Convention (ADR 0002):
+    # one observable per analyte fraction, with property-specific codings.
+    units: ["mg/dL", "mmol/L"]
+    property_codings:
+      SCnc: "loinc:2000-8"
+    specimen: "specimen:serum_plasma"
+    department: "dept:clinical_biochemistry"
+    confusable_with: ["loinc:17864-0"]
+    governed_by: "protocol:total-calcium-adult"
+    <<: *prov_human
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 278 }
+    links:
+      - target_uri: "loinc:17864-0"
+        kind: see_also
+        description: "Look-alike: Ionized Calcium — same abbreviation 'Ca', overlapping value ranges, critical collision risk"
+
+  "loinc:17864-0":
+    label: "Calcium.ionized [Mass/volume] in Serum or Plasma"
+    display_name: "Ionized calcium"
+    axes: { component: "Calcium.ionized", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+    axes_verified: false
+    measures: calcium
+    facets: { fraction: ionized }
+    units: ["mg/dL", "mmol/L"]
+    property_codings:
+      SCnc: null   # molar-concentration code pending verification against the LOINC release
+    specimen: "specimen:serum_plasma"
+    department: "dept:clinical_biochemistry"
+    confusable_with: ["loinc:17861-6"]
+    governed_by: "protocol:ionized-calcium-adult"
+    <<: *prov_human
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 201 }
+    links:
+      - target_uri: "loinc:17861-6"
+        kind: see_also
+        description: "Look-alike: Total Calcium — overlapping value range; 4.8 mg/dL is CRITICAL_LOW for total but NORMAL for ionized"
+
+  "loinc:2880-3":
+    label: "Protein [Mass/volume] in CSF"
+    display_name: "CSF protein"
+    axes: { component: "Protein", property: MCnc, time: Pt, system: CSF, scale: Qn }
+    axes_verified: false
+    measures: protein
+    units: ["mg/dL"]
+    specimen: "specimen:csf"
+    department: "dept:clinical_biochemistry"
+    governed_by: "protocol:csf-protein"
+    <<: *prov_import
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 87 }
+
+  "loinc:2342-4":
+    label: "Glucose [Mass/volume] in CSF"
+    display_name: "CSF glucose"
+    axes: { component: "Glucose", property: MCnc, time: Pt, system: CSF, scale: Qn }
+    axes_verified: false
+    measures: glucose
+    units: ["mg/dL"]
+    specimen: "specimen:csf"
+    department: "dept:clinical_biochemistry"
+    intervals_not_applicable: "No reference interval in source data; CSF glucose is interpreted against concurrent plasma glucose."
+    <<: *prov_import
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 91 }
+
+  "loinc:14357-8":
+    label: "Microscopic observation [Identifier] in CSF by Gram stain"
+    display_name: "CSF Gram stain"
+    axes: { component: "Microscopic observation", property: Prid, time: Pt, system: CSF, scale: Nom, method: "Gram stain" }
+    axes_verified: false
+    measures: gram_stain
+    units: []
+    specimen: "specimen:csf"
+    department: "dept:microbiology"
+    <<: *prov_import
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 44 }
+
+  "loinc:606-4":
+    label: "Bacteria identified in CSF by culture"
+    display_name: "CSF culture"
+    axes: { component: "Bacteria identified", property: Prid, time: Pt, system: CSF, scale: Nom, method: "Culture" }
+    axes_verified: false
+    measures: bacteria
+    units: []
+    specimen: "specimen:csf"
+    department: "dept:microbiology"
+    <<: *prov_import
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 39 }
+
+  "loinc:26465-5":
+    label: "Leukocytes [#/volume] in CSF"
+    display_name: "CSF leukocytes"
+    axes: { component: "Leukocytes", property: NCnc, time: Pt, system: CSF, scale: Qn }
+    axes_verified: false
+    measures: leukocytes
+    units: ["/uL"]
+    specimen: "specimen:csf"
+    department: "dept:hematology"
+    intervals_not_applicable: "No reference interval in source data."
+    <<: *prov_import
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 56 }
+
+  "loinc:26512-4":
+    label: "Neutrophils/Leukocytes in CSF"
+    display_name: "CSF neutrophils"
+    axes: { component: "Neutrophils/Leukocytes", property: NFr, time: Pt, system: CSF, scale: Qn }
+    axes_verified: false
+    measures: neutrophils
+    units: ["%"]
+    specimen: "specimen:csf"
+    department: "dept:hematology"
+    intervals_not_applicable: "No reference interval in source data."
+    <<: *prov_import
+    sources:
+      - { id: "loinc-2026", author: "Regenstrief Institute", last_modified: "2026-09-15", usage_count: 48 }

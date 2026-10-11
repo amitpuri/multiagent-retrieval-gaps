@@ -17,10 +17,22 @@ load_dotenv(dotenv_path=env_path)
 
 from strands.models.model import Model
 
-DEFAULT_CLAUDE_MODEL_ID = "claude-sonnet-4-5"
-# Corrected AWS cross-region inference ID (was: "us.anthropic.claude-sonnet-4-5:0"
-# which is not a valid Bedrock model ID and would produce a model-not-found error).
-DEFAULT_BEDROCK_CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+# Model IDs come from config/models.yaml (single source of truth across clouds).
+from ontogate.catalog import load_catalog, model_for  # noqa: E402
+
+_AWS = model_for("aws")
+DEFAULT_CLAUDE_MODEL_ID = _AWS["anthropic_id"]
+DEFAULT_BEDROCK_CLAUDE_MODEL_ID = _AWS["bedrock_id"]
+OFFLINE_MODEL_ID = load_catalog()["offline"]["aws"]
+
+
+def claude_request_fields(role: str = "") -> dict:
+    """Per-role request fields for current Claude models.
+
+    Thinking cannot be disabled on Claude Opus 5.5 and effort defaults to
+    "medium", so effort is always sent explicitly (config/models.yaml).
+    """
+    return {"output_config": {"effort": model_for("aws", role)["effort"]}}
 
 
 class MockBedrockModel(Model):
@@ -36,7 +48,7 @@ class MockBedrockModel(Model):
         )
 
     def get_config(self) -> dict[str, Any]:
-        return {"model_id": "mock-bedrock-claude-sonnet-4-5"}
+        return {"model_id": OFFLINE_MODEL_ID}
 
     def update_config(self, **kwargs: Any) -> None:
         pass
@@ -73,7 +85,7 @@ def is_offline_mode(offline: Optional[bool] = None) -> bool:
     return not (has_anthropic_key or has_aws_env)
 
 
-def get_strands_model(offline: Optional[bool] = None, response_text: str = "") -> Model:
+def get_strands_model(offline: Optional[bool] = None, response_text: str = "", role: str = "") -> Model:
     """Return Anthropic Claude (via ANTHROPIC_API_KEY or AWS Bedrock) or MockBedrockModel if offline.
 
     Strictly no LiteLLM, no Gemini, no OpenAI.
@@ -88,7 +100,7 @@ def get_strands_model(offline: Optional[bool] = None, response_text: str = "") -
 
             model_id = os.environ.get("ANTHROPIC_MODEL_ID", DEFAULT_CLAUDE_MODEL_ID)
             max_tokens = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "2048"))
-            return AnthropicModel(model_id=model_id, max_tokens=max_tokens)
+            return AnthropicModel(model_id=model_id, max_tokens=max_tokens, params=claude_request_fields(role))
         except Exception as e:
             print(f"[Warning] Failed to initialize AnthropicModel: {e}")
 
@@ -98,7 +110,8 @@ def get_strands_model(offline: Optional[bool] = None, response_text: str = "") -
 
         model_id = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_BEDROCK_CLAUDE_MODEL_ID)
         region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
-        return BedrockModel(model_id=model_id, region_name=region)
+        return BedrockModel(model_id=model_id, region_name=region,
+                            additional_request_fields=claude_request_fields(role))
     except Exception as e:
         print(f"[Warning] Failed to initialize BedrockModel: {e}")
 

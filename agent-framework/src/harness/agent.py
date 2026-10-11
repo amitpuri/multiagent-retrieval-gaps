@@ -26,11 +26,11 @@ from src.harness.providers import (
 )
 from src.tools import (
     parse_clinician_input,
-    resolve_ontology,
-    run_safety_gate,
-    fetch_protocol,
+    resolve_lab_term,
+    evaluate_safety_gate,
+    fetch_grounded_protocol,
     build_clarification_prompt,
-    csf_workup,
+    panel_workup,
 )
 
 DEFAULT_HARNESS_INSTRUCTIONS = """
@@ -104,11 +104,11 @@ class ClinicalHarnessAgent:
         # Register default clinical tools
         self.tools: Dict[str, Callable] = tools or {
             "parse_clinician_input": parse_clinician_input,
-            "resolve_ontology": resolve_ontology,
-            "run_safety_gate": run_safety_gate,
-            "fetch_protocol": fetch_protocol,
+            "resolve_lab_term": resolve_lab_term,
+            "evaluate_safety_gate": evaluate_safety_gate,
+            "fetch_grounded_protocol": fetch_grounded_protocol,
             "build_clarification_prompt": build_clarification_prompt,
-            "csf_workup": csf_workup,
+            "panel_workup": panel_workup,
         }
 
     def create_session(self, session_id: Optional[str] = None) -> HarnessSession:
@@ -161,11 +161,11 @@ class ClinicalHarnessAgent:
             "qualifier": parsed.get("qualifier"),
             "patient_value": parsed.get("patient_value"),
         }
-        resolve_approval = self.approval_policy.check_approval("resolve_ontology", resolve_args)
-        resolved = self.tools["resolve_ontology"](**resolve_args)
+        resolve_approval = self.approval_policy.check_approval("resolve_lab_term", resolve_args)
+        resolved = self.tools["resolve_lab_term"](**resolve_args)
         tool_calls.append(
             ToolInvocation(
-                tool_name="resolve_ontology",
+                tool_name="resolve_lab_term",
                 args=resolve_args,
                 result=resolved,
                 approved=resolve_approval["approved"],
@@ -183,11 +183,11 @@ class ClinicalHarnessAgent:
             "patient_value": resolved.get("patient_value"),
             "status": resolved.get("status"),
         }
-        gate_approval = self.approval_policy.check_approval("run_safety_gate", gate_args)
-        gate = self.tools["run_safety_gate"](**gate_args)
+        gate_approval = self.approval_policy.check_approval("evaluate_safety_gate", gate_args)
+        gate = self.tools["evaluate_safety_gate"](**gate_args)
         tool_calls.append(
             ToolInvocation(
-                tool_name="run_safety_gate",
+                tool_name="evaluate_safety_gate",
                 args=gate_args,
                 result=gate,
                 approved=gate_approval["approved"],
@@ -232,18 +232,18 @@ class ClinicalHarnessAgent:
             candidates = resolved.get("candidates", [])
             concept = candidates[0] if candidates else {}
             proto_args = {
-                "resolved_uri": concept.get("uri", ""),
+                "uri": concept.get("uri", ""),
                 "concept": concept,
                 "patient_value": parsed.get("patient_value"),
             }
             proto_approval = self.approval_policy.check_approval(
-                "fetch_protocol", proto_args, context={"gate_route": route}
+                "fetch_grounded_protocol", proto_args, context={"gate_route": route}
             )
             if proto_approval["approved"]:
-                protocol_data = self.tools["fetch_protocol"](**proto_args)
+                protocol_data = self.tools["fetch_grounded_protocol"](**proto_args)
                 tool_calls.append(
                     ToolInvocation(
-                        tool_name="fetch_protocol",
+                        tool_name="fetch_grounded_protocol",
                         args=proto_args,
                         result=protocol_data,
                         approved=True,

@@ -1,7 +1,7 @@
 """
 Ontology Resolver Agent: Normalizes clinical queries and maps terms to LOINC concepts.
 
-OKF Enhancement (Phase 3):
+OKF:
 - Filters out deprecated concepts before returning candidates.
 - Flags stale concepts and excludes them from resolution (configurable).
 - Ranks candidates by OKF trust tier (human-reviewed > machine-confirmed > unverified).
@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
+from ontogate.catalog import model_for
 from google.adk import Agent, Event
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
-from src.core.config import OntologyRegistry, get_default_registry
-from src.core.models import (
+from ontogate.config import OntologyRegistry, get_default_registry
+from ontogate.models import (
     ConceptDefinition,
     EvaluationContext,
     ResolutionStatus,
@@ -44,7 +45,7 @@ def resolve_term_with_registry(
 ) -> Dict[str, Any]:
     """Map a lab test name, optional unit, and optional qualifier to canonical concepts.
 
-    OKF Phase 3 behaviour:
+    OKF behaviour:
     1. Lexical matching.
     2. Drop deprecated concepts immediately — never returned.
     3. Fail-closed on all-stale: returns NOT_FOUND rather than silently using
@@ -117,7 +118,7 @@ def resolve_term_with_registry(
         fresh = matched
 
     # ---- Qualifier constraint (resolves look-alike collisions e.g. Ca total vs ionized) ----
-    # Fix 13: whole-word matching using word boundaries.
+    # whole-word matching using word boundaries.
     if qualifier and len(fresh) > 1:
         q = qualifier.strip().lower()
         pattern = (
@@ -188,11 +189,11 @@ def ontology_resolver_node(node_input: Any) -> Event:
     return Event(output=output)
 
 
-def create_ontology_agent(model: str = "gemini-3.5-flash") -> Agent:
+def create_ontology_agent(model: Optional[str] = None) -> Agent:
     """Create an ADK Agent wrapping ontology resolution."""
     return Agent(
         name="ontology_resolver",
-        model=model,
+        model=model or model_for("gcp")["id"],
         instruction=(
             "You are an ontology resolution specialist. Map incoming lab terms and reported "
             "units to canonical LOINC identifiers. Never guess if ambiguous. "

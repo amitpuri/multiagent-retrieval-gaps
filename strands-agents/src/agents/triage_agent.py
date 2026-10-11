@@ -9,9 +9,9 @@ from strands import Agent, tool
 from strands.models.model import Model
 
 from src.tools.parse_tool import parse_clinician_input
-from src.tools.ontology_tool import resolve_ontology
-from src.tools.safety_gate_tool import run_safety_gate
-from src.tools.protocol_tool import fetch_protocol
+from src.tools.ontology_tool import resolve_lab_term
+from src.tools.safety_gate_tool import evaluate_safety_gate
+from src.tools.protocol_tool import fetch_grounded_protocol
 from src.tools.clarification_tool import build_clarification_prompt
 from src.agents.synthesis_agent import create_synthesis_agent
 
@@ -40,9 +40,9 @@ def create_triage_orchestrator(model: Optional[Model] = None) -> Agent:
 
     The supervisor strictly enforces the clinical decision sequence:
       1. parse_clinician_input
-      2. resolve_ontology
-      3. run_safety_gate (deterministic, mandatory)
-         - PROCEED -> fetch_protocol -> synthesize_interpretation
+      2. resolve_lab_term
+      3. evaluate_safety_gate (deterministic, mandatory)
+         - PROCEED -> fetch_grounded_protocol -> synthesize_interpretation
          - CLARIFY -> build_clarification_prompt -> return to clinician
     """
     synthesis_agent = create_synthesis_agent(model=model)
@@ -107,18 +107,18 @@ def create_triage_orchestrator(model: Optional[Model] = None) -> Agent:
             "You are the Triage Supervisor Agent for a clinical laboratory decision support system.\n"
             "You MUST execute the following sequence for every clinician query:\n"
             "1. Call parse_clinician_input with the raw text.\n"
-            "2. Call resolve_ontology with the extracted term, unit, qualifier, and patient_value.\n"
-            "3. MANDATORY: Call run_safety_gate with the resolution result. Never bypass this gate.\n"
-            "   - If gate route is 'PROCEED': call fetch_protocol, then synthesize_interpretation.\n"
+            "2. Call resolve_lab_term with the extracted term, unit, qualifier, and patient_value.\n"
+            "3. MANDATORY: Call evaluate_safety_gate with the resolution result. Never bypass this gate.\n"
+            "   - If gate route is 'PROCEED': call fetch_grounded_protocol, then synthesize_interpretation.\n"
             "   - If gate route is 'CLARIFY': call build_clarification_prompt and return the prompt "
             "directly to the clinician. Do NOT call protocol or synthesis.\n"
             "Never hallucinate clinical values or bypass safety invariants."
         ),
         tools=[
             parse_clinician_input,
-            resolve_ontology,
-            run_safety_gate,
-            fetch_protocol,
+            resolve_lab_term,
+            evaluate_safety_gate,
+            fetch_grounded_protocol,
             synthesize_interpretation,
             build_clarification_prompt,
         ],

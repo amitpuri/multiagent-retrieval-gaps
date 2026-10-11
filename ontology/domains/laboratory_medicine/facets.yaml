@@ -1,0 +1,17 @@
+# Facets: the differentiating dimensions between sibling observables.
+# A qualifier is a facet value; contradictions and "missing qualifier" are
+# computed from these — there is no hard-coded opposites table.
+
+schema_version: "1.0.0"
+
+facets:
+  fraction:
+    label: "Calcium fraction"
+    question: "Was this total calcium or ionized (free) calcium?"
+    values: [total, ionized]
+    value_synonyms:
+      tca: total
+      ica: ionized
+      free: ionized
+      "ca++": ionized
+    mutually_exclusive: true

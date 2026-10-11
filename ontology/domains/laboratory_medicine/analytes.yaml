@@ -1,0 +1,15 @@
+# Analytes (what is measured). Molar mass enables deterministic mass ↔ substance
+# unit conversion.
+
+schema_version: "1.0.0"
+
+analytes:
+  hemoglobin:   { label: "Hemoglobin" }
+  hba1c:        { label: "Hemoglobin A1c" }
+  calcium:      { label: "Calcium", molar_mass_g_mol: 40.078 }
+  protein:      { label: "Protein" }
+  glucose:      { label: "Glucose", molar_mass_g_mol: 180.156 }
+  gram_stain:   { label: "Gram stain observation" }
+  bacteria:     { label: "Bacteria" }
+  leukocytes:   { label: "Leukocytes" }
+  neutrophils:  { label: "Neutrophils" }

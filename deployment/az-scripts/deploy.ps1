@@ -17,7 +17,9 @@ param(
     [string]$AiFoundryAccount = "ais-clinical-agents",
     [string]$AiFoundryProject = "aiproj-clinical-agents",
     [string]$AiFoundryResourceGroup = "rg-clinical-agents",
-    [string]$FoundryModel = "gpt-5",
+    [string]$FoundryModel = "gpt-6.1-sol",          # config/models.yaml → deployments.azure.default
+    [string]$FoundryModelVersion = "2026-09-29",
+    [string]$FoundrySku = "GlobalStandard",
     [int]$Port = 8000,
     [string]$Cpu = "1.0",
     [string]$Memory = "2.0Gi"
@@ -46,6 +48,8 @@ if (Test-Path $cfgPath) {
             if ($k -eq "AI_FOUNDRY_PROJECT_NAME" -and -not $PSBoundParameters.ContainsKey('AiFoundryProject') -and $v) { $AiFoundryProject = $v }
             if ($k -eq "AI_FOUNDRY_RESOURCE_GROUP" -and -not $PSBoundParameters.ContainsKey('AiFoundryResourceGroup') -and $v) { $AiFoundryResourceGroup = $v }
             if ($k -eq "FOUNDRY_MODEL" -and -not $PSBoundParameters.ContainsKey('FoundryModel') -and $v) { $FoundryModel = $v }
+            if ($k -eq "FOUNDRY_MODEL_VERSION" -and -not $PSBoundParameters.ContainsKey('FoundryModelVersion') -and $v) { $FoundryModelVersion = $v }
+            if ($k -eq "FOUNDRY_SKU" -and -not $PSBoundParameters.ContainsKey('FoundrySku') -and $v) { $FoundrySku = $v }
         }
     }
 }
@@ -197,12 +201,15 @@ if ($aiAccountCheck) {
         --name $AiFoundryAccount `
         --resource-group $ResourceGroup `
         --deployment-name $FoundryModel `
-        --model-name "gpt-4o" `
-        --model-version "2024-08-06" `
+        --model-name $FoundryModel `
+        --model-version $FoundryModelVersion `
         --model-format OpenAI `
         --sku-capacity 10 `
-        --sku-name "Standard" `
-        -o none 2>$null
+        --sku-name $FoundrySku `
+        -o none
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Model deployment '$FoundryModel' ($FoundryModelVersion, $FoundrySku) failed. Check regional availability in '$Location' or set -FoundrySku / -Location."
+    }
 
     $projectCheck = az cognitiveservices account project show --name $AiFoundryAccount --resource-group $ResourceGroup --project-name $AiFoundryProject 2>$null | ConvertFrom-Json
     if ($projectCheck -and $projectCheck.properties -and $projectCheck.properties.endpoints) {

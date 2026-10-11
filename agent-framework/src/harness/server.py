@@ -4,6 +4,8 @@ Runs continuous FastAPI REST service on port 8000.
 """
 from __future__ import annotations
 
+from ontogate.catalog import model_for as _model_for
+
 import logging
 import os
 import uuid
@@ -68,7 +70,7 @@ def readyz() -> Dict[str, Any]:
     return {
         "status": "ready",
         "service": "azure-agent-framework",
-        "model": "gpt-5 via Azure AI Foundry / OpenAI",
+        "model": f"{_model_for('azure')['id']} via Microsoft Foundry (Responses API)",
         "tools": list(agent.tools.keys()),
     }
 

@@ -17,6 +17,11 @@ from dotenv import load_dotenv
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=_env_path, override=False)
 
+# Model / deployment names come from config/models.yaml.
+from ontogate.catalog import model_for  # noqa: E402
+
+_AZURE = model_for("azure")
+
 
 def build_agent_factory(
     offline: bool = False,
@@ -49,6 +54,7 @@ def build_agent_factory(
             from agent_framework.foundry import FoundryChatClient
             client = FoundryChatClient(
                 endpoint=os.environ["AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"],
+                model=os.getenv("FOUNDRY_MODEL", _AZURE["deployment_name"]),
                 credential=credential,
             )
             return AgentFactory(client=client, bindings=bindings, safe_mode=safe_mode)
@@ -73,7 +79,7 @@ def build_agent_factory(
     if os.getenv("OPENAI_API_KEY"):
         try:
             from agent_framework.openai import OpenAIChatClient
-            model = os.getenv("OPENAI_MODEL", "gpt-5")
+            model = os.getenv("OPENAI_MODEL", _AZURE["id"])
             client = OpenAIChatClient(model=model, api_key=os.environ["OPENAI_API_KEY"])
             return AgentFactory(client=client, bindings=bindings, safe_mode=safe_mode)
         except ImportError:

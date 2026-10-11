@@ -1,0 +1,97 @@
+# Scenario E: Glucose — same component, different specimen (zero-code extension)
+# Added purely in YAML: a new observable, a new facet, an ambiguous
+# designation, a reference interval and a protocol. The existing CSF glucose
+# observable gains a facet value through `facet_assignments` (additive — the
+# base definition is not redefined).
+
+id: "scenario_e_glucose_specimen"
+name: "Glucose: CSF vs Serum/Plasma Specimen Look-Alike"
+domain: "laboratory_medicine"
+description: >
+  'Glucose 60 mg/dL' is unremarkable in CSF context but a different clinical
+  question in serum/plasma. The LOINC Component is identical; only the System
+  axis differs. The gate must ask which specimen was tested rather than guess.
+
+overlay:
+  facets:
+    specimen_system:
+      label: "Specimen"
+      question: "Was this glucose measured in CSF or in serum/plasma?"
+      values: ["csf", "serum_plasma"]
+      value_synonyms: { spinal: csf, "spinal fluid": csf, plasma: serum_plasma, serum: serum_plasma, blood: serum_plasma }
+
+  observables:
+    "loinc:2345-7":
+      label: "Glucose [Mass/volume] in Serum or Plasma"
+      display_name: "Serum/plasma glucose"
+      axes: { component: "Glucose", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+      measures: glucose
+      facets: { specimen_system: serum_plasma }
+      units: ["mg/dL", "mmol/L"]
+      property_codings:
+        SCnc: "loinc:14749-6"   # Glucose [Moles/volume] in Serum or Plasma (verify against release)
+      specimen: "specimen:serum_plasma"
+      department: "dept:clinical_biochemistry"
+      confusable_with: ["loinc:2342-4"]
+      governed_by: "protocol:glucose-serum-plasma"
+      status: draft
+      generated_by: "reference_agent/gemini-2.5-pro"
+      verified_by: null
+
+  facet_assignments:
+    "loinc:2342-4": { specimen_system: csf }
+
+  designations:
+    "glucose":        { denotes: ["loinc:2342-4", "loinc:2345-7"], kind: ambiguous }
+    "plasma glucose": { denotes: ["loinc:2345-7"], kind: preferred }
+    "serum glucose":  { denotes: ["loinc:2345-7"], kind: synonym }
+
+  reference_intervals:
+    - id: "interval:glucose-serum-plasma-adult-fasting"
+      observable: "loinc:2345-7"
+      unit: "mg/dL"
+      population: { sex: any, age_band: adult }
+      normal: [70.0, 99.0]
+      critical: [40.0, 400.0]
+      note: "Fasting interval (demonstration values)."
+      derived_from: "protocol:glucose-serum-plasma"
+      generated_by: "reference_agent/gemini-2.5-pro"
+      verified_by: null
+      clinically_unvalidated: true
+
+  protocols:
+    "protocol:glucose-serum-plasma":
+      governs: "loinc:2345-7"
+      reference_range: "Fasting 70 to 99 mg/dL"
+      panic_limits: "Low < 40 mg/dL; high > 400 mg/dL"
+      clinical_guideline: "Interpret against fasting status; compare CSF glucose to concurrent plasma glucose."
+      status: draft
+
+test_cases:
+  - id: "tc_glucose_specimen_required"
+    input_text: "Glucose 60 | mg/dL"
+    expected_gap: "MISSING_QUALIFIER"
+    expected_route: "CLARIFY"
+    expected_missing: ["specimen_system"]
+
+  - id: "tc_glucose_plasma_qualified"
+    input_text: "Glucose 60 | plasma | mg/dL"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:2345-7"
+    expected_readings:
+      "Serum/plasma glucose": "LOW"
+
+  - id: "tc_glucose_mmol_conversion"
+    input_text: "plasma glucose 5.0 | mmol/L"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:2345-7"
+    expected_readings:
+      "Serum/plasma glucose": "NORMAL"
+
+  - id: "tc_csf_glucose_unchanged"
+    input_text: "csf glucose 60 | mg/dL"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:2342-4"

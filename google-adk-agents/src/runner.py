@@ -32,9 +32,9 @@ from google.adk import Event, Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from src.agents import MODEL, grounded_agent_v1, naive_agent
-from src.ontology import LAB_KB
-from src.tools import check_calcium, csf_workup, search_lab_kb
+from src.agents import MODEL, prompt_governed_agent, naive_agent
+from src.naive_kb import LAB_KB
+from src.tools import classify_lookalikes, evaluate_safety_gate, panel_workup, search_lab_kb
 from src.workflow import build_lab_workflow
 
 
@@ -136,24 +136,22 @@ async def run_scenario_a_workflow():
                     print(f"  [{node_name}] {event.output}")
 
 
-def run_scenario_b_csf():
-    """Execute Scenario B (Q6): CSF emergency panel hierarchical taxonomy & tube ordering."""
-    print("\n" + "=" * 80)
-    print("SCENARIO B: Q6 (CSF Emergency Panel - Governed Tube Ordering, Closing Gap 11)")
-    print("=" * 80)
-    full_workup = csf_workup()
-    print("\nFull Emergency CSF Workup (Pre-scoped by department & tube order):")
-    for dept, tests in full_workup.items():
-        print(f"\n  Department: {dept}")
-        for t in tests:
-            print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
+def _print_workup(workup: dict) -> None:
+    for tube in workup.get("tubes", []):
+        print(f"\n  Tube {tube['tube']} — {tube['department']}")
+        for t in tube["tests"]:
+            print(f"    - {t['test_name']} [{t['uri']}]")
 
+
+def run_scenario_b_csf():
+    """Execute Scenario B (Q6): CSF emergency panel — governed tube order (Gap 11)."""
+    print("\n" + "=" * 80)
+    print("SCENARIO B: Q6 (CSF Emergency Panel - Governed Tube Ordering, Gap 11)")
+    print("=" * 80)
+    print("\nFull Emergency CSF Workup (ordered by the ontology's precedes relation):")
+    _print_workup(panel_workup("csf_emergency_panel"))
     print("\nDepartment-Scoped Workup (Hematology only):")
-    hemat = csf_workup("hemat")
-    for dept, tests in hemat.items():
-        print(f"  Department: {dept}")
-        for t in tests:
-            print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
+    _print_workup(panel_workup("csf_emergency_panel", "hemat"))
 
 
 def run_scenario_c_calcium():
@@ -163,22 +161,18 @@ def run_scenario_c_calcium():
     print("=" * 80)
 
     val = 4.8
-    unqualified = check_calcium(val)
-    print(f"\nUnqualified result for Calcium {val} mg/dL:")
-    print(f"  Status: {unqualified['status']}")
-    for assay, interpretation in unqualified["readings"].items():
+    readings = classify_lookalikes("calcium", val, "mg/dL")["readings"]
+    gate = evaluate_safety_gate(term="calcium", unit="mg/dL", patient_value=val)
+    print(f"\nUnqualified Calcium {val} mg/dL:")
+    for assay, interpretation in readings.items():
         print(f"    - {assay}: {interpretation}")
-    print("  Outcome: Critical low vs Normal collision -> Routed to CLARIFY, prevents lethal IV calcium error.")
+    print(f"  Gate: {gate['status']} -> {gate['route']}")
+    print(f"  Clarification: {gate['clarification_prompt']}")
 
-    qualified_total = check_calcium(val, "total")
-    print(f"\nQualified 'Total Calcium' {val} mg/dL:")
-    print(f"  Status: {qualified_total['status']}")
-    print(f"  Readings: {qualified_total['readings']}")
-
-    qualified_ionized = check_calcium(val, "ionized")
-    print(f"\nQualified 'Ionized Calcium' {val} mg/dL:")
-    print(f"  Status: {qualified_ionized['status']}")
-    print(f"  Readings: {qualified_ionized['readings']}")
+    for qualifier in ("total", "ionized"):
+        gate = evaluate_safety_gate(term="calcium", unit="mg/dL", qualifier=qualifier, patient_value=val)
+        print(f"\nQualified '{qualifier}' Calcium {val} mg/dL:")
+        print(f"  Gate: {gate['status']} -> {gate['route']}  Readings: {gate['details'].get('readings')}")
 
 
 async def run_scenario_d_multiagent_troponin():
@@ -188,7 +182,7 @@ async def run_scenario_d_multiagent_troponin():
     print("=" * 80)
 
     # 1. Dynamically load scenario D from YAML into default registry
-    from src.core.config import get_default_registry, load_scenario_extension
+    from ontogate.config import get_default_registry, load_scenario_extension
     from src.orchestration.a2a_orchestrator import build_multiagent_workflow
 
     registry = get_default_registry()

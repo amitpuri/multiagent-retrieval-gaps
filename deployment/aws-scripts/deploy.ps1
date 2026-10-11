@@ -32,7 +32,7 @@ param(
     [string]$AgentName        = "clinical-strands-agent",
     [string]$EcrRepoName      = "strands-clinical-agents",
     [string]$ImageTag         = "latest",
-    [string]$BedrockModelId   = "anthropic.claude-sonnet-4-5-20251203-v1:0",
+    [string]$BedrockModelId   = "global.anthropic.claude-opus-5-5",
     [string]$AgentRoleName    = "BedrockAgentCoreExecutionRole",
     [string]$MemoryName       = "clinical-agent-memory"
 )
@@ -70,9 +70,16 @@ Write-Host "[+] Account: $accountId  ARN: $($caller.Arn)" -ForegroundColor Green
 
 # ─── STEP 2: Verify Bedrock Model Access ───────────────────────────────────────
 Write-Host "[2/8] Verifying Bedrock foundation model access..." -ForegroundColor Yellow
-$modelAccess = aws bedrock get-foundation-model --model-identifier $BedrockModelId --region $AwsRegion --output json 2>$null | ConvertFrom-Json
-if ($modelAccess -and $modelAccess.modelDetails) {
-    Write-Host "[+] Model available: $($modelAccess.modelDetails.modelName)" -ForegroundColor Green
+# Cross-region IDs (global./us./eu.) are inference profiles; bare IDs are foundation models.
+if ($BedrockModelId -match '^(global|us|eu|apac|au|jp)\.') {
+    $modelAccess = aws bedrock get-inference-profile --inference-profile-identifier $BedrockModelId --region $AwsRegion --output json 2>$null | ConvertFrom-Json
+    $modelName = $modelAccess.inferenceProfileName
+} else {
+    $modelAccess = aws bedrock get-foundation-model --model-identifier $BedrockModelId --region $AwsRegion --output json 2>$null | ConvertFrom-Json
+    $modelName = $modelAccess.modelDetails.modelName
+}
+if ($modelAccess -and $modelName) {
+    Write-Host "[+] Model available: $modelName" -ForegroundColor Green
 } else {
     Write-Host "    [!] Model '$BedrockModelId' may not be enabled." -ForegroundColor DarkYellow
     Write-Host "    Enable it at: https://console.aws.amazon.com/bedrock/home?region=$AwsRegion#/modelaccess"

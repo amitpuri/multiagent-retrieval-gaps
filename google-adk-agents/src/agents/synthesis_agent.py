@@ -2,7 +2,7 @@
 Clinical Synthesis Agent: Calibrated interpretation synthesis without hallucination.
 Single-turn ADK Agent grounded strictly on protocol data provided in the input payload.
 
-OKF Enhancement (Phase 4):
+OKF:
 The agent instruction is now trust-aware: it adjusts its phrasing based on the
 OKF trust tier (human-reviewed / machine-confirmed / unverified) and concept
 lifecycle status (draft / stable / deprecated) of the resolved concept.
@@ -14,7 +14,9 @@ Per OKF §9: "Calibrated confidence — Trust tier can drive phrasing:
 from typing import Any, Literal, Optional
 from google.adk import Agent
 
-DEFAULT_MODEL = "gemini-3.5-flash"
+from ontogate.catalog import model_for
+
+DEFAULT_MODEL = model_for("gcp")["id"]  # config/models.yaml
 
 # OKF trust tier → hedging phrase for synthesis instruction
 _TRUST_PHRASES: dict = {
@@ -100,7 +102,7 @@ def create_synthesize_agent_from_payload(
     """Convenience factory: extract OKF signals from a protocol payload dict.
 
     The payload is expected to carry the trust_tier, concept_status, and
-    is_stale keys emitted by the OKF-enriched ontology resolver (Phase 3).
+    is_stale keys emitted by the OKF-enriched ontology resolver.
     """
     trust_tier = payload.get("trust_tier") or "unverified"
     concept_status = payload.get("concept_status") or "stable"
@@ -129,8 +131,8 @@ def verify_attestation_for_payload(payload: dict) -> tuple[bool, Optional["Attes
         Tuple of (passed: bool, attestation_result: Optional[AttestationResult]).
         If no attested_computation or patient_value is present, passes by default with None.
     """
-    from src.core.attestation import AttestationResult, attest_numeric
-    from src.core.config import get_default_registry
+    from ontogate.attestation import AttestationResult, attest_numeric
+    from ontogate.config import get_default_registry
 
     proto_dict = payload.get("protocol", {})
     patient_val = payload.get("patient_value")
@@ -190,16 +192,11 @@ def synthesis_gate_node(node_input: Any) -> Any:
     if att_result:
         out["attestation_badge"] = "[Attested ✓]"
         out["attestation"] = att_result.model_dump(mode="json")
-        # Fix 17: Log verified attestation into OKF audit trail
-        try:
-            from src.core.okf_writer import record_concept_update
-            record_concept_update(
-                uri=payload.get("resolved_uri", "unknown"),
-                change=f"attested_value={payload.get('patient_value')}",
-                agent_id="synthesis_gate_node",
-                details={"status": "ATTESTED"},
-            )
-        except Exception:
-            pass
+        # Attestations are ABox events → audit port (redacted), not knowledge/log.md (F1).
+        from ontogate.ports import get_audit
+        get_audit().record("attestation", {
+            "uri": payload.get("resolved_uri", "unknown"), "patient_value": payload.get("patient_value"),
+            "verdict": att_result.verdict, "node": "synthesis_gate_node",
+        })
 
     return Event(output=out)

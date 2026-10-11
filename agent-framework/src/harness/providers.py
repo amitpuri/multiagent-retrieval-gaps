@@ -132,9 +132,9 @@ class SafetyGateApprovalPolicy:
 
     STANDING_APPROVALS = {
         "parse_clinician_input",
-        "resolve_ontology",
-        "run_safety_gate",
-        "csf_workup",
+        "resolve_lab_term",
+        "evaluate_safety_gate",
+        "panel_workup",
     }
 
     def __init__(self, require_clarification_approval: bool = True):
@@ -162,7 +162,7 @@ class SafetyGateApprovalPolicy:
                 "requires_hitl": False,
             }
 
-        if tool_name == "fetch_protocol":
+        if tool_name == "fetch_grounded_protocol":
             # Protocol fetching is approved if safety gate passed
             gate_route = (context or {}).get("gate_route")
             if gate_route == "CLARIFY":

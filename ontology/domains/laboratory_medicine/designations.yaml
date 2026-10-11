@@ -1,0 +1,46 @@
+# Designations (terms clinicians type) → observables they may denote.
+# A designation that denotes more than one observable is ambiguous by
+# construction (DesignationShape enforces kind: ambiguous). Canonical labels
+# always resolve to their own observable and need no entry here.
+
+schema_version: "1.0.0"
+
+designations:
+  # --- Hemoglobin vs HbA1c (Scenario A) ------------------------------------
+  "hb":                  { denotes: ["loinc:718-7", "loinc:4548-4"], kind: ambiguous }
+  "hemoglobin":          { denotes: ["loinc:718-7", "loinc:4548-4"], kind: ambiguous }
+  "hgb":                 { denotes: ["loinc:718-7"], kind: abbreviation }
+  "total hemoglobin":    { denotes: ["loinc:718-7"], kind: synonym }
+  "cbc hemoglobin":      { denotes: ["loinc:718-7"], kind: synonym }
+  "hba1c":               { denotes: ["loinc:4548-4"], kind: abbreviation }
+  "hb a1c":              { denotes: ["loinc:4548-4"], kind: abbreviation }
+  "a1c":                 { denotes: ["loinc:4548-4"], kind: abbreviation }
+  "glycated hemoglobin": { denotes: ["loinc:4548-4"], kind: synonym }
+
+  # --- Total vs ionized calcium (Scenario C) --------------------------------
+  "calcium":         { denotes: ["loinc:17861-6", "loinc:17864-0"], kind: ambiguous }
+  "ca":              { denotes: ["loinc:17861-6", "loinc:17864-0"], kind: ambiguous,
+                       note: "Element symbol; does not fix the fraction." }
+  "serum calcium":   { denotes: ["loinc:17861-6", "loinc:17864-0"], kind: ambiguous,
+                       note: "Specimen does not fix the fraction: both assays are serum/plasma." }
+  "total calcium":   { denotes: ["loinc:17861-6"], kind: preferred }
+  "tca":             { denotes: ["loinc:17861-6"], kind: abbreviation }
+  "ionized calcium": { denotes: ["loinc:17864-0"], kind: preferred }
+  "free calcium":    { denotes: ["loinc:17864-0"], kind: synonym }
+  "ica":             { denotes: ["loinc:17864-0"], kind: abbreviation }
+  "ca++":            { denotes: ["loinc:17864-0"], kind: abbreviation }
+
+  # --- CSF emergency panel (Scenario B) --------------------------------------
+  "csf protein":     { denotes: ["loinc:2880-3"], kind: preferred }
+  "spinal protein":  { denotes: ["loinc:2880-3"], kind: synonym }
+  "csf glucose":     { denotes: ["loinc:2342-4"], kind: preferred }
+  "spinal glucose":  { denotes: ["loinc:2342-4"], kind: synonym }
+  "csf gram stain":  { denotes: ["loinc:14357-8"], kind: preferred }
+  "gram stain":      { denotes: ["loinc:14357-8"], kind: synonym }
+  "csf culture":     { denotes: ["loinc:606-4"], kind: preferred }
+  "spinal culture":  { denotes: ["loinc:606-4"], kind: synonym }
+  "csf wbc":         { denotes: ["loinc:26465-5"], kind: abbreviation }
+  "csf leukocytes":  { denotes: ["loinc:26465-5"], kind: preferred }
+  "csf cell count":  { denotes: ["loinc:26465-5"], kind: synonym }
+  "csf neutrophils": { denotes: ["loinc:26512-4"], kind: preferred }
+  "csf diff":        { denotes: ["loinc:26512-4"], kind: abbreviation }

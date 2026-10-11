@@ -22,9 +22,7 @@ Safety invariants
 from __future__ import annotations
 
 import logging
-import math
 import os
-import re
 import warnings
 from typing import Any, Dict, List, Optional
 
@@ -64,14 +62,16 @@ class ClinicalADKHarness:
 
     def __init__(
         self,
-        model_name: str = "gemini-2.5-flash",
+        model_name: Optional[str] = None,
         client: Optional[Client] = None,
         mcp_bridge: Optional[MCPToolBridge] = None,
         context_mgr: Optional[ContextWindowManager] = None,
         offline: Optional[bool] = None,
         max_turns: int = 10,
     ):
-        self.model_name = model_name
+        from ontogate.catalog import model_for
+
+        self.model_name = model_name or model_for("gcp")["id"]  # config/models.yaml
         self.mcp_bridge = mcp_bridge or MCPToolBridge()
         self.context_mgr = context_mgr or ContextWindowManager()
         self.max_turns = max_turns
@@ -109,84 +109,16 @@ class ClinicalADKHarness:
         return HarnessSession()
 
     def parse_clinician_query(self, prompt: str) -> Dict[str, Any]:
+        """Parse clinician input with the shared ontology-aware parser (``ontogate.parsing``).
+
+        Pipe segments are classified by vocabulary (unit, facet qualifier,
+        population, department); a term naming a panel sets ``panel_id``. A comma
+        followed by exactly three digits (``1,250``) is an ambiguous thousands
+        separator: ``patient_value`` is None and the gate routes to CLARIFY.
         """
-        Canonical parser: extracts test term, value, qualifier, and reported unit.
+        from ontogate.parsing import parse_clinician_text
 
-        Format understood::
-
-            Hb
-            Hb 13.5 | g/dL
-            Calcium 4.8 | total | mg/dL   ← two-pipe: first segment is qualifier
-            Na+ -3 | mEq/L                ← negative value preserved
-            25-OH vitamin D 18 | ng/mL    ← leading digit in name not confused with value
-
-        A comma followed by exactly three digits (e.g. "1,250") is treated as
-        ambiguous thousands-separator notation and returns patient_value=None so
-        the gate routes to CLARIFY rather than silently dividing by 1000.
-        """
-        left, _, rest = prompt.partition("|")
-        left_str = left.strip()
-
-        # Two-pipe format: "Calcium 4.8 | total | mg/dL"
-        if "|" in rest:
-            qualifier_str, _, unit_str = rest.partition("|")
-            qualifier_str = qualifier_str.strip()
-            unit_str = unit_str.strip()
-        else:
-            qualifier_str = ""
-            unit_str = rest.strip()
-
-        # Ambiguous thousands separator guard: "1,250" → CLARIFY
-        ambiguous_thousands = bool(re.search(r"\b\d+,\d{3}\b", left_str))
-
-        # Normalise comma-decimal (e.g. "4,8" → "4.8") — only when NOT thousands notation
-        left_normalised = left_str
-        if not ambiguous_thousands:
-            left_normalised = re.sub(r"(\d),(\d)", r"\1.\2", left_str)
-
-        # Extract qualifier from left side if not in separate pipe segment
-        if not qualifier_str:
-            low_left = left_normalised.lower()
-            if "total" in low_left:
-                qualifier_str = "total"
-            elif "ionized" in low_left or "free" in low_left:
-                qualifier_str = "ionized"
-
-        # Boundary-aware numeric match: preceded by whitespace or start-of-string,
-        # not immediately followed by hyphen or word character.
-        patient_value: Optional[float] = None
-        if not ambiguous_thousands:
-            val_match = re.search(
-                r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])", left_normalised
-            )
-            if val_match:
-                raw_val = float(val_match.group(1))
-                if not math.isfinite(raw_val):
-                    patient_value = None  # reject NaN/inf at parse time
-                else:
-                    patient_value = raw_val
-
-        # Clean term: strip the matched number and qualifier keywords
-        term_source = left_normalised
-        if ambiguous_thousands:
-            term_source = re.sub(r"\b\d+,\d{3}\b", "", term_source).strip()
-        cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", term_source).strip()
-        cleaned_term = re.sub(
-            r"\b(total|ionized|free)\b", "", cleaned_term, flags=re.IGNORECASE
-        ).strip()
-        cleaned_term = re.sub(
-            r"\b(mg/dl|g/dl|mmol/l|ng/ml|ng/l)\b", "", cleaned_term, flags=re.IGNORECASE
-        ).strip()
-        term = cleaned_term if cleaned_term else left_str.strip()
-
-        return {
-            "term": term,
-            "unit": unit_str,
-            "qualifier": qualifier_str,
-            "patient_value": patient_value,
-            "raw_text": prompt,
-            "ambiguous_thousands": ambiguous_thousands,
-        }
+        return parse_clinician_text(prompt)
 
     def _compute_gate_verdict(
         self,
@@ -217,44 +149,19 @@ class ClinicalADKHarness:
                 "candidates": [],
             }
 
-        # Defect #3 (Scenario B in live mode): the standard gate evaluates terms
-        # against concepts.yaml.  "CSF workup" is not a concept — it is a panel
-        # workup handled by a dedicated MCP tool (csf_workup).  Running the gate
-        # on this term returns NOT_FOUND, blocking live execution before the model
-        # can ever call csf_workup.  We short-circuit for the same special-case
-        # terms the deterministic pipeline handles, letting the Gemini loop dispatch
-        # the right tools.  The csf_workup and check_calcium tools themselves enforce
-        # all necessary safety invariants.
-        term_clean = parsed["term"].lower().strip()
-        is_csf_panel = (
-            term_clean in ("csf", "csf workup", "csf panel", "csf emergency", "csf emergency panel")
-            or (re.search(r"\bcsf\b", term_clean) and any(kw in term_clean for kw in ("workup", "panel", "emergency")))
-        )
-        if is_csf_panel:
-            synthetic = {
-                "route": "PROCEED",
-                "status": "RESOLVED",
-                "passed": True,
-                "triggered_gaps": [],
-                "clarification_prompt": None,
-                "candidates": [],
-                "_synthetic": True,  # marks that gate was bypassed for the CSF panel path
-            }
-            rec = ToolInvocationRecord(
-                tool_name="evaluate_safety_gate",
-                args={"term": parsed["term"], "note": "CSF panel — bypassed to csf_workup"},
-                result=synthetic,
-            )
-            all_tool_calls.append(rec)
-            self.context_mgr.append_tool_result_to_session(session, "evaluate_safety_gate", synthetic)
-            return synthetic
-
+        # Panel requests (e.g. "CSF Emergency Panel") are evaluated by the gate too,
+        # via panel_id — there is no synthetic PROCEED bypass.
+        population = parsed.get("population") or {}
         gate_args = {
             "term": parsed["term"],
             "unit": parsed["unit"],
             "qualifier": parsed["qualifier"],
             "patient_value": parsed["patient_value"],
             "status": "UNKNOWN",
+            "sex": population.get("sex", ""),
+            "age_band": population.get("age_band", ""),
+            "department": parsed.get("department", ""),
+            "panel_id": parsed.get("panel_id") or "",
         }
         gate_res = self.mcp_bridge.execute_tool("evaluate_safety_gate", gate_args)
         rec = ToolInvocationRecord(
@@ -263,6 +170,14 @@ class ClinicalADKHarness:
         all_tool_calls.append(rec)
         self.context_mgr.append_tool_result_to_session(session, "evaluate_safety_gate", gate_res)
         return gate_res
+
+    def _clarify(self, session: HarnessSession, tool_calls: List[ToolInvocationRecord], status: str,
+                 clarification: str) -> HarnessResponse:
+        """Fail-closed HITL pause response."""
+        output_text = f"[CLARIFY - HITL Pause]\n{clarification}"
+        session.add_model_message(content=output_text, tool_calls=tool_calls)
+        return HarnessResponse(text=output_text, route="CLARIFY", status=status, session_id=session.session_id,
+                               tool_calls=tool_calls, clarification=clarification, is_hitl_paused=True)
 
     async def run(
         self,
@@ -323,139 +238,28 @@ class ClinicalADKHarness:
                 is_hitl_paused=True,
             )
 
-        # Special case: CSF panel workup
-        # Only true CSF panel/workup requests take this path; single tests (e.g. CSF protein)
-        # or unknown terms (e.g. csfzzz) proceed to ontology resolution and the safety gate.
-        term_clean = term.lower().strip()
-        is_csf_panel = (
-            term_clean in ("csf", "csf workup", "csf panel", "csf emergency", "csf emergency panel")
-            or (re.search(r"\bcsf\b", term_clean) and any(kw in term_clean for kw in ("workup", "panel", "emergency")))
-        )
-        if is_csf_panel:
-            # The department filter is passed via the unit slot by the pipe-delimited
-            # runner format "CSF workup | hematology".  Validate it is a real department
-            # keyword before forwarding so that a unit typo (e.g. mg/dL) does not cause
-            # csf_workup() to return {"status": "NOT_FOUND"} and crash the format loop.
-            _KNOWN_CSF_DEPTS = ("hematology", "biochemistry", "microbiology", "chemistry", "")
-            dept_hint = unit or qualifier
-            if dept_hint and not any(
-                d in dept_hint.lower() for d in _KNOWN_CSF_DEPTS if d
-            ):
-                clarification_msg = (
-                    f"Unrecognised department filter '{dept_hint}' for CSF workup. "
-                    "Please specify one of: Hematology, Clinical Biochemistry, Microbiology, "
-                    "or omit to receive the full panel."
-                )
-                output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
-                session.add_model_message(content=output_text, tool_calls=all_tool_calls)
-                return HarnessResponse(
-                    text=output_text,
-                    route="CLARIFY",
-                    status="NOT_FOUND",
-                    session_id=session.session_id,
-                    tool_calls=all_tool_calls,
-                    clarification=clarification_msg,
-                    is_hitl_paused=True,
-                )
-
-            csf_args = {"department": dept_hint}
-            csf_res = self.mcp_bridge.execute_tool("csf_workup", csf_args)
-            record = ToolInvocationRecord(tool_name="csf_workup", args=csf_args, result=csf_res)
-            all_tool_calls.append(record)
-            self.context_mgr.append_tool_result_to_session(session, "csf_workup", csf_res)
-
-            # Guard: csf_workup returns {"status": "NOT_FOUND"} if no tests match the
-            # department filter.  Iterating over that dict and calling str.get() crashes
-            # with AttributeError.  Route to CLARIFY instead.
-            if csf_res.get("status") == "NOT_FOUND":
-                clarification_msg = (
-                    f"No CSF tests found for department filter '{dept_hint}'. "
-                    "Please verify the department name or omit to receive the full panel."
-                )
-                output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
-                session.add_model_message(content=output_text, tool_calls=all_tool_calls)
-                return HarnessResponse(
-                    text=output_text,
-                    route="CLARIFY",
-                    status="NOT_FOUND",
-                    session_id=session.session_id,
-                    tool_calls=all_tool_calls,
-                    clarification=clarification_msg,
-                    is_hitl_paused=True,
-                )
-
-            output_text = "[PROCEED] Emergency CSF Workup (Governed Tube Sequence Enforced):\n"
-            for dept, tests in csf_res.items():
-                # Defensive: skip sentinel keys like "status" whose value is a string.
-                if not isinstance(tests, list):
-                    continue
-                output_text += f"\nDepartment: {dept}\n"
-                for t in tests:
-                    output_text += f"  - Tube {t.get('tube')}: {t.get('test')} [{t.get('uri')}]\n"
-
+        # Panel requests: deterministic gate (panel_id) → ordered, department-scoped workup.
+        if parsed.get("panel_id"):
+            gate_res = self._compute_gate_verdict(parsed, all_tool_calls, session)
+            if gate_res.get("route") != "PROCEED":
+                return self._clarify(session, all_tool_calls, gate_res.get("status", "NOT_FOUND"),
+                                     gate_res.get("clarification_prompt") or "Panel request could not be scoped.")
+            panel_args = {"panel": parsed["panel_id"], "department": parsed.get("department", "")}
+            panel_res = self.mcp_bridge.execute_tool("panel_workup", panel_args)
+            all_tool_calls.append(ToolInvocationRecord(tool_name="panel_workup", args=panel_args, result=panel_res))
+            self.context_mgr.append_tool_result_to_session(session, "panel_workup", panel_res)
+            if panel_res.get("status") != "RESOLVED":
+                return self._clarify(session, all_tool_calls, "NOT_FOUND",
+                                     f"No tests found for department filter '{parsed.get('department', '')}'. "
+                                     "Please verify the department name or omit it to receive the full panel.")
+            output_text = f"[PROCEED] {panel_res['panel']} (Governed Tube Sequence Enforced):\n"
+            for tube in panel_res["tubes"]:
+                output_text += f"\nDepartment: {tube['department']}\n"
+                for t in tube["tests"]:
+                    output_text += f"  - Tube {tube['tube']}: {t['test_name']} [{t['uri']}]\n"
             session.add_model_message(content=output_text, tool_calls=all_tool_calls)
-            return HarnessResponse(
-                text=output_text.strip(),
-                route="PROCEED",
-                status="RESOLVED",
-                session_id=session.session_id,
-                tool_calls=all_tool_calls,
-            )
-
-        # Special case: Calcium collision check
-        if "calcium" in term.lower() and val is not None:
-            # Defect #5: the unit from the clinician's input was ignored; the value was
-            # always forwarded as-is and treated as mg/dL even when mmol/L was reported.
-            # Convert to mg/dL before calling check_calcium so the classification and
-            # clarification message use the correct scale.
-            from src.core.attestation import convert_unit
-
-            val_mgdl = val
-            if unit and unit.strip().lower() == "mmol/l":
-                converted = convert_unit(val, "mmol/L", "mg/dL", analyte="calcium")
-                if converted is None:
-                    clarification_msg = (
-                        f"Cannot convert reported Calcium value {val} mmol/L to mg/dL. "
-                        "Please resend with value expressed in mg/dL."
-                    )
-                    output_text = f"[CLARIFY - HITL Pause]\n{clarification_msg}"
-                    session.add_model_message(content=output_text, tool_calls=all_tool_calls)
-                    return HarnessResponse(
-                        text=output_text,
-                        route="CLARIFY",
-                        status="UNIT_MISMATCH",
-                        session_id=session.session_id,
-                        tool_calls=all_tool_calls,
-                        clarification=clarification_msg,
-                        is_hitl_paused=True,
-                    )
-                val_mgdl = converted
-
-            calc_args = {"value_mg_dl": val_mgdl, "qualifier": qualifier}
-            calc_res = self.mcp_bridge.execute_tool("check_calcium", calc_args)
-            record = ToolInvocationRecord(tool_name="check_calcium", args=calc_args, result=calc_res)
-            all_tool_calls.append(record)
-            self.context_mgr.append_tool_result_to_session(session, "check_calcium", calc_res)
-
-            status = calc_res.get("status", "RESOLVED")
-            if status == "RANGE_COLLISION":
-                reported_display = f"{val} {unit}" if unit else f"{val_mgdl} mg/dL"
-                clarification_msg = (
-                    f"Calcium value {reported_display} is ambiguous without qualification: "
-                    f"CRITICAL LOW for Total Calcium vs NORMAL for Ionized Calcium. "
-                    f"Please specify qualifier ('total' or 'ionized')."
-                )
-                output_text = f"[CLARIFY] Safety Collision Intercepted: {clarification_msg}"
-                session.add_model_message(content=output_text, tool_calls=all_tool_calls)
-                return HarnessResponse(
-                    text=output_text,
-                    route="CLARIFY",
-                    status="RANGE_COLLISION",
-                    session_id=session.session_id,
-                    tool_calls=all_tool_calls,
-                    clarification=clarification_msg,
-                    is_hitl_paused=True,
-                )
+            return HarnessResponse(text=output_text.strip(), route="PROCEED", status="RESOLVED",
+                                   session_id=session.session_id, tool_calls=all_tool_calls)
 
         # Standard Clinical Laboratory Workflow:
         # Step 1: Resolve ontology via MCP
@@ -464,42 +268,19 @@ class ClinicalADKHarness:
         record_resolve = ToolInvocationRecord(tool_name="resolve_lab_term", args=resolve_args, result=resolve_res)
         all_tool_calls.append(record_resolve)
         self.context_mgr.append_tool_result_to_session(session, "resolve_lab_term", resolve_res)
-
-        status = resolve_res.get("status", "UNKNOWN")
         candidates = resolve_res.get("candidates", [])
 
-        # Step 2: Evaluate deterministic safety gate via MCP
-        gate_args = {
-            "term": term,
-            "unit": unit,
-            "qualifier": qualifier,
-            "patient_value": val,
-            "status": status,
-        }
-        gate_res = self.mcp_bridge.execute_tool("evaluate_safety_gate", gate_args)
-        record_gate = ToolInvocationRecord(tool_name="evaluate_safety_gate", args=gate_args, result=gate_res)
-        all_tool_calls.append(record_gate)
-        self.context_mgr.append_tool_result_to_session(session, "evaluate_safety_gate", gate_res)
-
+        # Step 2: Deterministic safety gate (the only routing authority)
+        gate_res = self._compute_gate_verdict(parsed, all_tool_calls, session)
+        status = gate_res.get("status", "UNKNOWN")
         route = gate_res.get("route", "CLARIFY")
 
         # Step 3: Branch on Safety Gate Verdict
         if route == "CLARIFY":
             clarification = gate_res.get("clarification_prompt") or (
-                f"Clarification required for ambiguous laboratory order '{term}'. "
-                f"Reported status: {status}. Please provide valid measurement units."
+                f"Clarification required for laboratory order '{term}' (status {status})."
             )
-            output_text = f"[CLARIFY - HITL Pause]\n{clarification}"
-            session.add_model_message(content=output_text, tool_calls=all_tool_calls)
-            return HarnessResponse(
-                text=output_text,
-                route="CLARIFY",
-                status=status,
-                session_id=session.session_id,
-                tool_calls=all_tool_calls,
-                clarification=clarification,
-                is_hitl_paused=True,
-            )
+            return self._clarify(session, all_tool_calls, status, clarification)
 
         # Step 4: Route == PROCEED -> Fetch Grounded Protocol & Attest
         candidate = candidates[0] if candidates else {}
@@ -526,7 +307,7 @@ class ClinicalADKHarness:
             if attest_res.get("passed"):
                 attested = True
                 badge = " [Attested ✓]"
-                # Defect #1: a panic value passes attestation but must never receive
+                # a panic value passes attestation but must never receive
                 # a clean badge without a CRITICAL WARNING visible to the clinician.
                 if attest_res.get("is_panic"):
                     panic_warning = (
@@ -597,7 +378,7 @@ class ClinicalADKHarness:
         """
         all_tool_calls: List[ToolInvocationRecord] = []
 
-        # --- Fix 1: compute gate verdict in code BEFORE any Gemini turn ---
+        # --- compute gate verdict in code BEFORE any Gemini turn ---
         parsed = self.parse_clinician_query(prompt)
         gate_res = self._compute_gate_verdict(parsed, all_tool_calls, session)
 
@@ -677,7 +458,7 @@ class ClinicalADKHarness:
                     tool_name = fc.name
                     tool_args = dict(fc.args) if fc.args else {}
 
-                    # --- Fix 1: gate-guard protocol retrieval tools ---
+                    # --- gate-guard protocol retrieval tools ---
                     if tool_name in _GATE_GUARDED_TOOLS and last_route != "PROCEED":
                         blocked_result: Dict[str, Any] = {
                             "status": "BLOCKED",
@@ -728,15 +509,6 @@ class ClinicalADKHarness:
                         if res_status in ("AMBIGUOUS", "UNIT_MISMATCH", "NOT_FOUND"):
                             last_status = res_status
 
-                    elif tool_name == "check_calcium":
-                        if tool_result.get("status") == "RANGE_COLLISION":
-                            last_route = "CLARIFY"
-                            last_status = "RANGE_COLLISION"
-                            clarification_msg = (
-                                "Ambiguous calcium qualification: CRITICAL LOW for Total vs NORMAL for Ionized. "
-                                "Please specify qualifier."
-                            )
-
                     elif tool_name == "fetch_grounded_protocol":
                         protocol_data = tool_result
 
@@ -785,23 +557,19 @@ class ClinicalADKHarness:
                             + (f"Panic Limits: {proto.get('panic_limits', 'N/A')}" if proto.get("panic_limits") else "")
                         ).strip()
                     elif last_route == "PROCEED":
-                        csf_calls = [tc for tc in all_tool_calls if tc.tool_name == "csf_workup"]
+                        panel_calls = [tc for tc in all_tool_calls if tc.tool_name == "panel_workup"]
                         resolve_calls = [
                             tc for tc in all_tool_calls
                             if tc.tool_name == "resolve_lab_term" and isinstance((tc.result or {}), dict)
                         ]
-                        if csf_calls and isinstance(csf_calls[-1].result, dict):
-                            csf_res = csf_calls[-1].result
-                            dept_tubes = []
-                            for dept, tests in csf_res.items():
-                                if isinstance(tests, list):
-                                    tube_names = {f"Tube {t.get('tube', '')}" for t in tests if isinstance(t, dict)}
-                                    test_names = [str(t.get("test", "")) for t in tests if isinstance(t, dict)]
-                                    dept_tubes.append(f"{dept} ({', '.join(sorted(tube_names))}): {', '.join(test_names[:2])}")
-                            if dept_tubes:
-                                final_text = f"[PROCEED] {last_status} | " + " | ".join(dept_tubes)
-                            else:
-                                final_text = f"[PROCEED] {last_status}"
+                        if panel_calls and isinstance(panel_calls[-1].result, dict):
+                            tubes = panel_calls[-1].result.get("tubes", [])
+                            summary = [
+                                f"Tube {t['tube']} {t['department']}: "
+                                + ", ".join(x["test_name"] for x in t["tests"][:2])
+                                for t in tubes
+                            ]
+                            final_text = f"[PROCEED] {last_status}" + ("".join(f" | {x}" for x in summary))
                         elif resolve_calls:
                             r = resolve_calls[-1].result or {}
                             cands = r.get("candidates", [])
@@ -877,7 +645,7 @@ class ClinicalADKHarness:
 
 
 def create_clinical_harness(
-    model_name: str = "gemini-2.5-flash",
+    model_name: Optional[str] = None,
     offline: Optional[bool] = None,
     **kwargs: Any,
 ) -> ClinicalADKHarness:

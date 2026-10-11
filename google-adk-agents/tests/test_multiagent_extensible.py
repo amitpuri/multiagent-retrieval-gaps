@@ -12,15 +12,14 @@ from pathlib import Path
 import pytest
 
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
-from src.core.config import get_default_registry, load_domain_config, load_scenario_extension
-from src.core.detectors.ambiguity import AmbiguityDetector
-from src.core.detectors.engine import SafetyGateEngine
-from src.core.detectors.range_collision import RangeCollisionDetector
-from src.core.detectors.specimen_sequence import SpecimenSequenceDetector
-from src.core.models import (
+from ontogate.config import get_default_registry, load_domain_config, load_scenario_extension
+from ontogate.detectors.ambiguity import AmbiguityDetector
+from ontogate.detectors.engine import SafetyGateEngine
+from ontogate.detectors.range_collision import RangeCollisionDetector
+from ontogate.detectors.specimen_sequence import SpecimenSequenceDetector
+from ontogate.models import (
     ConceptDefinition,
     EvaluationContext,
-    NumericAssay,
     ResolutionStatus,
 )
 from src.orchestration.a2a_orchestrator import parse_clinician_input
@@ -66,7 +65,7 @@ def test_dynamic_scenario_extension_loading():
     assert proto_tni is not None
     assert "< 0.04 ng/mL" in proto_tni.reference_range
 
-    # Invariant (Fix 14 / T14): default registry was NOT mutated
+    # Invariant: default registry was NOT mutated
     assert "loinc:10839-9" not in get_default_registry().concepts
 
 
@@ -196,7 +195,7 @@ def test_parse_clinician_input_qualifiers():
 # -------------------------------------------------------------------------
 def test_unit_mismatch_detector_invalid_unit():
     """UnitMismatchDetector flags reported units not valid for any matched concept."""
-    from src.core.detectors.unit_mismatch import UnitMismatchDetector
+    from ontogate.detectors.unit_mismatch import UnitMismatchDetector
 
     registry = get_default_registry()
     detector = UnitMismatchDetector(registry)
@@ -211,7 +210,7 @@ def test_unit_mismatch_detector_invalid_unit():
 
 def test_unit_mismatch_detector_valid_unit_passes():
     """UnitMismatchDetector passes when reported unit is valid for at least one concept."""
-    from src.core.detectors.unit_mismatch import UnitMismatchDetector
+    from ontogate.detectors.unit_mismatch import UnitMismatchDetector
 
     registry = get_default_registry()
     detector = UnitMismatchDetector(registry)
@@ -224,7 +223,7 @@ def test_unit_mismatch_detector_valid_unit_passes():
 
 def test_unit_mismatch_detector_no_unit_skips():
     """UnitMismatchDetector passes when no unit is provided (other detectors handle ambiguity)."""
-    from src.core.detectors.unit_mismatch import UnitMismatchDetector
+    from ontogate.detectors.unit_mismatch import UnitMismatchDetector
 
     registry = get_default_registry()
     detector = UnitMismatchDetector(registry)
@@ -238,8 +237,8 @@ def test_unit_mismatch_detector_no_unit_skips():
 # Test Group 6: MissingQualifierDetector
 # -------------------------------------------------------------------------
 def test_missing_qualifier_detector_flags_unqualified_numeric():
-    """MissingQualifierDetector flags numeric results for collision-family assays without qualifiers."""
-    from src.core.detectors.missing_qualifier import MissingQualifierDetector
+    """MissingQualifierDetector flags numeric results whose candidates differ on a facet."""
+    from ontogate.detectors.missing_qualifier import MissingQualifierDetector
 
     registry = get_default_registry()
     detector = MissingQualifierDetector(registry)
@@ -253,7 +252,7 @@ def test_missing_qualifier_detector_flags_unqualified_numeric():
 
 def test_missing_qualifier_detector_passes_with_qualifier():
     """MissingQualifierDetector passes when a qualifier is already supplied."""
-    from src.core.detectors.missing_qualifier import MissingQualifierDetector
+    from ontogate.detectors.missing_qualifier import MissingQualifierDetector
 
     registry = get_default_registry()
     detector = MissingQualifierDetector(registry)
@@ -265,7 +264,7 @@ def test_missing_qualifier_detector_passes_with_qualifier():
 
 def test_missing_qualifier_detector_passes_without_numeric():
     """MissingQualifierDetector passes for terms with no patient value (ordering without result)."""
-    from src.core.detectors.missing_qualifier import MissingQualifierDetector
+    from ontogate.detectors.missing_qualifier import MissingQualifierDetector
 
     registry = get_default_registry()
     detector = MissingQualifierDetector(registry)

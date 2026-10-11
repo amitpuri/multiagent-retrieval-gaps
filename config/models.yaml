@@ -1,0 +1,100 @@
+# Model catalog — the single source of truth for every model ID in this repository.
+# Code, deploy scripts, CloudFormation parameters, MAF declarative
+# agents and README tables read from — or are validated against — this file.
+# A CI test fails on any model ID string found elsewhere.
+#
+# Models are knowledge artifacts too: provenance in the ontology (generated_by)
+# refers to these IDs, and `retire_after` follows the same freshness rule as
+# OKF `stale_after` (warn 30 days ahead).
+#
+# Verified 2026-10-11 against provider documentation (docs/ONTOLOGY_ENGINEERING_PLAN.md, sources).
+
+schema_version: "1.0.0"
+
+catalog:
+  # ---- Google Cloud — Gemini Enterprise Agent Platform -----------------------
+  gemini-3.8-flash:
+    provider: gcp
+    family: gemini
+    released: "2026-09-02"
+    status: ga
+    retire_after: null          # Flash releases are short-lived: track the model-versions page
+  gemini-3.5-flash-lite:
+    provider: gcp
+    family: gemini
+    released: "2026-07-21"
+    status: ga
+    retire_after: null
+
+  # ---- AWS — Amazon Bedrock (Strands on AgentCore) ---------------------------
+  claude-opus-5-5:
+    provider: aws
+    family: claude
+    anthropic_id: claude-opus-5-5
+    bedrock_id: global.anthropic.claude-opus-5-5
+    released: "2026-09-22"
+    status: ga
+    retire_after: null
+  claude-sonnet-5-5:
+    provider: aws
+    family: claude
+    anthropic_id: claude-sonnet-5-5
+    bedrock_id: global.anthropic.claude-sonnet-5-5   # verify the global inference profile in-region
+    status: ga
+    retire_after: null
+  claude-haiku-5-5:
+    provider: aws
+    family: claude
+    anthropic_id: claude-haiku-5-5
+    bedrock_id: global.anthropic.claude-haiku-5-5    # verify the global inference profile in-region
+    status: ga
+    retire_after: null
+
+  # ---- Microsoft Azure — Microsoft Foundry (MAF) ----------------------------
+  gpt-6.1-sol:
+    provider: azure
+    family: openai
+    version: "2026-09-29"
+    api: responses
+    status: ga
+    retire_after: null
+  gpt-6-sol:
+    provider: azure
+    family: openai
+    version: "2026-09-22"
+    api: responses
+    status: ga
+    retire_after: null
+
+# Per-cloud deployment policy. Every role uses the flagship by default; a role may
+# be down-tiered only after the cross-cloud eval shows parity.
+deployments:
+  gcp:
+    framework: google-adk
+    default: gemini-3.8-flash
+    roles: {}
+  aws:
+    framework: strands-agents
+    default: claude-opus-5-5
+    # Claude Opus 5.5: thinking cannot be disabled and effort defaults to "medium",
+    # so effort is set explicitly per role.
+    effort: high
+    role_effort:
+      clarification_coordinator: low
+      triage_orchestrator: medium
+    roles: {}
+  azure:
+    framework: microsoft-agent-framework
+    default: gpt-6.1-sol
+    deployment_name: gpt-6.1-sol     # Foundry deployment name (may differ from the model name)
+    reasoning_effort: medium
+    role_reasoning_effort:
+      clinical_synthesizer: high
+      clarification_coordinator: low
+    roles: {}
+
+# Offline / CI placeholders (never sent to a provider).
+offline:
+  gcp: offline-gemini-stub
+  aws: offline-bedrock-stub
+  azure: offline-foundry-stub

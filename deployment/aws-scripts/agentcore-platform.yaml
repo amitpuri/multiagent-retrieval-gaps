@@ -135,7 +135,7 @@ Parameters:
     Description: Start in LOG_ONLY, watch decisions, then flip to ENFORCE.
   BedrockModelId:
     Type: String
-    Default: anthropic.claude-sonnet-4-5-20251203-v1:0
+    Default: global.anthropic.claude-opus-5-5
     Description: Bedrock foundation model ID or inference profile for clinical decision support.
   EvalSamplingPercentage:
     Type: Number

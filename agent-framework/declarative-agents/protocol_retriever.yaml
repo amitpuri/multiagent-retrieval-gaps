@@ -12,16 +12,16 @@ instructions: |
 
   You are ONLY invoked after the safety gate has returned route == 'PROCEED'.
 
-  Your job is to call fetch_protocol with the resolved_uri and concept, then return
+  Your job is to call fetch_grounded_protocol with the resolved_uri and concept, then return
   the protocol data including reference_range, panic_limits, and clinical_guideline.
 
   RULES:
-  - Call fetch_protocol exactly once per request.
+  - Call fetch_grounded_protocol exactly once per request.
   - Return the full protocol dict verbatim — do NOT interpret or modify values.
   - Do NOT call synthesis agents — that is handled by the workflow.
 tools:
   - kind: function
-    name: fetch_protocol
+    name: fetch_grounded_protocol
     description: Fetch reference range, panic limits, and clinical guideline for a LOINC URI.
     bindings:
-      function: fetch_protocol
+      function: fetch_grounded_protocol
