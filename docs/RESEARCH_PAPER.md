@@ -101,7 +101,7 @@ $$G(c) \rightarrow (s, r, \text{evidence}), \quad s \in \mathcal{S}, \quad r \in
 
 with status set
 
-$$\mathcal{S} = \{\text{RESOLVED}, \text{AMBIGUOUS}, \text{UNIT\_MISMATCH}, \text{RANGE\_COLLISION}, \text{MISSING\_QUALIFIER}, \text{SCOPE\_VIOLATION}, \text{NOT\_FOUND}, \text{MODEL\_UNAVAILABLE}, \text{UNKNOWN}\}$$
+$$\mathcal{S} = \{\text{RESOLVED}, \text{AMBIGUOUS}, \text{UNIT\textunderscore MISMATCH}, \text{RANGE\textunderscore COLLISION}, \text{MISSING\textunderscore QUALIFIER}, \text{SCOPE\textunderscore VIOLATION}, \text{NOT\textunderscore FOUND}, \text{MODEL\textunderscore UNAVAILABLE}, \text{UNKNOWN}\}$$
 
 and the single routing invariant
 
