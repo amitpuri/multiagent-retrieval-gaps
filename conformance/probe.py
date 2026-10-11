@@ -99,7 +99,8 @@ SERVER_MODULES = {"adk": "src.harness.server", "strands": "src.server", "maf": "
 
 
 def _agent_card(framework: str) -> Dict[str, Any]:
-    """The AgentCard the framework's server publishes, minus what legitimately differs (URL, label)."""
+    """The AgentCard the framework's server publishes, minus what legitimately differs per deployment
+    (URLs, framework label, and the server's own auth setting)."""
     from ontogate.agent_cards import agent_card, entrypoint_role
     if framework == "ontogate":
         card = agent_card(entrypoint_role(), "http://testserver/")
@@ -113,6 +114,9 @@ def _agent_card(framework: str) -> Dict[str, Any]:
     card = dict(card)
     card.pop("url", None)
     card.pop("documentationUrl", None)
+    card.pop("additionalInterfaces", None)
+    card.pop("securitySchemes", None)
+    card.pop("security", None)
     for ext in card.get("capabilities", {}).get("extensions", []):
         ext.get("params", {}).pop("framework", None)
     return {"agent_card": card}

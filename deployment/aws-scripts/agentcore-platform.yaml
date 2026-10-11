@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Amazon Bedrock AgentCore & App Runner platform stack for Clinical Decision Support (strands-agents):
-  Runtime, Gateway (+ clinical Lambda target), Memory, Identity, Policy, Observability, Online Evaluations,
-  and optional App Runner service.
+  Runtime, Memory, Identity, Observability, Online Evaluations, and optional App Runner service.
+  Gateway (+ sample Lambda target) and Policy are off by default: the agents call the canonical
+  tools in-process (docs/ONTOLOGY_ENGINEERING_PLAN.md §9.5).
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -73,8 +74,8 @@ Parameters:
     Description: Create ECR repository via CloudFormation (leave false if created by deploy scripts).
 
   EnableMemory:          { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
-  EnableGateway:         { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
-  EnablePolicy:          { Type: String, Default: "true",  AllowedValues: ["true", "false"], Description: Requires EnableGateway. }
+  EnableGateway:         { Type: String, Default: "false", AllowedValues: ["true", "false"], Description: Off by default; tools run in-process (plan §9.5). }
+  EnablePolicy:          { Type: String, Default: "false", AllowedValues: ["true", "false"], Description: Requires EnableGateway. }
   EnableIdentity:        { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
   EnableHarness:         { Type: String, Default: "false", AllowedValues: ["true", "false"] }
   EnableEvaluations:     { Type: String, Default: "false", AllowedValues: ["true", "false"], Description: Requires a Runtime (ContainerImageUri). }

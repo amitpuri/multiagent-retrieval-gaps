@@ -14,6 +14,8 @@ from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from ontogate.a2a import A2A_PATH, handle_body
+
 from src.harness.agent import ClinicalHarnessAgent, create_clinical_harness_agent
 from src.harness.session import HarnessSession
 
@@ -107,3 +109,11 @@ async def query_maf(req: QueryRequest) -> QueryResponse:
         attested=resp.attested,
         clarification=resp.clarification,
     )
+
+
+@app.post(A2A_PATH, tags=["A2A"])
+async def a2a_jsonrpc(request: Request) -> Dict[str, Any]:
+    """A2A JSON-RPC ``message/send`` (the AgentCard ``url``); same answer as ``/api/v1/query``."""
+    async def query(prompt: str, context_id: Optional[str]) -> Dict[str, Any]:
+        return (await query_maf(QueryRequest(prompt=prompt, session_id=context_id))).model_dump()
+    return await handle_body(await request.body(), query)

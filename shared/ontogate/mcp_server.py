@@ -1,6 +1,8 @@
 """
 Canonical clinical MCP server — the same tool contract on every framework and
-every cloud (Agent Gateway, AgentCore Gateway, Foundry toolbox).
+every cloud. Agents bind these tools in-process; the HTTP transport is for
+external MCP clients (plan §9.5: put agentgateway in front of it when it is
+served beyond the agent process).
 
 Run standalone::
 

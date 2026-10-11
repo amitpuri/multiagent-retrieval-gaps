@@ -311,7 +311,7 @@ flowchart LR
 ```bash
 cd shared
 python -m pytest tests/ -v
-# 223 passed (pure Python, 0 LLM calls; the RDF/SHACL tests need `pip install -e ".[dev]"`)
+# 235 passed (pure Python, 0 LLM calls; the RDF/SHACL tests need `pip install -e ".[dev]"`)
 ```
 
 ---
@@ -666,7 +666,7 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Shared Core (ontogate) — 223 tests (gate, CQs, validator, skills, roles, RDF/SHACL, stores, AgentCards)
+# Shared Core (ontogate) — 235 tests (gate, CQs, validator, skills, roles, RDF/SHACL, stores, AgentCards, A2A)
 cd shared && python -m pytest tests/ -v
 
 # Google ADK ≥2.11.0 — 206 tests
@@ -874,7 +874,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **Runtime skills** | `SkillToolset` per role (no script tool) | `AgentSkills` plugin per role (`strict=True`) | `SkillsProvider` per role (no scripts) |
 | **Tests** | **206 offline `pytest` tests** (OKF + Gate + Harness + Skills + Role agents) | **77 offline `pytest` tests** (Invariants + Extensible + Roles + Skills + AgentCore contract) | **50 offline `pytest` tests** (Invariants + Pipeline + Harness + Declarative drift) |
 
-> *Note: the shared core adds **223 tests** (`shared/tests/`); deployment teardown (29), cross-cloud conformance (11) and answer graders (11) bring the repository to **607 offline tests**.*
+> *Note: the shared core adds **235 tests** (`shared/tests/`); deployment teardown (29), cross-cloud conformance (12) and answer graders (11) bring the repository to **620 offline tests**.*
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |
@@ -989,7 +989,7 @@ flowchart TD
 | Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Skill Store | Authentication & Secrets | Port | Health Checks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | Cloud Storage, content-addressed (`gs://<project>-skills/skills`) | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
-| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`) | S3, content-addressed (`s3://<project>-<env>-skills/skills`) | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
+| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Memory; App Runner opt-in fallback) | Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`) | S3, content-addressed (`s3://<project>-<env>-skills/skills`) | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
 | **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | Blob Storage, content-addressed (`azblob://<account>/skills/skills`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
 
 ### Automated Deployment Scripts

@@ -40,7 +40,7 @@ echo "==========================================================================
 echo " Amazon Bedrock AgentCore Deployment: ${AGENT_NAME}"
 echo " Region:           ${AWS_REGION}"
 echo " Foundation Model: ${BEDROCK_MODEL_ID}"
-echo " Runtime:          Bedrock AgentCore (Gateway + Identity + Memory + Runtime)"
+echo " Runtime:          Bedrock AgentCore (Runtime + Memory)"
 echo " Repo:             ${REPO_ROOT}"
 echo "=============================================================================="
 

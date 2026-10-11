@@ -11,8 +11,11 @@ import os
 import uuid
 from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, status, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from ontogate.a2a import A2A_PATH, handle_body
 
 from src.orchestration.strands_orchestrator import (
     StrandsDecisionSupportOrchestrator,
@@ -130,6 +133,15 @@ def query_strands(req: QueryRequest) -> QueryResponse:
 
 
 # ── Amazon Bedrock AgentCore Runtime contract: GET /ping, POST /invocations on $PORT (8080) ──
+@app.post(A2A_PATH, tags=["A2A"])
+async def a2a_jsonrpc(request: Request) -> Dict[str, Any]:
+    """A2A JSON-RPC ``message/send`` (the AgentCard ``url``); same answer as ``/api/v1/query``."""
+    async def query(prompt: str, context_id: Optional[str]) -> Dict[str, Any]:
+        req = QueryRequest(prompt=prompt, session_id=context_id)
+        return (await run_in_threadpool(query_strands, req)).model_dump()  # sync handler: keep the loop free
+    return await handle_body(await request.body(), query)
+
+
 @app.get("/ping", tags=["AgentCore"])
 def ping() -> Dict[str, str]:
     return {"status": "Healthy"}

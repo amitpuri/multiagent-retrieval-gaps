@@ -11,7 +11,10 @@ the served domains select which scenarios apply (overlay scenarios describe
 knowledge a deployed pack does not hold), and the served bundle hash must equal
 the local release — otherwise the expectations do not describe that service.
 Each question is sent to ``POST /api/v1/query`` in a fresh session; the
-returned ``status`` and ``route`` must match the scenario and fail closed.
+returned ``status`` and ``route`` must match the scenario and fail closed. The
+first question is also asked through the card's ``url`` (A2A JSON-RPC
+``message/send``), which must return the same decision — the card may only
+advertise an interface that answers.
 The report (``dist/conformance/live-<label>.json``) is keyed by the bundle and
 skills-lock hashes it was run against.
 
@@ -116,8 +119,33 @@ def check(client: Any, label: str, local_release: Dict[str, Any]) -> Dict[str, A
             problems.append("attested=true without a passing deterministic attestation")
         if problems:
             report["failures"][case["case"]] = "; ".join(problems)
+    if cases:
+        problem = _a2a_problem(client, card, cases[0]["tc"]["input_text"])
+        if problem:
+            report["failures"]["_a2a"] = problem
     report["conforms"] = not report["failures"]
     return report
+
+
+def _a2a_problem(client: Any, card: Dict[str, Any], prompt: str) -> Optional[str]:
+    """Ask ``prompt`` via REST and via the card's A2A ``url``; describe any disagreement."""
+    from urllib.parse import urlparse
+    if card.get("preferredTransport") != "JSONRPC":
+        return f"card advertises transport {card.get('preferredTransport')!r}, expected JSONRPC"
+    rest = client.post("/api/v1/query", json={"prompt": prompt, "session_id": f"cq-{uuid.uuid4()}"}).json()
+    rpc = {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {"message": {
+        "kind": "message", "role": "user", "messageId": str(uuid.uuid4()), "parts": [{"kind": "text", "text": prompt}]}}}
+    response = client.post(urlparse(card["url"]).path or "/", json=rpc)
+    if response.status_code != 200:
+        return f"A2A url answered HTTP {response.status_code}"
+    body = response.json()
+    if "error" in body:
+        return f"A2A error {body['error']}"
+    data = next((p["data"] for p in body["result"].get("parts", []) if p.get("kind") == "data"), {})
+    if (data.get("route"), data.get("status")) != (rest.get("route"), rest.get("status")):
+        return (f"A2A decision {data.get('route')}/{data.get('status')} != REST "
+                f"{rest.get('route')}/{rest.get('status')}")
+    return None
 
 
 def _asgi_client(framework: str):

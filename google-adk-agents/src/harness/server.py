@@ -25,7 +25,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
+from ontogate.a2a import A2A_PATH, INVALID_PARAMS, A2AError, handle_body
 
 from src.harness.agent import ClinicalADKHarness, HarnessResponse, create_clinical_harness
 from src.harness.mcp_server import CLINICAL_MCP_TOOLS
@@ -177,7 +179,8 @@ class SessionCreateResponse(BaseModel):
 def agent_card(request: Request) -> Dict[str, Any]:
     """A2A AgentCard for this deployment, generated from the role specs (identical on every cloud)."""
     from ontogate.agent_cards import agent_card as build_card, entrypoint_role
-    return build_card(entrypoint_role(), str(request.base_url), framework="google-adk")
+    return build_card(entrypoint_role(), str(request.base_url), framework="google-adk",
+                      bearer_auth=bool(_VALID_TOKENS))
 
 
 @app.get("/healthz", status_code=status.HTTP_200_OK, tags=["Monitoring"])
@@ -298,6 +301,18 @@ async def query_harness(
         tool_calls_count=len(res.tool_calls),
         clarification=res.clarification,
     )
+
+
+@app.post(A2A_PATH, tags=["A2A"])
+async def a2a_jsonrpc(request: Request, _token: str = Depends(require_auth)) -> Dict[str, Any]:
+    """A2A JSON-RPC ``message/send`` (the AgentCard ``url``); same answer as ``/api/v1/query``."""
+    async def query(prompt: str, context_id: Optional[str]) -> Dict[str, Any]:
+        try:
+            req = QueryRequest(prompt=prompt, session_id=context_id)
+        except ValidationError as exc:
+            raise A2AError(INVALID_PARAMS, exc.errors()[0]["msg"]) from exc
+        return (await query_harness(req, _token)).model_dump()
+    return await handle_body(await request.body(), query)
 
 
 @app.get("/api/v1/mcp/tools", tags=["MCP Tools"])

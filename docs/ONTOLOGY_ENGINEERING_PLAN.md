@@ -202,9 +202,9 @@ flowchart TB
     end
 
     subgraph L3["L3 · Cloud platforms"]
-        GCP["GCP · Agent Platform<br/>Agent Runtime · Skill Registry · Memory Bank<br/>Agent Gateway · gemini-3.8-flash"]
-        AWS["AWS · Bedrock AgentCore<br/>Runtime · S3/harness skills · Memory · Gateway<br/>Policy · claude-opus-5-5"]
-        AZ["Azure · Microsoft Foundry<br/>Agent Service · Skills API · Toolbox<br/>Managed Identity · gpt-6.1-sol"]
+        GCP["GCP · Agent Platform<br/>Agent Runtime · Skill Registry · Memory Bank<br/>gemini-3.8-flash"]
+        AWS["AWS · Bedrock AgentCore<br/>Runtime · S3/harness skills · Memory<br/>claude-opus-5-5"]
+        AZ["Azure · Microsoft Foundry<br/>Agent Service · Skills API<br/>Managed Identity · gpt-6.1-sol"]
     end
 
     REL --> L1
@@ -572,9 +572,9 @@ used for clinical roles.
 | Skills store | Skill Registry (preview) | S3 versioned prefix / image | Foundry Skills API (preview) |
 | Skills loader | `SkillToolset` | `AgentSkills` plugin | `SkillsProvider` |
 | Session / memory | Sessions · Memory Bank | AgentCore Memory | Foundry threads · memory (confirm) |
-| Tool gateway (MCP) | Agent Gateway + Agent Registry | AgentCore Gateway | Foundry toolbox / MCP connection |
+| Tools (MCP contract) | In-process canonical tools, no gateway (§9.5) | In-process canonical tools, no gateway (§9.5) | In-process canonical tools, no gateway (§9.5) |
 | Identity | Service account; IAM Unified Access Policies | AgentCore Identity | Managed Identity |
-| Cloud policy (additive only) | Agent Gateway semantic governance; VPC-SC | AgentCore Policy (Cedar) | Foundry guardrails |
+| Cloud policy (additive only) | VPC-SC; IAM on the runtime | Scoped execution role | Foundry guardrails |
 | Observability | Cloud Trace (OTel) | AgentCore Observability | Application Insights (OTel) |
 | Evaluation | Agent Platform evaluation | AgentCore Evaluations + Strands Evals | Foundry evaluations |
 | Bundle store | Artifact Registry (OCI) / GCS | ECR (OCI) / S3 | ACR (OCI) / Blob |
@@ -616,7 +616,29 @@ deployments:
 
 - **One canonical MCP contract** on every cloud, with the same image and the same bundle hash.
 - **A2A AgentCards** generated from role specs. Each card's `skills[]` lists **A2A capabilities** (§8.1), never skill-package contents.
+- **One A2A binding** on every server: JSON-RPC `message/send` at `/a2a`, the card's `url` (`ontogate.a2a`). It answers in one turn with an agent `Message` whose `data` part is the gate decision; no tasks, streaming or push. The live runner asks one question through it and fails if it disagrees with `POST /api/v1/query`.
 - **OTel GenAI** attributes `bundle_sha256`, `skills_lock_sha256`, `skill.name`, `skill.version`, `gate.status` and `gate.route` on every span.
+
+### 9.5 Tool gateways and agentgateway (decision, 2026-10-11)
+
+**Cloud tool gateways are dropped** (Agent Gateway + Agent Registry, AgentCore Gateway + Cedar Policy, Foundry MCP connection; former 11.G3, 11.A3, 11.Z3). Every framework binds the canonical tools in-process, and each role agent is built with exactly the tools its spec grants (P8.4). The gate is local code, so failing closed never depends on a network hop. A gateway would guard a door no caller uses.
+
+**[agentgateway](https://agentgateway.dev/) (Linux Foundation / AAIF, v1.6) was reviewed against this architecture and is not adopted now.**
+
+| agentgateway capability | Fit here | Why |
+| :--- | :--- | :--- |
+| MCP gateway: federation, `mcpAuthorization` (CEL on `mcp.tool.name` and JWT claims), denied tools hidden from `tools/list`, audit, OTel | **Conditional** | The rule shape matches role specs one-to-one: `tools[]` would generate the rules, and one policy would replace three cloud-specific gateways. But nothing calls the tools over the network today. Role-level rules would also need each role to run as its own workload with its own identity. All roles share one process per cloud, so a role claim would be self-asserted. |
+| LLM gateway: unified API, failover, budgets, prompt guards | **No** | Each cloud calls its own first-party model with keyless workload identity (ADC, IAM role, Managed Identity), pinned in `config/models.yaml`. Cross-provider failover would break per-cloud conformance (§16). It would also add a hop that sees PHI-bearing prompts (§12). |
+| A2A proxy: card `url` rewriting, auth, tracing per hop | **Not now** | The servers now speak A2A JSON-RPC (§9.4), so it would work. Each cloud already fronts its agent with platform auth, and clients call one cloud at a time. |
+| OpenAPI → MCP | **No** | The tools are MCP-native already (`ontogate.mcp_server`). |
+
+**Adopt agentgateway for the MCP plane when** the canonical MCP server (`python -m ontogate.mcp_server --http`) is served to callers outside the agent process: another team's agents, IDE or desktop MCP clients, or role agents split into separate workloads. Then:
+- put agentgateway in front of it, deny by default;
+- generate `mcpAuthorization` rules from `agents/*.yaml` (one rule per role over its `tools[]`, keyed on a workload-identity JWT claim);
+- add the generated config to the drift check;
+- run the same image on all three clouds.
+
+Rules cannot see tool arguments, which is fine: the policy is by tool name, and argument checks stay in the gate.
 
 ---
 
@@ -666,10 +688,10 @@ Everything below runs offline in `./run-all-tests.sh`; nothing has been deployed
 | P5 gate derives behaviour | ✅ | `shared/ontogate/detectors/` |
 | P6 graph runtime | ✅ | `ontogate.concept_graph`, protocol nodes, `precedes` checks |
 | P7 provenance + ABox separation | ✅ | `AuditPort`, TBox-only `knowledge/log.md` |
-| P8 role specs + MCP contract | ✅ | `agents/*.yaml` with `delegates`; one instruction (`ontogate.roles.instruction_for`) and one tool grant per role on ADK (`src/agents/roles.py`), Strands (`src/agents/roles.py`) and MAF (generated YAML); A2A AgentCards generated from role specs and served at `/.well-known/agent-card.json` by all three servers (`ontogate.agent_cards`) |
+| P8 role specs + MCP contract | ✅ | `agents/*.yaml` with `delegates`; one instruction (`ontogate.roles.instruction_for`) and one tool grant per role on ADK (`src/agents/roles.py`), Strands (`src/agents/roles.py`) and MAF (generated YAML); A2A AgentCards generated from role specs and served at `/.well-known/agent-card.json` by all three servers (`ontogate.agent_cards`), whose `url` is a working A2A JSON-RPC binding (`/a2a`, `ontogate.a2a`) |
 | P9 runtime skills | 🟡 | 8 skills, rendered references, lint, lock, native loaders in all three frameworks, `CODEOWNERS` (9.8); skill-activation CQs (9.9) need live models |
 | P10 model catalog | ✅ | `config/models.yaml`, repository-wide guard |
-| P11 deployments + skill stores | 🟡 | Teardown ledger + `deployment/teardown.py` for all three clouds (11.C4, offline-tested); ADK `AdkApp` on Agent Runtime (`deployment/gcloud-scripts/agent_runtime.py`, offline dry-run tested); release build + skill publish in every deploy script; AgentCore IAM scoped. live CQ runner in every `test-service` script (C2); Strands image meets the AgentCore Runtime contract (`/ping`, `/invocations`, 8080, arm64). Not done: Agent Gateway/Registry routing (G3), AgentCore Gateway/Policy for the ontogate MCP (A3), Foundry hosted agent (Z1, Z3) |
+| P11 deployments + skill stores | 🟡 | Teardown ledger + `deployment/teardown.py` for all three clouds (11.C4, offline-tested); ADK `AdkApp` on Agent Runtime (`deployment/gcloud-scripts/agent_runtime.py`, offline dry-run tested); release build + skill publish in every deploy script; AgentCore IAM scoped. live CQ runner in every `test-service` script (C2); Strands image meets the AgentCore Runtime contract (`/ping`, `/invocations`, 8080, arm64). Cloud tool gateways (G3, A3, Z3) dropped and agentgateway deferred (§9.5). Not done: Foundry hosted agent (Z1) |
 | P12 developer skills | ✅ | snippet-tested and format-linted; `add-domain-pack`, `run-ontology-build`, `run-conformance-suite`, `update-model-catalog`, `deploy-and-teardown`, `author-runtime-skill`, `add-hazard-detector`; mirrored into `.claude/skills` (`ontogate skills mirror`, drift-checked) |
 | P13 conformance | 🟡 | gate and AgentCard parity across ADK/Strands/MAF (13.1, `conformance/run.py`), same lock on all three (13.2), live CQ runner per server and deployment (`conformance/live.py`, 11.C2), deterministic answer graders + live eval runner (13.3, `evals/`), troponin overlay (13.6), YAML-only scenarios (13.7), cardiology reuse (13.8). Needs deployed models: eval runs per cloud, ablation (13.4), down-tiering (13.5); skills over MCP (13.9) not started |
 
@@ -733,7 +755,7 @@ Honest provenance; trust policy as config; validated overlays; TBox-only `knowle
 | Step | Change |
 | :--- | :--- |
 | 8.1 | **Canonical tool names** (fixes H1): `parse_clinician_input`, `resolve_lab_term`, `evaluate_safety_gate`, `fetch_grounded_protocol`, `attest_computation`, `build_clarification_prompt`, `panel_workup` (generalises `csf_workup`), plus the read-only `classify_lookalikes` |
-| 8.2 | One `ontogate` MCP server is the only tool implementation. ADK, Strands and MAF bind to it (in-process in dev, remote via the gateway in prod). Contract tests assert every tool returns a dict with `status` (invariant 3) |
+| 8.2 | One `ontogate` MCP server is the only tool implementation. ADK, Strands and MAF bind to it in-process on every cloud; the HTTP transport serves external MCP clients only (§9.5). Contract tests assert every tool returns a dict with `status` (invariant 3) |
 | 8.3 | `agents/<role>.yaml`: `role`, `uses_model`, `tools[]`, `skills[]`, `output_schema`, `model_tier`, plus a **short** base instruction (≤ 10 lines). Procedural detail moves to skills in P9 |
 | 8.4 | Generators: role spec → ADK `Agent`, Strands `Agent`, MAF `kind: Prompt` YAML (generated, drift-checked in CI) |
 | 8.5 | `safety_guard` is a code node in every framework: `uses_model: false`, `skills: []` (SHACL-enforced) |
@@ -774,7 +796,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | :--- | :--- |
 | 11.G1 | ADK app on **Agent Runtime** via `google-cloud-agentplatform` 2.x (replaces the LangChain path); Cloud Run only as `--target cloudrun` |
 | 11.G2 | Sessions; Memory Bank for non-PHI preferences only |
-| 11.G3 | `ontogate` MCP in Agent Registry, routed via Agent Gateway (VPC-SC, IAM UAP) |
+| 11.G3 | ~~`ontogate` MCP in Agent Registry, routed via Agent Gateway~~ — dropped: tools stay in-process (§9.5) |
 | 11.G4 | **Skills:** `ontogate skills publish gs://…` (content-addressed, §8.8); Skill Registry revisions once the preview API is verified |
 | 11.G5 | Telemetry to Cloud Trace; audit to BigQuery; bundle from Artifact Registry |
 | 11.G6 | `ALLOW_UNAUTHENTICATED=false` |
@@ -785,7 +807,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | :--- | :--- |
 | 11.A1 | Strands on **AgentCore Runtime** with Claude Opus 5.5 |
 | 11.A2 | AgentCore Memory (short-term; long-term non-PHI only) |
-| 11.A3 | `ontogate` MCP as an AgentCore Gateway target; AgentCore Policy (Cedar) allows only canonical tools |
+| 11.A3 | ~~`ontogate` MCP as an AgentCore Gateway target with Cedar policy~~ — dropped: tools stay in-process (§9.5) |
 | 11.A4 | **Skills:** `ontogate skills publish s3://…` (content-addressed, §8.8); the image bakes the same files for the Strands `AgentSkills` plugin. Do not enable `awsSkills` or Git sources |
 | 11.A5 | Remove PaymentManager, Browser and Code Interpreter from the default stack; scope IAM |
 | 11.A6 | AgentCore Observability; `EvalSamplingPercentage` → P13 |
@@ -796,7 +818,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | :--- | :--- |
 | 11.Z1 | MAF as a **Foundry Agent Service** hosted agent (ACA fallback) |
 | 11.Z2 | `gpt-6.1-sol`, keyless via Managed Identity |
-| 11.Z3 | `ontogate` MCP as a Foundry tool connection |
+| 11.Z3 | ~~`ontogate` MCP as a Foundry tool connection~~ — dropped: tools stay in-process (§9.5) |
 | 11.Z4 | **Skills:** `ontogate skills publish azblob://…` (content-addressed, §8.8); Foundry Skills API versions once the preview API is verified — always a pinned version, never `default_version` |
 | 11.Z5 | Application Insights; Log Analytics audit; bundle from ACR |
 
@@ -940,4 +962,5 @@ multiagent-retrieval-gaps/
 ### Sources (checked 2026-10-11)
 
 - **Agent Skills:** [agentskills.io](https://agentskills.io/home) · [ADK Skills](https://adk.dev/skills/) · [Google Developers Blog: ADK agents with skills](https://developers.googleblog.com/developers-guide-to-building-adk-agents-with-skills/) · [Strands AgentSkills API](https://strandsagents.com/docs/api/python/strands.vended_plugins.skills.agent_skills/) · [MAF: Agent Skills](https://devblogs.microsoft.com/agent-framework/give-your-agents-domain-expertise-with-agent-skills-in-microsoft-agent-framework/) · [AgentCore harness skills](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-skills.html) · [Foundry skills (preview)](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/skills) · [GCP Skill Registry](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/skill-registry) · [Evaluate skill-equipped agents (AWS)](https://aws.amazon.com/blogs/machine-learning/evaluate-skill-equipped-agents-with-strands-evals-and-amazon-bedrock-agentcore/)
+- **Gateways:** [agentgateway](https://agentgateway.dev/) · [MCP authorization (CEL)](https://agentgateway.dev/docs/standalone/latest/documentation/configuration/security/mcp-authz/) · [MCP configuration modes](https://agentgateway.dev/docs/standalone/latest/documentation/mcp/configuration-modes/) · [A2A proxy](https://agentgateway.dev/docs/standalone/latest/documentation/agent/a2a/) · [Release notes (1.6)](https://agentgateway.dev/docs/standalone/latest/release-notes/release-notes/)
 - **Models and platforms:** [Agent Platform release notes](https://docs.cloud.google.com/gemini-enterprise-agent-platform/release-notes) · [Google model versions](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions) · [Firebase AI Logic models](https://firebase.google.com/docs/ai-logic/models) · [Claude Opus 5.5 on Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html) · [Strands Bedrock provider](https://strandsagents.com/docs/user-guide/sdk/model-providers/amazon-bedrock/) · [Foundry models sold by Azure](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure)

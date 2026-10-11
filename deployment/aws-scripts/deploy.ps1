@@ -3,7 +3,7 @@
     Amazon Bedrock AgentCore Deployment for Multi-Agent Clinical Decision Support.
 .DESCRIPTION
     Deploys strands-agents as an Amazon Bedrock AgentCore container runtime.
-    AgentCore provides built-in: Gateway (API/Lambda), Identity (auth), Memory
+    AgentCore provides: Runtime and Memory (tools run in-process; no Gateway)
     (short/long-term), Policy (authz), Registry (MCP tools), Runtime, Observability.
 
     Architecture: strands-agents SDK -> ECR image -> Bedrock AgentCore Runtime
@@ -67,7 +67,7 @@ Write-Host "====================================================================
 Write-Host " Amazon Bedrock AgentCore Deployment: $AgentName" -ForegroundColor Cyan
 Write-Host " Region:         $AwsRegion" -ForegroundColor Cyan
 Write-Host " Foundation Model: $BedrockModelId" -ForegroundColor Cyan
-Write-Host " Runtime:        Bedrock AgentCore (Gateway + Identity + Memory + Runtime)" -ForegroundColor Cyan
+Write-Host " Runtime:        Bedrock AgentCore (Runtime + Memory)" -ForegroundColor Cyan
 Write-Host " Repo:           $repoRoot" -ForegroundColor Cyan
 Write-Host "==============================================================================" -ForegroundColor Cyan
 

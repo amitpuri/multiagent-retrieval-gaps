@@ -9,9 +9,11 @@ those of every role reachable through its hand-offs, so a client sees the whole
 fleet behind one URL. Every framework serves the same card at
 ``/.well-known/agent-card.json``; only ``url`` and the framework label differ.
 
-The servers expose this repository's REST query API, not the A2A JSON-RPC
-binding, so the card names that interface explicitly instead of claiming an
-A2A transport it does not implement.
+``url`` is the A2A JSON-RPC binding every server mounts at ``/a2a``
+(:mod:`ontogate.a2a`, ``message/send`` only, so ``streaming`` and
+``pushNotifications`` are false). The repository's REST API
+(``POST /api/v1/query``) answers the same questions and is documented at
+``documentationUrl``; it is not an A2A transport, so the card does not list it.
 """
 from __future__ import annotations
 
@@ -19,13 +21,13 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from ontogate.a2a import A2A_PATH
 from ontogate.config import get_default_registry
 from ontogate.paths import scenarios_dir
 from ontogate.roles import RoleSpec, get_role_spec, load_all_role_specs
 
 A2A_PROTOCOL_VERSION = "0.3.0"
 RELEASE_EXTENSION = "https://ontogate.ai/ext/knowledge-release"
-QUERY_PATH = "/api/v1/query"
 
 
 def _reachable(role: str, specs: Dict[str, RoleSpec]) -> List[str]:
@@ -70,8 +72,14 @@ def capability(spec: RoleSpec, examples: Optional[List[str]] = None) -> Dict[str
     return entry
 
 
-def agent_card(role: str, url: str, *, framework: str = "", release: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """The AgentCard for a model-backed role served at ``url`` (the service base URL)."""
+def agent_card(role: str, url: str, *, framework: str = "", release: Optional[Dict[str, Any]] = None,
+               bearer_auth: bool = False) -> Dict[str, Any]:
+    """The AgentCard for a model-backed role served at ``url`` (the service base URL).
+
+    ``bearer_auth`` declares that the server itself requires a Bearer token
+    (ADK with ``HARNESS_API_TOKENS``); platform-level auth (AgentCore, Container
+    Apps, Cloud Run IAM) is not the agent's to declare.
+    """
     from ontogate import __version__
     from ontogate.release import current_release
 
@@ -81,12 +89,13 @@ def agent_card(role: str, url: str, *, framework: str = "", release: Optional[Di
         raise ValueError(f"'{role}' is a code node and is not served as an agent")
     release = release or current_release()
     base = url.rstrip("/")
-    return {
+    card: Dict[str, Any] = {
         "protocolVersion": A2A_PROTOCOL_VERSION,
         "name": role,
         "description": spec.description,
-        "url": base + QUERY_PATH,
-        "preferredTransport": "HTTP+JSON",
+        "url": base + A2A_PATH,
+        "preferredTransport": "JSONRPC",
+        "additionalInterfaces": [{"url": base + A2A_PATH, "transport": "JSONRPC"}],
         "version": __version__,
         "documentationUrl": base + "/docs",
         "capabilities": {
@@ -109,6 +118,10 @@ def agent_card(role: str, url: str, *, framework: str = "", release: Optional[Di
         "skills": [capability(specs[name], _examples() if name == role else None)
                    for name in _reachable(role, specs)],
     }
+    if bearer_auth:
+        card["securitySchemes"] = {"bearer": {"type": "http", "scheme": "bearer"}}
+        card["security"] = [{"bearer": []}]
+    return card
 
 
 def entrypoint_role() -> str:

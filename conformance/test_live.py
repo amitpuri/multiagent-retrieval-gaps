@@ -51,3 +51,25 @@ def test_overlay_and_other_domain_scenarios_are_not_asked_of_a_deployment():
     assert "scenario_a_hemoglobin" in cases
     assert "scenario_d_troponin" not in cases            # overlay: not in the deployed pack
     assert "scenario_f_cardiology_troponin" not in cases  # another domain pack
+
+
+class _CardWithoutA2A:
+    """Answers REST correctly, but the card's url does not speak A2A."""
+
+    def __init__(self, bundle):
+        self.bundle = bundle
+
+    def get(self, path):
+        return _Response({"url": "https://svc.example.test/a2a", "preferredTransport": "JSONRPC",
+                          "capabilities": {"extensions": [{"params": {
+                              "bundle_sha256": self.bundle, "domains": ["laboratory_medicine"]}}]}})
+
+    def post(self, path, json):
+        if path == "/a2a":
+            return _Response({"detail": "Not Found"}, status=404)
+        return _Response({"status": "RESOLVED", "route": "PROCEED", "attested": False, "text": ""})
+
+
+def test_runner_fails_a_card_whose_url_does_not_answer_a2a():
+    report = live.check(_CardWithoutA2A("f" * 64), "no-a2a", {"bundle_sha256": "f" * 64})
+    assert report["failures"]["_a2a"] == "A2A url answered HTTP 404"

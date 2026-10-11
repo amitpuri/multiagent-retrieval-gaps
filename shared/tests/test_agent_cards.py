@@ -1,7 +1,7 @@
 """
 A2A AgentCards are generated from role specs (P8.6): one capability per role
 reachable from the entrypoint, the served knowledge release as an extension,
-and no claim of an A2A transport the servers do not implement.
+and a ``url`` that speaks the A2A JSON-RPC binding (``/a2a``).
 """
 import pytest
 
@@ -19,11 +19,20 @@ def test_entrypoint_is_the_triage_orchestrator():
     assert entrypoint_role() == "triage_orchestrator"
 
 
-def test_card_points_at_the_rest_query_interface(card):
+def test_card_points_at_the_a2a_jsonrpc_binding(card):
     assert card["protocolVersion"] == A2A_PROTOCOL_VERSION
-    assert card["url"] == "https://agents.example.test/api/v1/query"
-    assert card["preferredTransport"] == "HTTP+JSON"
+    assert card["url"] == "https://agents.example.test/a2a"
+    assert card["preferredTransport"] == "JSONRPC"
+    assert card["additionalInterfaces"] == [{"url": card["url"], "transport": "JSONRPC"}]
     assert card["capabilities"]["streaming"] is False
+    assert card["capabilities"]["pushNotifications"] is False
+
+
+def test_bearer_auth_is_declared_only_when_the_server_requires_it(card):
+    assert "securitySchemes" not in card and "security" not in card
+    secured = agent_card(entrypoint_role(), "https://agents.example.test/", bearer_auth=True)
+    assert secured["securitySchemes"] == {"bearer": {"type": "http", "scheme": "bearer"}}
+    assert secured["security"] == [{"bearer": []}]
 
 
 def test_capabilities_cover_the_entrypoint_and_its_hand_offs(card):

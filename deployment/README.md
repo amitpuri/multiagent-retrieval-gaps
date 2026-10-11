@@ -54,7 +54,7 @@ flowchart TD
 | Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Skill Store | Authentication & Secrets | Target Port | Health Check |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | Cloud Storage, content-addressed (`gs://<project>-skills/skills`) | Secret Manager (`GEMINI_API_KEY`) + `roles/aiplatform.user` | 8000 | `/healthz`, `/readyz` |
-| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`) | S3, content-addressed (`s3://<project>-<env>-skills/skills`) | IAM Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
+| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Memory; App Runner opt-in fallback) | Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`) | S3, content-addressed (`s3://<project>-<env>-skills/skills`) | IAM Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
 | **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | Blob Storage, content-addressed (`azblob://<account>/skills/skills`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
 
 ---
@@ -87,10 +87,9 @@ flowchart LR
 - **Setup in AWS**:
   1. Ensure model access is enabled at [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess).
   2. The deployment script (`deploy.ps1` / `deploy.sh`) automatically provisions:
-     - IAM Role `BedrockAgentCoreExecutionRole` with access to `bedrock-agentcore:*`, `bedrock-agent-runtime:*`, ECR, and CloudWatch Logs.
+     - IAM Role `BedrockAgentCoreExecutionRole` (trusted by `bedrock-agentcore.amazonaws.com`) with one scoped inline policy, `ClinicalAgentRuntimeAccess`: Bedrock model invocation, AgentCore Memory events, ECR pull, CloudWatch Logs and X-Ray.
      - AgentCore Memory (`clinical_agent_memory`, events expire after 30 days) for session persistence.
      - Bedrock AgentCore Runtime (`clinical_strands_agent`). App Runner is used only with `APP_RUNNER_FALLBACK=true` (`-AppRunnerFallback`), because it bills for provisioned instances around the clock.
-     - AgentCore Gateway endpoint for API routing and observability.
 - **Offline / CI Mode**: If model access is not yet activated, `strands-agents` safely falls back to the deterministic pure-code `SafetyGateEngine` and `MockBedrockModel`.
 
 ### 2. Google Cloud Agent Platform Setup (GCP)
