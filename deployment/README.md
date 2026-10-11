@@ -37,7 +37,7 @@ flowchart TD
     subgraph Azure["Microsoft Azure (eastus)"]
         ACA["Azure Container Apps\nmaf-clinical-agents:8000"]
         ACR["Azure Container Registry\nacrclinagents*"]
-        Foundry["Azure AI Foundry Project\nais-clinical-agents/aiproj-clinical-agents (gpt-5)"]
+        Foundry["Azure AI Foundry Project\nais-clinical-agents/aiproj-clinical-agents (gpt-6.1-sol)"]
         MI["Managed Identity\nCognitive Services OpenAI User"]
         ACA --- ACR
         ACA --- Foundry
@@ -54,8 +54,8 @@ flowchart TD
 | Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Authentication & Secrets | Target Port | Health Check |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, Policy) | Claude Sonnet 4.5 (`anthropic.claude-sonnet-4-5-20251203-v1:0`) | IAM Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
-| **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Vertex AI Reasoning Engine / Cloud Run) | Gemini 2.0 Flash (`gemini-2.0-flash-001`) | Secret Manager (`GEMINI_API_KEY`) + `roles/aiplatform.user` | 8000 | `/healthz`, `/readyz` |
-| **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA) | Azure AI Foundry / Azure OpenAI (`gpt-5` / `gpt-4o`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
+| **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Vertex AI Reasoning Engine / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | Secret Manager (`GEMINI_API_KEY`) + `roles/aiplatform.user` | 8000 | `/healthz`, `/readyz` |
+| **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
 
 ---
 
@@ -71,12 +71,12 @@ flowchart LR
     end
 
     subgraph GCP_Vertex["GCP Agent Platform"]
-        ADK["google-adk-agents/"] -->|Secret Manager / ADC| VertexAI["Vertex AI Agent Platform\nGemini 2.0 Flash"]
+        ADK["google-adk-agents/"] -->|Secret Manager / ADC| VertexAI["Vertex AI Agent Platform\nGemini 3.8 Flash"]
         ADK -.->|Fallback| DetMock2["Deterministic SafetyGateEngine / Mock"]
     end
 
     subgraph Azure_Foundry["Azure AI Foundry"]
-        MAF["agent-framework/"] -->|Managed Identity RBAC| AzureAI["Azure AI Foundry Project\ngpt-5 (ais-clinical-agents)"]
+        MAF["agent-framework/"] -->|Managed Identity RBAC| AzureAI["Azure AI Foundry Project\ngpt-6.1-sol (ais-clinical-agents)"]
         MAF -.->|Fallback| DetMock3["Deterministic SafetyGateEngine / Mock"]
     end
 ```
@@ -94,7 +94,7 @@ flowchart LR
 - **Offline / CI Mode**: If model access is not yet activated, `strands-agents` safely falls back to the deterministic pure-code `SafetyGateEngine` and `MockBedrockModel`.
 
 ### 2. Google Cloud Agent Platform Setup (GCP)
-- **Model Used**: Gemini 2.0 Flash (`gemini-2.0-flash-001`) via Google ADK 2.0.
+- **Model Used**: Gemini 3.8 Flash (`gemini-3.8-flash`) via Google ADK 2.0.
 - **Target Region**: `europe-west1` (or `us-central1`).
 - **Setup in GCP**:
   1. The deployment script enables `aiplatform.googleapis.com`, `discoveryengine.googleapis.com`, `dialogflow.googleapis.com`, `run.googleapis.com`, and `artifactregistry.googleapis.com`.
@@ -104,7 +104,7 @@ flowchart LR
 - **Offline / CI Mode**: When `GEMINI_API_KEY` is omitted, the service boots with `offline_mode: true` (alerted in `/readyz` as `status: degraded`) and deterministically enforces all 6 safety gap detectors.
 
 ### 3. Azure AI Foundry & Microsoft Agent Framework Setup (Azure)
-- **Model Used**: `gpt-5` / `gpt-4o` via Microsoft Agent Framework (`agent-framework`).
+- **Model Used**: `gpt-6.1-sol` via Microsoft Agent Framework (`agent-framework`).
 - **Target Region**: `eastus` / `eastus2`.
 - **Setup in Azure**:
   1. The deployment script automatically discovers or provisions an Azure AI Services account (`kind: AIServices`) and an Azure AI Foundry Project (`az cognitiveservices account project create`).

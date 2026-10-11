@@ -16,9 +16,9 @@ By Dr. Amit Puri · October 2026
 
 | Framework | Folder | Model | Production Target | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.5 Flash | Google Cloud Agent Platform / Cloud Run | ✅ Complete |
+| **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.8 Flash | Google Cloud Agent Platform / Cloud Run | ✅ Complete |
 | **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | AWS Bedrock AgentCore / ECS Fargate | ✅ Complete |
-| **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | GPT-5 via Azure AI Foundry / OpenAI | Azure Container Apps + AI Foundry | ✅ Complete |
+| **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | `gpt-6.1-sol` via Azure AI Foundry / OpenAI | Azure Container Apps + AI Foundry | ✅ Complete |
 | **Multi-Cloud Deployment Automation** | `deployment/` | Multi-Cloud Agent Fleet | GCP, AWS & Azure (Bash & PowerShell) | ✅ Complete |
 
 > [!TIP]
@@ -94,13 +94,13 @@ multiagent-retrieval-gaps/
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
 │   └── tests/
-│       ├── test_gate.py                 # 28 deterministic safety invariant tests
-│       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
-│       ├── test_okf_refinement.py       # 46 OKF Phase 1–4 tests (trust tiers, loader, resolver, synthesis)
-│       ├── test_okf_phases_5_8.py       # 24 OKF Phase 5–8 tests (index, graph, writeback, attestation)
+│       ├── test_gate.py                 # 27 deterministic safety invariant tests
+│       ├── test_gate_hardening.py       # 14 safety gate hardening & bypass regression tests
 │       ├── test_harness.py              # 49 harness tests: session, MCP dispatch, context, scenarios
-│       ├── test_code_review_regressions.py # 15 regression tests: T1–T15 (patient safety & gate bypass prevention)
-│       └── test_audit_regressions.py   # 16 audit regression tests: panic badge, CSF bypass, unit conv, contradiction
+│       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
+│       ├── test_okf_index_graph_attestation.py # 25 OKF tests (index, graph, attestation, log)
+│       ├── test_okf_trust_and_lifecycle.py # 46 OKF tests (trust tiers, loader, resolver, synthesis)
+│       └── test_workflow_and_attestation.py # 16 workflow & attestation integration tests
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
@@ -121,7 +121,7 @@ multiagent-retrieval-gaps/
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint
 │   └── tests/
-│       ├── test_gate.py                 # 15 deterministic safety invariant tests
+│       ├── test_gate.py                 # 12 deterministic safety invariant tests
 │       ├── test_multiagent_extensible.py# 16 multi-agent, A2A & YAML-extension tests
 │       └── test_strands_agents.py       # 26 deterministic offline tests
 │
@@ -218,7 +218,7 @@ flowchart TD
         SafetyGuard -.-> Gap_Detectors
         SafetyGuard -- "status == RESOLVED (PROCEED)" --> ProtocolAgent[Protocol Retriever Agent<br/><i>Canonical URI Grounding</i>]
         ProtocolAgent --> AttestGate[Synthesis Gate Node<br/><i>Attestation Verification & OKF Audit</i>]
-        AttestGate -- "Attested (PROCEED)" --> SynthesisAgent[Clinical Synthesizer Agent<br/><i>Single-Turn Gemini 3.5 Flash</i>]
+        AttestGate -- "Attested (PROCEED)" --> SynthesisAgent[Clinical Synthesizer Agent<br/><i>Single-Turn Gemini 3.8 Flash</i>]
         AttestGate -- "Unattested / Out-of-Spec (CLARIFY)" --> ClarifyAgent
         SafetyGuard -- "Uncertain / Collision (CLARIFY)" --> ClarifyAgent[Clarification Coordinator Agent<br/><i>Human-in-the-Loop HITL</i>]
     end
@@ -239,7 +239,7 @@ pip install -r requirements.txt
 cp src/env.example src/.env
 # Edit src/.env: set GEMINI_API_KEY="..."
 
-# 3. Run all scenarios (live Gemini, ADK workflow)
+# 3. Run all scenarios (live Gemini 3.8 Flash, ADK workflow)
 python src/main.py
 
 # 4. Offline / stub mode (no API key needed)
@@ -258,7 +258,7 @@ python -m src.harness.console --offline
 uvicorn src.harness.server:app --host 0.0.0.0 --port 8000
 # POST /api/v1/query  GET /api/v1/mcp/tools  GET /healthz  GET /readyz
 
-# 8. Run tests (194 deterministic safety invariants, OKF & harness tests)
+# 8. Run tests (193 deterministic safety invariants, OKF & harness tests)
 python -m pytest tests/ -v
 ```
 
@@ -336,7 +336,7 @@ python src/main.py
 # 4. Offline mode (no API key needed, deterministic mock)
 python src/main.py --offline
 
-# 5. Run tests (57 deterministic offline invariants, ~1.7 s)
+# 5. Run tests (54 deterministic offline invariants, ~7.8 s)
 python -m pytest tests/ -v
 
 # 6. Start production REST server (FastAPI / ASGI on port 8000)
@@ -402,7 +402,7 @@ flowchart TD
         SafetyGateTool -.-> Gap_Detectors
 
         Triage -- "route == PROCEED (RESOLVED)" --> ProtocolAgent["protocol_retriever.yaml<br/><i>fetch_protocol()</i>"]
-        ProtocolAgent --> SynthesisAgent["clinical_synthesizer.yaml<br/><i>Grounded LLM Synthesis (gpt-5)</i>"]
+        ProtocolAgent --> SynthesisAgent["clinical_synthesizer.yaml<br/><i>Grounded LLM Synthesis (gpt-6.1-sol)</i>"]
 
         Triage -- "route == CLARIFY (Uncertain / Collision)" --> ClarifyAgent["clarification_coordinator.yaml<br/><i>HITL Pause / RequestInput</i>"]
     end
@@ -424,7 +424,7 @@ flowchart TD
 
 | Priority | Mode | Environment Variable | Target Environment |
 | :--- | :--- | :--- | :--- |
-| **1** | **Azure AI Foundry** | `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` | Production cloud deployment (`gpt-5`) |
+| **1** | **Azure AI Foundry** | `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` | Production cloud deployment (`gpt-6.1-sol`) |
 | **2** | **Azure OpenAI Direct** | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` | Direct Azure tenant resource |
 | **3** | **OpenAI Agents SDK** | `OPENAI_API_KEY` | Local development & rapid prototyping |
 | **4** | **Deterministic Offline** | `MAF_OFFLINE_MODE=true` | Fast invariant CI/CD (0 API calls, ~1 s) |
@@ -439,7 +439,7 @@ pip install -r requirements.txt
 # 2. Configure credentials (or use included local key in src/.env)
 cp src/env.example src/.env
 
-# 3. Run all scenarios (live gpt-5)
+# 3. Run all scenarios (live gpt-6.1-sol)
 python src/main.py
 
 # 4. Offline mode (no API key needed, deterministic mock)
@@ -495,22 +495,42 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 
 ---
 
-## Trajectory Evaluation — Closing Gap 10
+## Trajectory Evaluation — Closing Gap 10 & Unified Run Scripts
 
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Google ADK ≥2.11.0 — 194 tests (~5.4 s)
+# Google ADK ≥2.11.0 — 193 tests (~12.2 s)
 cd google-adk-agents && python -m pytest tests/ -v
 
-# AWS Strands SDK — 57 tests (~1.7 s)
+# AWS Strands SDK — 54 tests (~7.8 s)
 cd strands-agents && python -m pytest tests/ -v
 
-# Microsoft Agent Framework (MAF) — 44 tests (~1.2 s)
+# Microsoft Agent Framework (MAF) — 44 tests (~6.1 s)
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 295 deterministic safety invariants verified across all 3 frameworks!
+# Total: 291 deterministic safety invariants verified across all 3 frameworks!
 ```
+
+### One-Command Unified Execution Scripts
+
+From the repository root, run the entire multi-cloud agent fleet and test suites using the top-level bash scripts:
+
+```bash
+# 1. Run all test suites across all 3 frameworks (291 tests in ~26 s)
+sh run-all-tests.sh
+
+# 2. Run end-to-end multi-agent clinical scenarios A–D across all 3 frameworks
+sh run-all.sh
+```
+
+#### Verified Multi-Framework Execution Highlights (`run-all.sh`)
+
+| Framework | Orchestration & Synthesis Mode | Scenario Highlights & Behavioral Verification |
+| :--- | :--- | :--- |
+| **Google ADK 2.0** | Live Gemini 3.8 Flash (`gemini-3.8-flash`) | • **Scenario A**: Turn 1 (`Hb 13.5` no unit) pauses deterministically with `status=AMBIGUOUS` (`route=CLARIFY`). Turn 2 (`Hb 13.5 \| g/dL`) resolves to `loinc:718-7`, fetching reference range 13.8–17.2 g/dL with `[Attested ✓]` badge. Turn 3 (`Hb 13.5 \| mg/dL`) triggers `status=UNIT_MISMATCH` (`route=CLARIFY`).<br>• **Scenario B**: CSF Emergency Panel strictly enforces tube sequence: Tube 1 (Biochemistry), Tube 2 (Microbiology), Tube 3 (Hematology).<br>• **Scenario C**: `Calcium 4.8 mg/dL` triggers `RANGE_COLLISION` (`CLARIFY`); qualifying as `total` yields `CRITICAL_LOW`, whereas `ionized` yields `NORMAL`.<br>• **Scenario D**: Troponin I vs T dynamic YAML extension resolves `Troponin 15 \| ng/L` to `loinc:6598-7` (hs-cTnT) with panic limits (> 52 ng/L). |
+| **AWS Strands SDK + Bedrock AgentCore** | Anthropic Claude on AWS Bedrock (`claude-sonnet-4-5`) | • Full A2A supervisor orchestration with Bedrock AgentCore memory session manager.<br>• Resilient fallback to deterministic offline pipeline if cloud API quotas or rate limits are reached.<br>• Identical scenario outcomes: `AMBIGUOUS` on Turn 1, `RESOLVED` on Turn 2, and `UNIT_MISMATCH` on Turn 3. |
+| **Microsoft Agent Framework (MAF)** | Live `gpt-6.1-sol` via OpenAI Agents SDK / Azure AI Foundry | • Declarative `kind: Prompt` agents and `WorkflowFactory` conditional routing.<br>• Identical clinical decisions: intercepts look-alike collisions (Calcium 4.8) and rejects incompatible units (`mg/dL` for Troponin). |
 
 ---
 
@@ -631,7 +651,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **3** | **Episodic** | Session event logs, execution trajectories, and historical query resolutions. | Repeating past diagnostic failures or re-asking answered questions. |
 | **4** | **Procedural** | Pluggable `SafetyGateEngine` detectors, A2A action contracts, skill recipes, and protocol resolution algorithms. | Blind replay of outdated runbooks or inconsistent gate execution. |
 | **5** | **External (Retrieval)** | OpenSearch hybrid search (BM25 + dense vectors) over document chunks and evidence spans. | Hallucinating clinical literature not present in guidelines. |
-| **6** | **Parametric** | Frozen weights of base foundation models (Gemini 3.5 Flash, Claude Sonnet 4.5, Azure OpenAI). | Answering changing clinical thresholds from stale training data. |
+| **6** | **Parametric** | Frozen weights of base foundation models (Gemini 3.8 Flash, Claude Sonnet 4.5, `gpt-6.1-sol` via Azure AI Foundry / OpenAI). | Answering changing clinical thresholds from stale training data. |
 | **7** | **Prospective** | Pending clarification triggers in `ClarificationCoordinatorAgent` awaiting clinician input (`RequestInput`), async lab result hooks. | Unresolved clinical ambiguities left hanging or forgotten. |
 | **8** | **Spatial** | Physical CSF lumbar puncture tube sequencing (Tubes 1–3) and owning laboratory department boundaries (Biochemistry, Microbiology, Haematology). | Specimen cross-contamination; dispatching tests to the wrong lab department. |
 | **9** | **Temporal** | Bitemporal records (`valid_from`/`valid_to` vs. `recorded_at`), explicit `[:SUPERSEDES]` graph edges, and guideline expiration dates. | Recommending obsolete or superseded clinical guidelines. |
@@ -669,14 +689,14 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | Layer | Google ADK | AWS Strands | Microsoft MAF / Azure AI Foundry |
 | :--- | :--- | :--- | :--- |
 | **Agent framework** | Google ADK ≥2.11.0 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
-| **Model** | Gemini 3.5 Flash | Claude Sonnet 4.5 | `gpt-5` via Azure AI Foundry / OpenAI |
+| **Model** | Gemini 3.8 Flash | Claude Sonnet 4.5 | `gpt-6.1-sol` via Azure AI Foundry / OpenAI |
 | **Session memory** | ADK `InMemorySessionService` + `HarnessSession` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
 | **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | FastAPI ASGI server (`src/server.py`, REST API) | `ClinicalHarnessAgent` + ASGI server (`src/harness/server.py`) |
 | **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | FastMCP tools & REST bridge via `src/server.py` | FastMCP tools & REST bridge via `src/harness/server.py` |
 | **Production Target** | Google Cloud Agent Platform / Cloud Run | AWS Bedrock AgentCore / ECS Fargate | Azure Container Apps + AI Foundry |
 | **Container Port** | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) |
 | **Safety gate** | `SafetyGateEngine` (shared deterministic code) | `SafetyGateEngine` (shared deterministic code) | `SafetyGateEngine` (shared deterministic code) |
-| **Tests** | **194 offline `pytest` tests** (OKF v0.2 + Gate + Harness) | **57 offline `pytest` tests** (Invariants + Extensible + Roles) | **44 offline `pytest` tests** (Invariants + Pipeline + Harness) |
+| **Tests** | **193 offline `pytest` tests** (OKF v0.2 + Gate + Harness) | **54 offline `pytest` tests** (Invariants + Extensible + Roles) | **44 offline `pytest` tests** (Invariants + Pipeline + Harness) |
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |
@@ -725,7 +745,7 @@ flowchart TD
     subgraph Azure["Microsoft Azure (eastus)"]
         ACA["Azure Container Apps\nmaf-clinical-agents:8000"]
         ACR["Azure Container Registry\nacrclinagents*"]
-        Foundry["Azure AI Foundry Project\nais-clinical-agents/aiproj-clinical-agents (gpt-5)"]
+        Foundry["Azure AI Foundry Project\nais-clinical-agents/aiproj-clinical-agents (gpt-6.1-sol)"]
         MI["Managed Identity\nCognitive Services OpenAI User"]
         ACA --- ACR
         ACA --- Foundry
@@ -740,10 +760,10 @@ flowchart TD
 ### Multi-Cloud Service Matrix
 
 | Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Authentication & Secrets | Port | Health Checks |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Google Cloud** | **`google-adk-agents/`** | **Google Cloud Agent Platform** (Cloud Run + Vertex AI Engine) | Gemini 3.5 Flash | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Google Cloud** | **`google-adk-agents/`** | **Google Cloud Agent Platform** (Cloud Run + Vertex AI Engine) | Gemini 3.8 Flash | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
 | **AWS** | **`strands-agents/`** | **Amazon Bedrock AgentCore Runtime** (Memory, Gateway, ECS) | Claude Sonnet 4.5 | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
-| **Microsoft Azure** | **`agent-framework/`** | **Azure Container Apps** (ACA) | Azure AI Foundry / Azure OpenAI (`gpt-5`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
+| **Microsoft Azure** | **gent-framework/** | **Azure Container Apps** (ACA) | Azure AI Foundry / Azure OpenAI (gpt-6.1-sol) | System-Assigned Managed Identity (Cognitive Services OpenAI User) | 8000 | /healthz, /readyz |
 
 ### Automated Deployment Scripts
 
