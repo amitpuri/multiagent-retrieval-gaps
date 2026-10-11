@@ -54,7 +54,8 @@ In under four weeks, "decision model" went from a modelling discipline to a mode
 | **Meta / Meta Superintelligence Labs** | No decision model or API found | Nearest small-model release is Muse Spark (succeeds Llama 4, next generation in development), but it is not positioned for typed decisions. Open weights could be used via Nokia AnyJev (turns any causal LLM into a decision model without training). If Meta enters, expect an open-weight model release rather than a hosted API. |
 | **AWS, Cloudflare, Perplexity, Liquid AI** | Generally available | Covered above |
 
-### Microsoft-Decision-1 — deeper look {#microsoft-decision-1}
+<a id="microsoft-decision-1"></a>
+### Microsoft-Decision-1 — deeper look
 
 Released October 9, 2026, by Microsoft and detailed by Achint Srivastava (VP of Software Engineering, Office of the CTO) in [*Command Line*](https://commandline.microsoft.com/microsoft-decision-1-model-foundry/). It is the first dedicated decision model shipped by a major hyperscaler with both first-party cloud catalog availability ([Azure AI Foundry](https://ai.azure.com/catalog/models/Microsoft-Decision-1)) and multi-provider hosting ([OpenRouter](https://openrouter.ai/microsoft/microsoft-decision-1)).
 
@@ -76,7 +77,8 @@ Released October 9, 2026, by Microsoft and detailed by Achint Srivastava (VP of 
 
 **Direct relevance to agent skills frameworks:** Microsoft explicitly lists **skill-based decisions** as one of its top use cases: *"Apply the rules from an agent skill to select the appropriate next action without repeatedly processing a long list of instructions."* Combined with agent controls (*continue, stop, retry, or hand off*), this formalizes the pattern where SKILL.md logic is converted into structured option evaluation executed by a lightweight decision model rather than re-prompted through a heavy reasoning model on every step.
 
-### AWS Strands Decider 2B — deeper look {#aws-strands-decider-2b}
+<a id="aws-strands-decider-2b"></a>
+### AWS Strands Decider 2B — deeper look
 
 Released October 1 by Strands Labs, the experimental arm of AWS's open-source Strands Agents project. The release is closer to a recipe than a service: weights, code, training data and scripts are all public, and retraining takes about 11 hours on one RTX 3090.
 
