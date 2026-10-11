@@ -19,7 +19,7 @@ Metadata:
       - Label: { default: Auth }
         Parameters: [AuthMode, JwtDiscoveryUrl, JwtAllowedClients]
       - Label: { default: Other }
-        Parameters: [KmsKeyArn, PolicyMode, EvalSamplingPercentage, LogRetentionDays]
+        Parameters: [KmsKeyArn, PolicyMode, EvalSamplingPercentage, LogRetentionDays, SecretNamePrefix]
 
 # --------------------------------------------------------------------------- #
 Parameters:
@@ -112,7 +112,7 @@ Parameters:
     Type: String
     Default: AWS_IAM
     AllowedValues: [AWS_IAM, CUSTOM_JWT]
-    Description: Inbound auth for Runtime, Gateway and PaymentManager.
+    Description: Inbound auth for the Runtime and Gateway.
   JwtDiscoveryUrl:
     Type: String
     Default: ""
@@ -140,6 +140,15 @@ Parameters:
     Default: 10
     MinValue: 0.01
     MaxValue: 100
+  SecretNamePrefix:
+    Type: String
+    Default: ""
+    Description: >
+      Prefix (path) under which all Secrets Manager secrets for this stack are stored,
+      e.g. "myteam/clinical". Leave empty to default to "ProjectName/Environment".
+      The runtime IAM role is scoped to arn:…:secret:SecretNamePrefix/* to enforce
+      least-privilege access.
+
   LogRetentionDays:
     Type: Number
     Default: 30
@@ -167,6 +176,8 @@ Conditions:
   PolicyEnforce:    !Equals [!Ref PolicyMode, ENFORCE]
   RuntimeUsesMemory:  !And [!Condition CreateRuntime, !Condition CreateMemory]
   RuntimeUsesGateway: !And [!Condition CreateRuntime, !Condition CreateGateway]
+  # True when the caller supplies an explicit secret path prefix.
+  HasCustomSecretPrefix: !Not [!Equals [!Ref SecretNamePrefix, ""]]
 
 Resources:
 
@@ -451,8 +462,20 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
               - Sid: SecretsManager
                 Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource: "*"
+                # Least-privilege: scoped to the project's own secret path prefix.
+                # Secrets Manager appends a random 6-char suffix to every secret ARN,
+                # so the trailing "-*" wildcard is required (not optional).
+                # Set SecretNamePrefix to override the default "ProjectName/Environment" path.
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Sub
+                    - "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Prefix}/*-*"
+                    - Prefix: !If
+                        - HasCustomSecretPrefix
+                        - !Ref SecretNamePrefix
+                        - !Sub "${ProjectName}/${Environment}"
 
   RuntimeMemoryAccess:
     Type: AWS::IAM::Policy

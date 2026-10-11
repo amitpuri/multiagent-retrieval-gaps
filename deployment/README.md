@@ -520,8 +520,17 @@ curl -X POST "https://<YOUR_DEPLOYED_SERVICE_URL>/api/v1/query" \
 2. **Keyless Zero-Trust IAM Privileges**:
    - **Google Cloud**: Service account binds `roles/secretmanager.secretAccessor` and `roles/aiplatform.user`.
    - **AWS**: Bedrock AgentCore execution role binds scoped `bedrock-agentcore:*` and `bedrock-agent-runtime:*` policies.
+     The `secretsmanager:GetSecretValue` action is scoped to
+     `arn:…:secret:${ProjectName}/${Environment}/*-*` by default.
+     Override with the `SecretNamePrefix` CloudFormation parameter when your secrets
+     live under a custom path (e.g. `myteam/clinical`). **Never deploy with `Resource: "*"`
+     for Secrets Manager.**
    - **Azure**: System-Assigned Managed Identity binds the `Cognitive Services OpenAI User` RBAC role directly to the Azure AI Services resource for keyless `DefaultAzureCredential()` calls.
 3. **Session Fixation Prevention**:
    All session IDs are server-issued UUIDs. Client-supplied IDs in `POST /api/v1/query` are ignored for new sessions.
 4. **Memory Management**:
    The session cap (`MAX_SESSIONS`, default `1000`) and prompt length cap (`MAX_PROMPT_LENGTH`, default `2000`) prevent unbounded memory growth in production containers.
+5. **No Secrets in Source Control**:
+   All `.env` files are listed in `.gitignore`. Credentials are injected at runtime via
+   AWS Secrets Manager, Google Cloud Secret Manager, or Azure Key Vault references —
+   never committed to the repository.
