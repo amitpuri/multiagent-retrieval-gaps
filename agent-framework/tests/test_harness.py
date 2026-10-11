@@ -51,11 +51,11 @@ def session():
 def test_harness_agent_initialization(harness_agent):
     assert harness_agent.name == "clinical_decision_harness"
     assert "parse_clinician_input" in harness_agent.tools
-    assert "resolve_ontology" in harness_agent.tools
-    assert "run_safety_gate" in harness_agent.tools
-    assert "fetch_protocol" in harness_agent.tools
+    assert "resolve_lab_term" in harness_agent.tools
+    assert "evaluate_safety_gate" in harness_agent.tools
+    assert "fetch_grounded_protocol" in harness_agent.tools
     assert "build_clarification_prompt" in harness_agent.tools
-    assert "csf_workup" in harness_agent.tools
+    assert "panel_workup" in harness_agent.tools
     assert harness_agent.mode_provider.mode == AgentMode.EXECUTE
 
 
@@ -112,15 +112,15 @@ def test_harness_approval_policy():
 
     # Standing approvals
     assert policy.check_approval("parse_clinician_input", {})["approved"] is True
-    assert policy.check_approval("resolve_ontology", {})["approved"] is True
-    assert policy.check_approval("run_safety_gate", {})["approved"] is True
+    assert policy.check_approval("resolve_lab_term", {})["approved"] is True
+    assert policy.check_approval("evaluate_safety_gate", {})["approved"] is True
 
     # Protocol fetching allowed only on validated route
-    proceed_check = policy.check_approval("fetch_protocol", {}, context={"gate_route": "PROCEED"})
+    proceed_check = policy.check_approval("fetch_grounded_protocol", {}, context={"gate_route": "PROCEED"})
     assert proceed_check["approved"] is True
     assert proceed_check["requires_hitl"] is False
 
-    clarify_check = policy.check_approval("fetch_protocol", {}, context={"gate_route": "CLARIFY"})
+    clarify_check = policy.check_approval("fetch_grounded_protocol", {}, context={"gate_route": "CLARIFY"})
     assert clarify_check["approved"] is False
     assert clarify_check["requires_hitl"] is True
 
@@ -134,7 +134,7 @@ async def test_harness_run_proceed(harness_agent):
     assert res.status == "RESOLVED"
     assert "protocol" in res.protocol
     assert "Standardized LOINC concept" in res.text
-    assert len(res.tool_calls) >= 4  # parse, resolve, gate, fetch_protocol
+    assert len(res.tool_calls) >= 4  # parse, resolve, gate, fetch_grounded_protocol
 
 
 @pytest.mark.anyio
@@ -161,7 +161,7 @@ async def test_harness_plan_mode_stops_before_protocol(harness_agent):
     assert "[PLAN MODE]" in res.text
     # In plan mode, protocol retrieval should not have run
     tool_names = [call.tool_name for call in res.tool_calls]
-    assert "fetch_protocol" not in tool_names
+    assert "fetch_grounded_protocol" not in tool_names
 
 
 @pytest.mark.anyio

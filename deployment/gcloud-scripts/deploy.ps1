@@ -20,7 +20,7 @@
 .PARAMETER AgentDisplayName
     Display name for the Vertex AI Agent.
 .PARAMETER ModelId
-    Gemini model ID (default: gemini-2.0-flash-001).
+    Gemini model ID (default: gemini-3.8-flash).
 .EXAMPLE
     .\deploy.ps1 -ProjectId openagi-codes -Region europe-west1
 #>
@@ -33,7 +33,7 @@ param(
     [string]$RepoName           = "clinical-agents",
     [string]$ImageName          = "clinical-adk-harness",
     [string]$ImageTag           = "latest",
-    [string]$ModelId            = "gemini-2.0-flash-001",
+    [string]$ModelId            = "gemini-3.8-flash",
     [int]$Port                  = 8000,
     [switch]$UseReasoningEngine,
     [switch]$NoAllowUnauthenticated

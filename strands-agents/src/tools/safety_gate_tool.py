@@ -1,65 +1,41 @@
 """
-Deterministic Safety Gate Tool using Strands Agents SDK.
-CRITICAL: Pure-code deterministic execution. NEVER calls an LLM.
-Enforces fail-closed clinical safety (Gap 9).
+Deterministic safety gate tool for Strands Agents (Gap 9).
+Pure code — never calls a model. ``@tool`` wrapper over the canonical
+``ontogate.tools.evaluate_safety_gate``.
 """
 from typing import Any, Dict, Optional
 from strands import tool
-from src.core.detectors.engine import SafetyGateEngine
-from src.core.models import EvaluationContext, ResolutionStatus
+from ontogate.tools import evaluate_safety_gate as _evaluate_safety_gate
 
 
 @tool
-def run_safety_gate(
+def evaluate_safety_gate(
     term: str,
     unit: str = "",
     qualifier: str = "",
     patient_value: Optional[float] = None,
     status: str = "UNKNOWN",
+    sex: str = "",
+    age_band: str = "",
+    department: str = "",
+    panel_id: str = "",
 ) -> Dict[str, Any]:
     """Run the deterministic safety gate — fail-closed on anything other than RESOLVED.
-
-    Evaluates RangeCollisionDetector, AmbiguityDetector, and SpecimenSequenceDetector
-    in pure code. No LLM. Routes to PROCEED or CLARIFY.
 
     Args:
         term: Lab term.
         unit: Reported unit.
         qualifier: Qualifier ('total', 'ionized', etc.).
         patient_value: Numeric patient result.
-        status: Incoming resolution status from ontology resolver.
+        status: Incoming resolution status from the ontology resolver.
+        sex: Optional population context (male / female).
+        age_band: Optional population context (adult / pediatric / neonate).
+        department: Optional department scope for panel requests.
+        panel_id: Panel identifier for specimen-sequencing requests.
 
     Returns:
-        dict with route ('PROCEED'|'CLARIFY'), status, and evaluation details.
+        dict with route ('PROCEED'|'CLARIFY'), status, clarification and details.
     """
-    engine = SafetyGateEngine()
-    ctx = EvaluationContext(
-        term=term,
-        unit=unit,
-        qualifier=qualifier,
-        patient_value=patient_value,
-    )
-    result = engine.evaluate(ctx)
-
-    eval_status = result.status.value
-
-    # Preserve explicit upstream mismatch or not found if downstream didn't detect collision
-    if status in (ResolutionStatus.UNIT_MISMATCH.value, "UNIT_MISMATCH") and result.status in (
-        ResolutionStatus.RESOLVED,
-        ResolutionStatus.AMBIGUOUS,
-    ):
-        eval_status = ResolutionStatus.UNIT_MISMATCH.value
-
-    route = engine.route_for(
-        ResolutionStatus(eval_status)
-        if eval_status in ResolutionStatus._value2member_map_
-        else result.status
-    )
-
-    return {
-        "route": route,
-        "status": eval_status,
-        "passed": result.passed and (route == "PROCEED"),
-        "details": result.details,
-        "candidates": result.candidates,
-    }
+    return _evaluate_safety_gate(term=term, unit=unit, qualifier=qualifier, patient_value=patient_value,
+                                 status=status, sex=sex, age_band=age_band, department=department,
+                                 panel_id=panel_id)

@@ -1,71 +1,35 @@
 """
-Canonical Ontology Resolver Tool using Strands Agents SDK.
-Maps clinician terminology and units to canonical LOINC identifiers with A2A envelope.
+Ontology resolver tool for Strands Agents.
+``@tool`` wrapper over the canonical ``ontogate.tools.resolve_lab_term`` with the
+Strands A2A envelope.
 """
 from typing import Any, Dict, Optional
 from strands import tool
-from src.core.config import get_default_registry
-from src.core.models import ResolutionStatus
+from ontogate.models import ResolutionStatus
+from ontogate.tools import resolve_lab_term as _resolve_lab_term
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
 
 
 @tool
-def resolve_ontology(
+def resolve_lab_term(
     term: str,
     unit: str = "",
     qualifier: str = "",
     patient_value: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Resolve a lab test name and optional unit to canonical LOINC concepts.
+    """Resolve a lab test name, optional unit and qualifier to canonical LOINC observables.
 
     Args:
         term: Lab test name (e.g. 'Hb', 'Calcium').
         unit: Reported unit string (e.g. 'g/dL', 'mg/dL').
         qualifier: Qualifier string (e.g. 'total', 'ionized').
-        patient_value: Numeric patient result.
+        patient_value: Numeric patient result (carried forward to the gate).
 
     Returns:
         dict with status, candidates, and A2A envelope.
     """
-    reg = get_default_registry()
-    candidates = reg.find_concepts(term.strip())
-
-    status = ""
-    if not candidates:
-        status = ResolutionStatus.NOT_FOUND.value
-        payload: Dict[str, Any] = {"status": status, "candidates": []}
-    elif unit:
-        matched = [c for c in candidates if c.supports_unit(unit.strip())]
-        if not matched:
-            status = ResolutionStatus.UNIT_MISMATCH.value
-            payload = {
-                "status": status,
-                "reported_unit": unit,
-                "candidates": [c.to_view() for c in candidates],
-            }
-        else:
-            candidates = matched
-
-    if not status:
-        if qualifier and candidates:
-            q = qualifier.strip().lower()
-            matched_q = [
-                c
-                for c in candidates
-                if q in c.label.lower()
-                or any(q in alt.lower() for alt in c.alt_labels)
-                or q in c.uri.lower()
-            ]
-            if matched_q:
-                candidates = matched_q
-
-        status = (
-            ResolutionStatus.RESOLVED.value
-            if len(candidates) == 1
-            else ResolutionStatus.AMBIGUOUS.value
-        )
-        payload = {"status": status, "candidates": [c.to_view() for c in candidates]}
-
+    payload = _resolve_lab_term(term=term, unit=unit, qualifier=qualifier)
+    status = payload["status"]
     a2a_msg = A2AMessage(
         sender=AgentRole.ONTOLOGY_RESOLVER,
         recipient=AgentRole.SAFETY_GUARD,
@@ -73,7 +37,6 @@ def resolve_ontology(
         payload=payload,
         status=ResolutionStatus(status),
     )
-
     result = {
         "term": term,
         "unit": unit,
@@ -83,4 +46,6 @@ def resolve_ontology(
         "candidates": payload.get("candidates", []),
         "a2a_message": a2a_msg.model_dump(mode="json"),
     }
+    if "contradiction" in payload:
+        result["contradiction"] = payload["contradiction"]
     return result

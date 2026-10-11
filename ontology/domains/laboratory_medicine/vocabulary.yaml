@@ -1,0 +1,27 @@
+# Controlled reference vocabularies: departments and specimens are entities,
+# matched by id or controlled label — never by substring.
+
+schema_version: "1.0.0"
+
+departments:
+  "dept:clinical_biochemistry":
+    label: "Clinical Biochemistry"
+    synonyms: ["biochemistry", "biochem", "chemistry", "clinical chemistry"]
+  "dept:hematology":
+    label: "Hematology"
+    synonyms: ["haematology", "hemat", "heme"]
+  "dept:microbiology":
+    label: "Microbiology"
+    synonyms: ["micro"]
+
+specimens:
+  "specimen:whole_blood":
+    label: "Whole Blood"
+    loinc_system: "Bld"
+  "specimen:serum_plasma":
+    label: "Serum or Plasma"
+    loinc_system: "Ser/Plas"
+  "specimen:csf":
+    label: "Cerebrospinal Fluid"
+    loinc_system: "CSF"
+    synonyms: ["csf", "spinal fluid"]

@@ -11,9 +11,9 @@ Tests:
 import sys
 import pytest
 from src.tools.parse_tool import parse_clinician_input
-from src.tools.ontology_tool import resolve_ontology
-from src.tools.safety_gate_tool import run_safety_gate
-from src.tools.protocol_tool import fetch_protocol
+from src.tools.ontology_tool import resolve_lab_term
+from src.tools.safety_gate_tool import evaluate_safety_gate
+from src.tools.protocol_tool import fetch_grounded_protocol
 from src.tools.clarification_tool import build_clarification_prompt
 
 from src.agents.ontology_agent import create_ontology_agent
@@ -53,8 +53,8 @@ def test_parse_tool_with_qualifier():
 
 
 def test_ontology_tool_resolves_hb():
-    """resolve_ontology maps Hb + g/dL to canonical LOINC concept loinc:718-7."""
-    res = resolve_ontology(term="Hb", unit="g/dL")
+    """resolve_lab_term maps Hb + g/dL to canonical LOINC concept loinc:718-7."""
+    res = resolve_lab_term(term="Hb", unit="g/dL")
     assert res["status"] == "RESOLVED"
     assert len(res["candidates"]) == 1
     assert res["candidates"][0]["uri"] == "loinc:718-7"
@@ -62,40 +62,35 @@ def test_ontology_tool_resolves_hb():
 
 
 def test_ontology_tool_ambiguous_without_unit():
-    """resolve_ontology flags ambiguous concepts when unit is missing."""
-    res = resolve_ontology(term="Hb")
+    """resolve_lab_term flags ambiguous concepts when unit is missing."""
+    res = resolve_lab_term(term="Hb")
     assert res["status"] == "AMBIGUOUS"
     assert len(res["candidates"]) == 2
 
 
 def test_ontology_tool_unit_mismatch():
-    """resolve_ontology flags UNIT_MISMATCH when invalid unit is reported."""
-    res = resolve_ontology(term="Hb", unit="mg/dL")
+    """resolve_lab_term flags UNIT_MISMATCH when invalid unit is reported."""
+    res = resolve_lab_term(term="Hb", unit="mg/dL")
     assert res["status"] == "UNIT_MISMATCH"
 
 
 def test_safety_gate_tool_deterministic_proceed():
-    """run_safety_gate returns PROCEED for resolved concept."""
-    res = run_safety_gate(term="Hb", unit="g/dL", status="RESOLVED")
+    """evaluate_safety_gate returns PROCEED for resolved concept."""
+    res = evaluate_safety_gate(term="Hb", unit="g/dL", status="RESOLVED")
     assert res["route"] == "PROCEED"
     assert res["passed"] is True
 
 
 def test_safety_gate_tool_deterministic_clarify():
-    """run_safety_gate returns CLARIFY for ambiguous concepts."""
-    res = run_safety_gate(term="Hb", status="AMBIGUOUS")
+    """evaluate_safety_gate returns CLARIFY for ambiguous concepts."""
+    res = evaluate_safety_gate(term="Hb", status="AMBIGUOUS")
     assert res["route"] == "CLARIFY"
     assert res["passed"] is False
 
 
 def test_safety_gate_tool_range_collision():
-    """run_safety_gate blocks conflicting ranges for unqualified calcium.
-
-    Previously tested without a unit (which now triggers UNIT_MISMATCH before
-    RANGE_COLLISION).  Updated to include 'mg/dL' so the request reaches the
-    RangeCollisionDetector as originally intended.
-    """
-    res = run_safety_gate(term="calcium", unit="mg/dL", patient_value=4.8, status="RESOLVED")
+    """evaluate_safety_gate blocks conflicting ranges for unqualified calcium (4.8 mg/dL)."""
+    res = evaluate_safety_gate(term="calcium", unit="mg/dL", patient_value=4.8, status="RESOLVED")
     assert res["route"] == "CLARIFY"
     assert res["status"] == "RANGE_COLLISION"
 
@@ -103,18 +98,18 @@ def test_safety_gate_tool_range_collision():
 def test_safety_gate_no_llm_guarantee():
     """Deterministic safety gate must execute consistently in pure code without any model calls."""
     for _ in range(20):
-        res = run_safety_gate(term="Hb", unit="g/dL", status="RESOLVED")
+        res = evaluate_safety_gate(term="Hb", unit="g/dL", status="RESOLVED")
         assert res["route"] == "PROCEED"
 
 
 def test_protocol_tool_retrieval():
-    """fetch_protocol retrieves reference range and panic limits for verified LOINC URI."""
+    """fetch_grounded_protocol retrieves reference range and panic limits for verified LOINC URI."""
     concept = {
         "uri": "loinc:718-7",
         "label": "Hemoglobin [Mass/volume] in Blood",
         "department": "Hematology",
     }
-    res = fetch_protocol(resolved_uri="loinc:718-7", concept=concept)
+    res = fetch_grounded_protocol(uri="loinc:718-7", concept=concept)
     assert "13.8-17.2 g/dL" in res["protocol"]["reference_range"]
     assert "Low < 7.0 g/dL" in res["protocol"]["panic_limits"]
     assert "a2a_protocol_message" in res
@@ -135,7 +130,8 @@ def test_clarification_tool_builds_prompt():
 def test_mock_bedrock_model_offline():
     """MockBedrockModel provides deterministic offline output for CI/local testing."""
     model = MockBedrockModel()
-    assert model.get_config()["model_id"] == "mock-bedrock-claude-sonnet-4-5"
+    from ontogate.catalog import load_catalog
+    assert model.get_config()["model_id"] == load_catalog()["offline"]["aws"]
 
 
 def test_model_provider_offline_selection():
@@ -218,15 +214,17 @@ def test_orchestrator_scenario_a_ambiguous():
 
 
 def test_orchestrator_scenario_a_numeric_no_unit_blocked():
-    """Scenario A: 'Hb 13.5' (numeric value, no unit) routes to CLARIFY as UNIT_MISMATCH.
+    """Scenario A: 'Hb 13.5' (numeric value, no unit) routes to CLARIFY as AMBIGUOUS.
 
-    MissingUnitDetector fires before AmbiguityDetector so a unitless numeric
-    result is always rejected — the unit is needed to determine measurement scale.
+    Unified gate semantics (one engine for ADK, Strands and MAF; scenario A
+    competency question tc_hb_no_unit): Hb and HbA1c use disjoint units, so the
+    unit itself disambiguates — the clarification is AMBIGUOUS and asks for the unit.
     """
     orch = build_strands_orchestrator(offline=True)
     res = orch.process_query_direct("Hb 13.5")
     assert res["route"] == "CLARIFY"
-    assert res["status"] == "UNIT_MISMATCH"
+    assert res["status"] == "AMBIGUOUS"
+    assert "unit" in res["gate"]["details"]["missing"]
 
 
 def test_orchestrator_scenario_a_resolved():
@@ -260,15 +258,18 @@ def test_orchestrator_scenario_c_range_collision():
 
 
 def test_orchestrator_scenario_c_unitless_numeric_blocked():
-    """Scenario C (new): 'Calcium 4.8' with no unit must route to CLARIFY as UNIT_MISMATCH.
+    """Scenario C: unitless 'Calcium 4.8' routes to CLARIFY as RANGE_COLLISION and asks for the unit.
 
-    MissingUnitDetector now fires before RangeCollisionDetector so a unitless
-    numeric value is never silently classified against the wrong scale.
+    Unified gate semantics (scenario C competency question
+    tc_calcium_unqualified_collision): total and ionized calcium share units, and
+    the value diverges (CRITICAL_LOW vs NORMAL) — the clarification requests both
+    the fraction and the unit, so no scale is ever silently assumed.
     """
     orch = build_strands_orchestrator(offline=True)
     res = orch.process_query_direct("Calcium 4.8")
     assert res["route"] == "CLARIFY"
-    assert res["status"] == "UNIT_MISMATCH"
+    assert res["status"] == "RANGE_COLLISION"
+    assert set(res["gate"]["details"]["missing"]) == {"fraction", "unit"}
 
 
 def test_orchestrator_scenario_c_qualified_total():

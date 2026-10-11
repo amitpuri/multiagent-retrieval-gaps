@@ -9,7 +9,9 @@ from google.adk import Agent
 
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
 
-DEFAULT_MODEL = "gemini-3.5-flash"
+from ontogate.catalog import model_for
+
+DEFAULT_MODEL = model_for("gcp")["id"]  # config/models.yaml
 
 
 def create_triage_agent(model: Optional[str] = None) -> Agent:

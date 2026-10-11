@@ -1,0 +1,30 @@
+# Panels and ordered collection steps. Order is an explicit `precedes`
+# relation (transitive, acyclic); each step is routed to a Department entity and
+# includes observables whose department must match (SequenceShape).
+
+schema_version: "1.0.0"
+
+panels:
+  csf_emergency_panel:
+    name: "CSF Emergency Panel"
+    specimen: "specimen:csf"
+    collection_method: "Lumbar puncture"
+    designations: ["csf emergency panel", "csf panel", "csf workup", "csf emergency", "csf"]
+    steps:
+      - id: "step:csf-tube-1"
+        tube: 1
+        department: "dept:clinical_biochemistry"
+        description: "Primary aliquot for chemical quantification (Protein, Glucose)"
+        includes: ["loinc:2880-3", "loinc:2342-4"]
+        precedes: "step:csf-tube-2"
+      - id: "step:csf-tube-2"
+        tube: 2
+        department: "dept:microbiology"
+        description: "Microbiology culture and gram stain (avoids skin flora contamination)"
+        includes: ["loinc:14357-8", "loinc:606-4"]
+        precedes: "step:csf-tube-3"
+      - id: "step:csf-tube-3"
+        tube: 3
+        department: "dept:hematology"
+        description: "Cell count & differential (cleared of traumatic puncture peripheral blood)"
+        includes: ["loinc:26465-5", "loinc:26512-4"]

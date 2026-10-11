@@ -17,7 +17,7 @@ from typing import Optional
 from src.harness.agent import ClinicalHarnessAgent, create_clinical_harness_agent
 from src.harness.providers import AgentMode
 from src.harness.session import HarnessSession
-from src.tools import csf_workup
+from src.tools import panel_workup
 
 
 BANNER = """
@@ -56,12 +56,12 @@ async def run_scenario_through_harness(agent: ClinicalHarnessAgent, scenario: st
 
     elif scenario == "B":
         print("\n--- Scenario B: CSF Emergency Workup (Governed Tube Ordering - Gap 11) ---")
-        workup = csf_workup()
+        workup = panel_workup("csf_emergency_panel")
         print("Pre-scoped Emergency CSF Tube Workup:")
-        for dept, tests in workup.items():
-            print(f"  Department [{dept}]:")
-            for t in tests:
-                print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
+        for tube in workup.get("tubes", []):
+            print(f"  Tube {tube['tube']} [{tube['department']}]:")
+            for t in tube["tests"]:
+                print(f"    - {t['test_name']} [{t['uri']}]")
 
     elif scenario == "C":
         turns = [

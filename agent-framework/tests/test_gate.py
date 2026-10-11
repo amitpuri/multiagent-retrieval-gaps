@@ -4,22 +4,16 @@ Tests all Gap 2/5/8/9/11 safety invariants using the plain Python tool functions
 
 Run: python -m pytest tests/test_gate.py -v
 """
-import sys
 from pathlib import Path
-
-# Ensure agent-framework and repo root on sys.path
-_agent_framework_dir = Path(__file__).resolve().parent.parent
-_repo_root = _agent_framework_dir.parent
-for p in (str(_repo_root), str(_agent_framework_dir)):
-    if p not in sys.path:
-        sys.path.insert(0, p)
 
 import pytest
 from src.tools.parse_tool import parse_clinician_input
-from src.tools.ontology_tool import resolve_ontology
-from src.tools.safety_gate_tool import run_safety_gate
+from src.tools.ontology_tool import resolve_lab_term
+from src.tools.safety_gate_tool import evaluate_safety_gate
 from src.tools.clarification_tool import build_clarification_prompt
-from src.tools.csf_tool import csf_workup
+from src.tools.panel_tool import panel_workup
+
+_agent_framework_dir = Path(__file__).resolve().parent.parent
 
 
 # ── Core routing invariants ────────────────────────────────────────────────────
@@ -31,21 +25,22 @@ from src.tools.csf_tool import csf_workup
     ("Hb 13.5",             "AMBIGUOUS",     "CLARIFY"),
     # Happy path: Hb with correct unit resolves
     ("Hb 13.5 | g/dL",     "RESOLVED",      "PROCEED"),
-    # Gap 8 — Calcium unqualified: two LOINC concepts → AMBIGUOUS route (fail-closed)
-    ("Calcium 4.8 | mg/dL", "AMBIGUOUS",    "CLARIFY"),
+    # Look-alike collision — Calcium unqualified: total (CRITICAL_LOW) vs ionized (NORMAL)
+    # → RANGE_COLLISION (fail-closed). Unified gate semantics across ADK/Strands/MAF.
+    ("Calcium 4.8 | mg/dL", "RANGE_COLLISION", "CLARIFY"),
     # NOTE: Troponin tests require scenario D extension YAML to be loaded first.
     # They are covered in test_offline_pipeline.py::test_scenario_d_*
 ])
 def test_gate_routing(raw, expected_status, expected_route):
     """Safety gate must correctly route each clinical query."""
     parsed = parse_clinician_input(raw)
-    resolved = resolve_ontology(
+    resolved = resolve_lab_term(
         term=parsed["term"],
         unit=parsed["unit"],
         qualifier=parsed["qualifier"],
         patient_value=parsed["patient_value"],
     )
-    gate = run_safety_gate(
+    gate = evaluate_safety_gate(
         term=resolved["term"],
         unit=resolved["unit"],
         qualifier=resolved["qualifier"],
@@ -65,8 +60,8 @@ def test_gate_routing(raw, expected_status, expected_route):
 def test_gate_never_bypassed_on_unit_mismatch():
     """Unit mismatch MUST route to CLARIFY — never proceed to synthesis (Gap 9)."""
     parsed = parse_clinician_input("Hb 13.5 | mg/dL")
-    resolved = resolve_ontology(**{k: parsed[k] for k in ("term", "unit", "qualifier", "patient_value")})
-    gate = run_safety_gate(**{k: resolved[k] for k in ("term", "unit", "qualifier", "patient_value")}, status=resolved["status"])
+    resolved = resolve_lab_term(**{k: parsed[k] for k in ("term", "unit", "qualifier", "patient_value")})
+    gate = evaluate_safety_gate(**{k: resolved[k] for k in ("term", "unit", "qualifier", "patient_value")}, status=resolved["status"])
     assert gate["route"] == "CLARIFY"
     assert gate["passed"] is False
 
@@ -74,14 +69,14 @@ def test_gate_never_bypassed_on_unit_mismatch():
 def test_gate_never_bypassed_on_ambiguous():
     """Ambiguous query MUST route to CLARIFY — never proceed to synthesis (Gap 9)."""
     parsed = parse_clinician_input("Calcium 4.8")
-    resolved = resolve_ontology(**{k: parsed[k] for k in ("term", "unit", "qualifier", "patient_value")})
-    gate = run_safety_gate(**{k: resolved[k] for k in ("term", "unit", "qualifier", "patient_value")}, status=resolved["status"])
+    resolved = resolve_lab_term(**{k: parsed[k] for k in ("term", "unit", "qualifier", "patient_value")})
+    gate = evaluate_safety_gate(**{k: resolved[k] for k in ("term", "unit", "qualifier", "patient_value")}, status=resolved["status"])
     assert gate["route"] == "CLARIFY"
 
 
 def test_gate_fails_closed_on_empty_payload():
     """Malformed/empty payload must route to CLARIFY — fail closed (Gap 9)."""
-    gate = run_safety_gate(term="", unit="", qualifier="", patient_value=None, status="UNKNOWN")
+    gate = evaluate_safety_gate(term="", unit="", qualifier="", patient_value=None, status="UNKNOWN")
     assert gate["route"] == "CLARIFY"
 
 
@@ -127,30 +122,21 @@ def test_clarification_prompt_collision():
 
 # ── Scenario B: CSF Emergency Panel Workup (Gap 11) ───────────────────────────
 
-def test_csf_workup_grouping_and_tube_order():
-    workup = csf_workup()
-    assert "Clinical Biochemistry" in workup
-    assert "Microbiology" in workup
-    assert "Hematology" in workup
-
-    for item in workup["Clinical Biochemistry"]:
-        assert item["tube"] == 1
-    for item in workup["Microbiology"]:
-        assert item["tube"] == 2
-    for item in workup["Hematology"]:
-        assert item["tube"] == 3
+def test_panel_workup_tube_order():
+    workup = panel_workup(panel="csf_emergency_panel")
+    assert workup["status"] == "RESOLVED"
+    assert [(t["tube"], t["department"]) for t in workup["tubes"]] == [
+        (1, "Clinical Biochemistry"), (2, "Microbiology"), (3, "Hematology")]
 
 
-def test_csf_workup_scoped_by_department():
-    hemat_workup = csf_workup("hemat")
-    assert list(hemat_workup.keys()) == ["Hematology"]
-    assert len(hemat_workup["Hematology"]) == 2
-    assert hemat_workup["Hematology"][0]["tube"] == 3
+def test_panel_workup_scoped_by_department():
+    workup = panel_workup(department="hemat")
+    assert [t["department"] for t in workup["tubes"]] == ["Hematology"]
+    assert len(workup["tubes"][0]["tests"]) == 2
 
 
-def test_csf_workup_unknown_department():
-    res = csf_workup("radiology")
-    assert res == {"status": "NOT_FOUND"}
+def test_panel_workup_unknown_department():
+    assert panel_workup(department="radiology")["status"] == "NOT_FOUND"
 
 
 # ── A2A message schema ─────────────────────────────────────────────────────────
@@ -164,7 +150,7 @@ def test_parse_emits_a2a_message():
 
 
 def test_ontology_emits_a2a_message():
-    result = resolve_ontology(term="Hb", unit="g/dL")
+    result = resolve_lab_term(term="Hb", unit="g/dL")
     msg = result["a2a_message"]
     assert msg["sender"] == "ontology_resolver_agent"
     assert msg["recipient"] == "safety_guard_agent"
@@ -187,12 +173,12 @@ def test_all_agent_yamls_parse():
 
 
 def test_safety_guard_yaml_has_gate_tool():
-    """safety_guard.yaml must declare run_safety_gate as a tool."""
+    """safety_guard.yaml must declare evaluate_safety_gate as a tool."""
     import yaml
     f = _agent_framework_dir / "declarative-agents" / "safety_guard.yaml"
     data = yaml.safe_load(f.read_text(encoding="utf-8"))
     tool_names = [t.get("name") for t in data.get("tools", [])]
-    assert "run_safety_gate" in tool_names
+    assert "evaluate_safety_gate" in tool_names
 
 
 def test_triage_yaml_has_all_tools():
@@ -201,8 +187,8 @@ def test_triage_yaml_has_all_tools():
     f = _agent_framework_dir / "declarative-agents" / "triage_orchestrator.yaml"
     data = yaml.safe_load(f.read_text(encoding="utf-8"))
     tool_names = {t.get("name") for t in data.get("tools", [])}
-    expected = {"parse_clinician_input", "resolve_ontology", "run_safety_gate",
-                "fetch_protocol", "build_clarification_prompt"}
+    expected = {"parse_clinician_input", "resolve_lab_term", "evaluate_safety_gate",
+                "fetch_grounded_protocol", "build_clarification_prompt"}
     assert expected == tool_names
 
 

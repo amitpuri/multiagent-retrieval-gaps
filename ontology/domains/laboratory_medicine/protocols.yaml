@@ -1,0 +1,78 @@
+# Protocols are graph nodes: each has its own id, governs exactly the
+# observables listed, and is reached only via governed_by. reference_range and
+# panic_limits are display text for synthesis; gate and attestation numbers come
+# from intervals.yaml.
+
+schema_version: "1.0.0"
+
+_trust: &trust
+  status: stable
+  stale_after: "2028-01-01T00:00:00Z"
+  verified_by: "human:dr_puri"
+
+protocols:
+  "protocol:hemoglobin-adult":
+    governs: "loinc:718-7"
+    reference_range: "Adult male 13.8-17.2 g/dL; adult female 12.1-15.1 g/dL"
+    panic_limits: "Low < 7.0 g/dL; high > 20.0 g/dL"
+    clinical_guideline: "Values below 12.0 g/dL indicate anemia. Critical low (< 7.0 g/dL) requires immediate transfusion consideration."
+    <<: *trust
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        # Physiological plausibility cap (g/dL). Above this: instrument error or wrong unit.
+        expected_max: 25.0
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
+
+  "protocol:hba1c-glycemic-control":
+    governs: "loinc:4548-4"
+    reference_range: "Normal < 5.7%; prediabetes 5.7-6.4%; diabetes >= 6.5%"
+    panic_limits: "Values far above target need urgent review of glycemic control"
+    clinical_guideline: "HbA1c reflects average glycemia over preceding 2-3 months. Levels > 10% indicate poor control; > 13% necessitate urgent endocrine escalation."
+    <<: *trust
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        expected_max: 20.0
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
+
+  "protocol:total-calcium-adult":
+    governs: "loinc:17861-6"
+    reference_range: "8.5 to 10.5 mg/dL"
+    panic_limits: "Low < 6.0 mg/dL; high > 13.0 mg/dL"
+    clinical_guideline: "Total calcium includes albumin-bound and free fractions. Must be corrected for serum albumin if abnormal."
+    <<: *trust
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        albumin_corrected: false
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
+
+  "protocol:ionized-calcium-adult":
+    governs: "loinc:17864-0"
+    reference_range: "4.5 to 5.6 mg/dL"
+    panic_limits: "Low < 3.0 mg/dL; high > 6.5 mg/dL"
+    clinical_guideline: "Ionized calcium reflects physiological free active calcium. Preferred in critically ill or acid-base altered patients."
+    <<: *trust
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        measurement: "ionized"
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"
+
+  "protocol:csf-protein":
+    governs: "loinc:2880-3"
+    reference_range: "15 to 45 mg/dL"
+    panic_limits: "Low < 5 mg/dL; high > 100 mg/dL"
+    clinical_guideline: "CSF protein evaluates blood-brain barrier integrity, neuroinflammation, or demyelination."
+    <<: *trust
+    attested_computation:
+      runtime: "python_formula"
+      parameters:
+        expected_max: 500.0
+      executor: "protocol_retriever_agent"
+      attester: "deterministic_range_checker"

@@ -1,37 +1,22 @@
 """
-Strands tools package for Laboratory Medicine Decision Support.
-Exports both Strands @tool-decorated functions and legacy retrieval utilities.
+Strands tools for Laboratory Medicine Decision Support — the canonical tool
+contract (``ontogate.tools``) as Strands ``@tool`` functions, plus the naive
+keyword-retrieval baseline.
 """
 from src.tools.parse_tool import parse_clinician_input
-from src.tools.ontology_tool import resolve_ontology
-from src.tools.safety_gate_tool import run_safety_gate
-from src.tools.protocol_tool import fetch_protocol
+from src.tools.ontology_tool import resolve_lab_term
+from src.tools.safety_gate_tool import evaluate_safety_gate
+from src.tools.protocol_tool import fetch_grounded_protocol
 from src.tools.clarification_tool import build_clarification_prompt
-
-# Re-export legacy clinical utilities for backwards compatibility
-from src.tools_legacy import (
-    search_lab_kb,
-    resolve_lab_term,
-    fetch_grounded_protocol,
-    csf_workup,
-    check_calcium,
-    classify,
-)
-
-# Alias get_protocol to fetch_grounded_protocol
-get_protocol = fetch_grounded_protocol
+from src.tools.panel_tool import panel_workup
+from src.tools.naive_tool import search_lab_kb
 
 __all__ = [
     "parse_clinician_input",
-    "resolve_ontology",
-    "run_safety_gate",
-    "fetch_protocol",
-    "build_clarification_prompt",
-    "search_lab_kb",
     "resolve_lab_term",
-    "get_protocol",
+    "evaluate_safety_gate",
     "fetch_grounded_protocol",
-    "csf_workup",
-    "check_calcium",
-    "classify",
+    "build_clarification_prompt",
+    "panel_workup",
+    "search_lab_kb",
 ]

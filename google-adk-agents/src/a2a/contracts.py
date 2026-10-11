@@ -2,7 +2,7 @@
 Agent-to-Agent (A2A) message schemas, task envelopes, and role definitions.
 Standardizes communication between specialized agents in the ADK ecosystem.
 
-OKF Enhancement (Phase 1/3):
+OKF:
 A2ATaskState now carries OKF trust signals (trust_tier, concept_status,
 stale_signals, deprecated_dropped) propagated from the ontology resolver
 so every downstream agent can calibrate safely without re-deriving them.
@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from src.core.models import ResolutionStatus
+from ontogate.models import ResolutionStatus
 
 
 class AgentRole(str, Enum):
@@ -72,7 +72,7 @@ class A2ATaskState(BaseModel):
     synthesized_output: Optional[str] = None
     history: List[A2AMessage] = Field(default_factory=list)
 
-    # OKF: Trust & lifecycle signals propagated from OntologyResolver (Phase 3)
+    # OKF: Trust & lifecycle signals propagated from OntologyResolver
     trust_tier: Optional[str] = None            # "human-reviewed" | "machine-confirmed" | "unverified"
     concept_status: Optional[str] = None        # "draft" | "stable" | "deprecated"
     stale_signals: List[str] = Field(default_factory=list)      # URIs dropped as stale

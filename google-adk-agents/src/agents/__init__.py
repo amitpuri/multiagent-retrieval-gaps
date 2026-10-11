@@ -6,8 +6,10 @@ from typing import Optional
 from google.adk import Agent
 from src.tools import fetch_grounded_protocol, resolve_lab_term, search_lab_kb
 
-# Recommended Gemini model for ADK agents
-MODEL = "gemini-3.5-flash"
+# Gemini model for ADK agents — resolved from config/models.yaml (never hard-coded).
+from ontogate.catalog import model_for
+
+MODEL = model_for("gcp")["id"]
 
 # -------------------------------------------------------------------------
 # Agent 1: The Naive RAG Agent (Pure Keyword Retrieval)
@@ -23,10 +25,10 @@ naive_agent = Agent(
 )
 
 # -------------------------------------------------------------------------
-# Agent 2: Ontology-Grounded Agent v1 (Prompt-governed safety)
+# Agent 2: Ontology-grounded agent with prompt-governed safety (baseline for Gap 9)
 # -------------------------------------------------------------------------
-grounded_agent_v1 = Agent(
-    name="grounded_lab_agent_v1",
+prompt_governed_agent = Agent(
+    name="prompt_governed_lab_agent",
     model=MODEL,
     instruction="""You are a laboratory decision-support assistant.
 1. Call resolve_lab_term with the test name and unit (empty if none reported).
@@ -58,7 +60,7 @@ synthesize = create_synthesize_agent(MODEL)
 __all__ = [
     "MODEL",
     "naive_agent",
-    "grounded_agent_v1",
+    "prompt_governed_agent",
     "synthesize",
     "create_synthesize_agent",
     "create_synthesize_agent_from_payload",

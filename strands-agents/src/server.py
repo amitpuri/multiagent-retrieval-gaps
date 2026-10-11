@@ -4,6 +4,8 @@ Runs continuous FastAPI REST service on port 8000.
 """
 from __future__ import annotations
 
+from ontogate.catalog import model_for as _model_for
+
 import logging
 import os
 import uuid
@@ -71,7 +73,7 @@ def readyz() -> Dict[str, Any]:
         "status": "ready",
         "service": "aws-strands-agents",
         "offline_mode": bool(orch.offline),
-        "model": "us.anthropic.claude-sonnet-4-5:0 (Bedrock)",
+        "model": f"{_model_for('aws')['bedrock_id']} (Bedrock)",
     }
 
 

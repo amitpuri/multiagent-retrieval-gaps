@@ -7,14 +7,12 @@ deterministic gating and Human-In-The-Loop pauses (RequestInput).
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Callable, Dict, Generator, Optional, Union
 from google.adk import Agent, Event, Workflow
 from google.adk.events import RequestInput
 from src.agents import MODEL, create_synthesize_agent
-from src.core.detectors.engine import SafetyGateEngine
-from src.core.models import EvaluationContext
-from src.tools import fetch_grounded_protocol, resolve_lab_term
+from src.tools import evaluate_safety_gate, fetch_grounded_protocol, resolve_lab_term
+from ontogate.parsing import parse_clinician_text
 
 logger = logging.getLogger(__name__)
 
@@ -30,28 +28,18 @@ def route_for(status: str) -> str:
 
 
 def parse(node_input: Any) -> Event:
-    """Parser node: extracts test term, optional value, and reported unit from clinician input.
+    """Parser node: ontology-aware parse of clinician input (shared ``ontogate`` parser).
 
-    Supports formats::
+    Pipe segments are classified by vocabulary — unit, facet qualifier,
+    population (sex / age band), department — not by position::
 
-        Hb
         Hb | g/dL
         Hb 13.5 | g/dL
-        Calcium 4.8 | mg/dL
-        Calcium 4.8 | total | mg/dL   ← two-pipe: qualifier then unit
+        Calcium 4.8 | total | mg/dL
         Calcium 4,8 | mg/dL           ← comma-decimal normalised
+        Hb 13.5 | female | g/dL       ← population context
         Na+ -3 | mEq/L                ← negative value preserved
-        25-OH vitamin D 18 | ng/mL   ← leading digit not confused with value
-
-    Rules:
-    - Only a digit sequence that is *preceded by whitespace or start-of-string*
-      (not by a letter, hyphen, or other non-space) is treated as a numeric value.
-    - Comma-decimal notation (``4,8``) is normalised to ``4.8`` before parsing.
-    - A leading ``-`` immediately before the digit group is treated as a negative sign
-      only when the character before it is whitespace or start-of-string.
-    - Fix 5: a comma followed by exactly three digits (e.g. ``1,250``) is treated as
-      an ambiguous thousands separator.  patient_value is set to None so the gate
-      routes to CLARIFY rather than silently dividing by 1000.
+        Troponin 1,250 | ng/L         ← ambiguous thousands separator → value None
     """
     if hasattr(node_input, "parts") and node_input.parts:
         text = node_input.parts[0].text
@@ -59,60 +47,7 @@ def parse(node_input: Any) -> Event:
         text = node_input["text"]
     else:
         text = str(node_input)
-
-    left, _, rest = text.partition("|")
-    left_str = left.strip()
-
-    # Two-pipe format: "Calcium 4.8 | total | mg/dL"
-    if "|" in rest:
-        qualifier_str, _, unit_str = rest.partition("|")
-        qualifier_str = qualifier_str.strip()
-        unit_str = unit_str.strip()
-    else:
-        qualifier_str = ""
-        unit_str = rest.strip()
-
-    # Fix 5: ambiguous thousands-separator guard.
-    # "Troponin 1,250 | ng/L" must NOT silently become 1.25.
-    ambiguous_thousands = bool(re.search(r"\b\d+,\d{3}\b", left_str))
-
-    # Normalise comma-decimal notation (e.g. "4,8" -> "4.8") only when NOT thousands.
-    left_normalised = left_str
-    patient_value: Optional[float] = None
-    ambiguous_value: bool = False
-    if not ambiguous_thousands:
-        left_normalised = re.sub(r"(\d),(\d)", r"\1.\2", left_str)
-
-        # Match a numeric value that is:
-        #  - preceded only by whitespace or start-of-string, AND
-        #  - NOT immediately followed by a hyphen or word character.
-        val_pattern = r"(?:^|(?<=\s))(-?\d+(?:\.\d+)?)(?![\w-])"
-        all_val_matches = re.findall(val_pattern, left_normalised)
-
-        # Fix Issue 5: multiple candidate values — flag as ambiguous instead of
-        # silently picking the first.  "Calcium 48 4.8 | total | mg/dL" would
-        # otherwise silently use 48 and discard 4.8.
-        if len(all_val_matches) > 1:
-            ambiguous_value = True
-            patient_value = None
-        elif all_val_matches:
-            patient_value = float(all_val_matches[0])
-
-    # Strip the matched number (including its optional sign) from the term.
-    cleaned_term = re.sub(r"(?:^|(?<=\s))-?\d+(?:\.\d+)?(?![\w-])", "", left_normalised).strip()
-    term = cleaned_term if cleaned_term else left_str.strip()
-
-    return Event(
-        output={
-            "term": term,
-            "unit": unit_str,
-            "qualifier": qualifier_str,
-            "patient_value": patient_value,
-            "raw_text": text,
-            "ambiguous_thousands": ambiguous_thousands,
-            "ambiguous_value": ambiguous_value,
-        }
-    )
+    return Event(output=parse_clinician_text(text))
 
 
 def resolve_node(node_input: Dict[str, Any]) -> Event:
@@ -129,22 +64,24 @@ def resolve_node(node_input: Dict[str, Any]) -> Event:
     resolution["qualifier"] = qualifier
     resolution["unit"] = unit
     resolution["ambiguous_thousands"] = node_input.get("ambiguous_thousands", False)
+    resolution["ambiguous_value"] = node_input.get("ambiguous_value", False)
+    resolution["population"] = node_input.get("population", {})
+    resolution["department"] = node_input.get("department", "")
+    resolution["panel_id"] = node_input.get("panel_id")
     return Event(output=resolution)
 
 
 def gate(node_input: Dict[str, Any]) -> Event:
     """Deterministic routing node — no LLM invocation.
 
-    Fix 5 + Fix 9: previously read only the ``status`` key from resolve_node
-    output and routed on it — bypassing SafetyGateEngine and all its detectors
-    (RangeCollisionDetector, MissingQualifierDetector, etc.).  Now runs the full
-    SafetyGateEngine so this workflow path is identical to the harness path.
+    Runs the full SafetyGateEngine (via the canonical ``evaluate_safety_gate``
+    tool), so this workflow path and the harness path reach identical verdicts.
 
     Special cases:
     - Ambiguous thousands separator from parser → immediate CLARIFY.
     - Engine verdict overrides resolver-level status.
     """
-    # Ambiguous thousands guard (Fix 5)
+    # Ambiguous thousands guard
     if node_input.get("ambiguous_thousands"):
         clarification = (
             "Value contains an ambiguous comma that looks like a thousands separator "
@@ -155,7 +92,7 @@ def gate(node_input: Dict[str, Any]) -> Event:
         output["clarification"] = clarification
         return Event(output=output, route="CLARIFY")
 
-    # Fix Issue 5: multiple numeric values in input — don't silently pick the first.
+    # multiple numeric values in input — don't silently pick the first.
     if node_input.get("ambiguous_value"):
         clarification = (
             "Input contains multiple numeric values (e.g. 'Calcium 48 4.8'). "
@@ -166,23 +103,26 @@ def gate(node_input: Dict[str, Any]) -> Event:
         output["clarification"] = clarification
         return Event(output=output, route="CLARIFY")
 
-    engine = SafetyGateEngine()
-    ctx = EvaluationContext(
+    population = node_input.get("population") or {}
+    verdict = evaluate_safety_gate(
         term=node_input.get("term", ""),
         unit=node_input.get("unit", ""),
         qualifier=node_input.get("qualifier", ""),
         patient_value=node_input.get("patient_value"),
+        sex=population.get("sex", ""),
+        age_band=population.get("age_band", ""),
+        department=node_input.get("department", ""),
+        panel_id=node_input.get("panel_id") or "",
     )
-    verdict = engine.evaluate(ctx)
-    route = engine.route_for(verdict.status)
 
     output = dict(node_input)
-    output["status"] = verdict.status.value if hasattr(verdict.status, "value") else str(verdict.status)
-    output["gate_message"] = verdict.message
-    output["gate_candidates"] = verdict.candidates
-    if not verdict.passed:
-        output["clarification"] = verdict.message
-    return Event(output=output, route=route)
+    output["status"] = verdict["status"]
+    output["gate_message"] = verdict["gate_message"]
+    output["gate_candidates"] = verdict["candidates"]
+    output["gate_details"] = verdict["details"]
+    if not verdict["passed"]:
+        output["clarification"] = verdict["clarification_prompt"]
+    return Event(output=output, route=verdict["route"])
 
 
 def clarify(node_input: Dict[str, Any]) -> Generator[RequestInput, None, None]:
@@ -203,7 +143,7 @@ def fetch_node(node_input: Dict[str, Any]) -> Event:
     if candidates and "uri" in candidates[0]:
         uri = candidates[0]["uri"]
         protocol_data = fetch_grounded_protocol(uri)
-        # Fix 2: carry the clinician's original reported unit, not the concept's
+        # carry the clinician's original reported unit, not the concept's
         # first expected_unit.  Substituting expected_units[0] would silently
         # reclassify e.g. Hb 135 g/L against g/dL thresholds.
         reported_unit = node_input.get("unit", "")
@@ -221,8 +161,7 @@ def fetch_node(node_input: Dict[str, Any]) -> Event:
 def synthesis_gate_node(node_input: Dict[str, Any]) -> Event:
     """Attestation gate between protocol retrieval and synthesis.
 
-    Fix 10: this node was defined but not wired into the workflow graph.
-    It now sits between fetch_node and the synthesiser.
+    Sits between fetch_node and the synthesiser.
 
     Checks whether the retrieved protocol was successfully attested.  If the
     attestation failed (e.g. stale protocol, unit mismatch, out-of-range) the
@@ -230,7 +169,7 @@ def synthesis_gate_node(node_input: Dict[str, Any]) -> Event:
     synthesis response.  This closes the gap where a stale or misconfigured
     protocol could produce a synthesised answer without a badge.
 
-    Fix (Issue 3): also routes to CLARIFY when there is no resolved URI or
+    Also routes to CLARIFY when there is no resolved URI or
     protocol.  fetch_node returns status='NO_RESOLVED_CANDIDATE' in this case;
     without this guard the synthesiser would run with no protocol data.
     """
@@ -239,7 +178,7 @@ def synthesis_gate_node(node_input: Dict[str, Any]) -> Event:
     resolved_uri = node_input.get("resolved_uri", "")
     reported_unit = node_input.get("reported_unit", "")
 
-    # Fix Issue 3: fail closed when fetch_node found no resolved candidate.
+    # fail closed when fetch_node found no resolved candidate.
     if not resolved_uri or node_input.get("status") == "NO_RESOLVED_CANDIDATE":
         output = dict(node_input)
         output["status"] = "NO_RESOLVED_CANDIDATE"
@@ -269,22 +208,14 @@ def synthesis_gate_node(node_input: Dict[str, Any]) -> Event:
                 )
                 return Event(output=output, route="CLARIFY")
 
-            # Fix 17: Log verified attestation into OKF audit trail
-            try:
-                from src.core.okf_writer import record_concept_update
-                record_concept_update(
-                    uri=resolved_uri,
-                    change=f"attested_value={patient_value} {reported_unit}",
-                    agent_id="workflow/synthesis_gate_node",
-                    details={"status": "ATTESTED", "badge": attest_result.get("badge")},
-                )
-            except Exception as audit_exc:
-                logger.warning(
-                    "Failed to record OKF audit log for URI %s: %s",
-                    resolved_uri,
-                    audit_exc,
-                    exc_info=True,
-                )
+            # Attestations are ABox events: they go to the audit port (redacted),
+            # never into the git-tracked knowledge log.
+            from ontogate.ports import get_audit
+            get_audit().record("attestation", {
+                "uri": resolved_uri, "unit": reported_unit, "patient_value": patient_value,
+                "verdict": attest_result.get("verdict"), "badge": attest_result.get("badge"),
+                "is_panic": attest_result.get("is_panic"), "node": "workflow/synthesis_gate_node",
+            })
         except Exception as exc:
             output = dict(node_input)
             output["attestation"] = {"passed": False, "error": str(exc)}
@@ -305,7 +236,7 @@ def build_lab_workflow(
 ) -> Workflow:
     """Build and return an ADK Workflow graph with deterministic gating.
 
-    Graph Topology (Fix 10 — synthesis_gate_node now wired in)::
+    Graph Topology::
 
         START → parse → resolve_node → gate
         gate --PROCEED→ fetch_node → synthesis_gate_node

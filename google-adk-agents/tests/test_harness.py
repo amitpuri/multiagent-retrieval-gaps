@@ -86,13 +86,15 @@ class TestHarnessSession:
 class TestMCPToolBridge:
     def test_tool_registry_has_expected_tools(self):
         from src.harness.mcp_server import CLINICAL_MCP_TOOLS
+        # Canonical tool contract (ontogate.tools).
         expected = {
+            "parse_clinician_input",
             "resolve_lab_term",
             "evaluate_safety_gate",
             "fetch_grounded_protocol",
-            "csf_workup",
-            "check_calcium",
             "attest_computation",
+            "build_clarification_prompt",
+            "panel_workup",
         }
         assert expected == set(CLINICAL_MCP_TOOLS.keys())
 
@@ -103,7 +105,7 @@ class TestMCPToolBridge:
         names = {d.name for d in decls}
         assert "resolve_lab_term" in names
         assert "evaluate_safety_gate" in names
-        assert "csf_workup" in names
+        assert "panel_workup" in names
 
     def test_dispatch_resolve_lab_term_ambiguous(self):
         from src.harness.mcp_client import MCPToolBridge
@@ -140,30 +142,31 @@ class TestMCPToolBridge:
         assert result["route"] == "PROCEED"
         assert result["passed"] is True
 
-    def test_dispatch_csf_workup_all_departments(self):
+    def test_dispatch_panel_workup_all_departments(self):
         from src.harness.mcp_client import MCPToolBridge
         bridge = MCPToolBridge()
-        result = bridge.execute_tool("csf_workup", {"department": ""})
-        assert isinstance(result, dict)
-        # Should return at least one department
-        assert len(result) >= 1
+        result = bridge.execute_tool("panel_workup", {"panel": "csf_emergency_panel"})
+        assert result["status"] == "RESOLVED"
+        assert len(result["tubes"]) == 3
 
-    def test_dispatch_csf_workup_hematology_filter(self):
+    def test_dispatch_panel_workup_hematology_filter(self):
         from src.harness.mcp_client import MCPToolBridge
         bridge = MCPToolBridge()
-        result = bridge.execute_tool("csf_workup", {"department": "hemat"})
-        assert "Hematology" in result or len(result) >= 1
+        result = bridge.execute_tool("panel_workup", {"panel": "csf_emergency_panel", "department": "hemat"})
+        assert [t["department"] for t in result["tubes"]] == ["Hematology"]
 
-    def test_dispatch_check_calcium_collision(self):
+    def test_dispatch_gate_calcium_collision(self):
         from src.harness.mcp_client import MCPToolBridge
         bridge = MCPToolBridge()
-        result = bridge.execute_tool("check_calcium", {"value_mg_dl": 4.8, "qualifier": ""})
+        result = bridge.execute_tool("evaluate_safety_gate",
+                                     {"term": "calcium", "unit": "mg/dL", "patient_value": 4.8})
         assert result["status"] == "RANGE_COLLISION"
 
-    def test_dispatch_check_calcium_total_qualified(self):
+    def test_dispatch_gate_calcium_total_qualified(self):
         from src.harness.mcp_client import MCPToolBridge
         bridge = MCPToolBridge()
-        result = bridge.execute_tool("check_calcium", {"value_mg_dl": 9.5, "qualifier": "total"})
+        result = bridge.execute_tool("evaluate_safety_gate",
+                                     {"term": "calcium", "unit": "mg/dL", "qualifier": "total", "patient_value": 9.5})
         assert result["status"] == "RESOLVED"
 
     def test_dispatch_unknown_tool_returns_error(self):
@@ -276,11 +279,11 @@ class TestClinicalADKHarnessOffline:
         assert res.status == "UNIT_MISMATCH"
 
     # Scenario B: CSF tube ordering
-    def test_csf_workup_proceeds_with_governed_sequence(self):
+    def test_panel_workup_proceeds_with_governed_sequence(self):
         res = self._run("CSF workup | hematology")
         assert res.route == "PROCEED"
         assert res.status == "RESOLVED"
-        assert any(tc.tool_name == "csf_workup" for tc in res.tool_calls)
+        assert any(tc.tool_name == "panel_workup" for tc in res.tool_calls)
         assert "Tube" in res.text
 
     # Scenario C: Calcium collision
@@ -290,7 +293,8 @@ class TestClinicalADKHarnessOffline:
         assert res.status == "RANGE_COLLISION"
         assert res.is_hitl_paused is True
         assert res.clarification is not None
-        assert "Total Calcium" in res.clarification
+        # Clarification is generated from the ontology (display names), not hard-coded text.
+        assert "total calcium" in res.clarification.lower()
 
     # Attestation
     def test_resolved_lab_value_gets_attested(self):
@@ -328,13 +332,10 @@ class TestClinicalADKHarnessOffline:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Defect regression tests (new — verifying fixes from code-review findings)
+# Offline safety behaviour (no Gemini API key required)
 # ─────────────────────────────────────────────────────────────────────────────
-class TestDefectRegressions:
-    """Regression suite for defects discovered during offline code review.
-
-    All tests run fully offline — no Gemini API key required.
-    """
+class TestOfflineSafetyBehaviour:
+    """Fail-closed behaviour of the offline harness pipeline."""
 
     def setup_method(self):
         from src.harness.agent import ClinicalADKHarness
@@ -344,15 +345,9 @@ class TestDefectRegressions:
         import asyncio
         return asyncio.run(self.harness.run(prompt=prompt, session=session))
 
-    # ── Defect #2: CSF crash — unit passed as department ─────────────────────
-    def test_csf_workup_with_unit_as_department_clarifies_not_crashes(self):
-        """Defect #2: 'CSF workup | mg/dL' must CLARIFY, not crash with AttributeError.
-
-        When the pipe-delimited parser extracts the unit 'mg/dL' and it is
-        forwarded as the department filter to csf_workup, it returns {status: NOT_FOUND}.
-        Before the fix, iterating that dict called str.get('tube') and crashed with AttributeError.
-        After the fix, invalid department filter safely routes to CLARIFY with HITL pause.
-        """
+    # ── Panel requests ───────────────────────────────────────────────────────
+    def test_panel_with_unit_instead_of_department_clarifies(self):
+        """'CSF workup | mg/dL': a unit is not a department filter — fail closed with a HITL pause."""
         res = self._run("CSF workup | mg/dL")
         assert res.route == "CLARIFY", (
             "CSF workup with non-department unit should route to CLARIFY, not crash"
@@ -361,12 +356,7 @@ class TestDefectRegressions:
         assert "mg/dL" in (res.clarification or "") or "department" in (res.clarification or "").lower()
 
     def test_csf_protein_analyte_resolves_and_proceeds(self):
-        """Defect #2: 'CSF protein 45 | mg/dL' is an individual analyte test, not a panel workup.
-
-        Before the fix, any term with 'csf' was hijacked into csf_workup.
-        Now it correctly resolves to loinc:2880-3 (Protein in CSF), evaluates the safety gate,
-        and proceeds with attestation.
-        """
+        """'CSF protein 45 | mg/dL' is a single observable, not a panel: it resolves, gates and attests."""
         res = self._run("CSF protein 45 | mg/dL")
         assert res.route == "PROCEED"
         assert res.attested is True
@@ -385,20 +375,12 @@ class TestDefectRegressions:
         # Should mention at least two departments in the output
         assert res.text.count("Department:") >= 2
 
-    # ── Defect #1: panic value gets badge without warning ────────────────────
+    # ── Panic values ─────────────────────────────────────────────────────────
     def test_panic_value_includes_critical_warning_in_output(self):
-        """Defect #1: Hb 5.0 g/dL is below the 7.0 g/dL panic limit.
-
-        It must NOT receive a clean [Attested ✓] without a visible CRITICAL warning.
-        A panic value that passes attestation (physiologically plausible, in registry)
-        must have a PANIC warning in the output text.
-        """
+        """Hb 5.0 g/dL is below the 7.0 g/dL critical limit: the attested answer carries a PANIC warning."""
         res = self._run("Hb 5.0 | g/dL")
-        # Value is below panic low — if attestation passes, warning must be present.
-        if res.attested:
-            assert "PANIC" in res.text or "CRITICAL" in res.text, (
-                "Attested panic value must include CRITICAL/PANIC warning in output"
-            )
+        assert res.attested is True
+        assert "PANIC" in res.text
 
     def test_attested_normal_value_has_no_spurious_panic_warning(self):
         """Normal Hb value must not trigger a panic warning."""
@@ -407,56 +389,42 @@ class TestDefectRegressions:
         assert res.attested is True
         assert "PANIC" not in res.text
 
-    # ── Defect #5: calcium unit ignored, message showed wrong unit ────────────
-    def test_calcium_mmol_clarification_shows_reported_unit(self):
-        """Defect #5: 'Calcium 4.8 | mmol/L' must not falsely claim '4.8 mg/dL' or CRITICAL LOW.
-
-        Before the fix, the value was passed as mg/dL regardless of the reported unit,
-        triggering a false collision that said '4.8 mg/dL is ... CRITICAL LOW'.
-        After the fix, 4.8 mmol/L is converted to ~19.2 mg/dL so it never generates
-        that false '4.8 mg/dL' / 'CRITICAL LOW' collision message.
-        """
+    # ── Units in look-alike clarifications ───────────────────────────────────
+    def test_calcium_mmol_is_classified_in_the_reported_unit(self):
+        """'Calcium 4.8 | mmol/L' is read in mmol/L (both fractions critical-high): ask for the fraction."""
         res = self._run("Calcium 4.8 | mmol/L")
+        assert res.status == "MISSING_QUALIFIER"
         assert "4.8 mg/dL" not in (res.clarification or "")
-        assert "CRITICAL LOW" not in (res.clarification or "")
 
     def test_calcium_mmol_collision_shows_reported_unit(self):
-        """Defect #5: 'Calcium 1.2 | mmol/L' (≈4.8 mg/dL) must mention mmol/L in collision message."""
+        """'Calcium 1.2 | mmol/L' (≈4.8 mg/dL) collides and the clarification names the reported unit."""
         res = self._run("Calcium 1.2 | mmol/L")
         assert res.route == "CLARIFY"
         assert res.status == "RANGE_COLLISION"
         assert "1.2 mmol/L" in (res.clarification or "")
 
-    # ── Defect #6: contradictory qualifier+term silently resolves ─────────────
+    # ── Qualifier contradictions ─────────────────────────────────────────────
     def test_contradictory_qualifier_is_flagged(self):
-        """Defect #6: 'ionized calcium' with qualifier='total' must not silently PROCEED.
-
-        The qualifier only narrows ambiguity; it must not override an explicit
-        term direction.  Passing qualifier='total' to a term that encodes 'ionized'
-        is a contradiction that should be flagged as AMBIGUOUS.
-        """
+        """'ionized calcium' with qualifier 'total' is a contradiction, not a narrowing → AMBIGUOUS."""
         from src.tools import resolve_lab_term
         res = resolve_lab_term(term="ionized calcium", unit="mg/dL", qualifier="total")
-        assert res["status"] == "AMBIGUOUS", (
-            "Contradictory qualifier 'total' on term 'ionized calcium' must return AMBIGUOUS"
-        )
-        assert "contradiction" in res or res["status"] == "AMBIGUOUS"
+        assert res["status"] == "AMBIGUOUS"
+        assert "contradiction" in res
 
     def test_consistent_qualifier_and_term_resolves(self):
-        """ionized calcium with qualifier='ionized' must resolve cleanly."""
+        """'ionized calcium' with qualifier 'ionized' resolves cleanly."""
         from src.tools import resolve_lab_term
         res = resolve_lab_term(term="ionized calcium", qualifier="ionized")
-        # Either RESOLVED (if concept exists) or NOT_FOUND — never contradicting.
-        assert res["status"] != "AMBIGUOUS" or "contradiction" not in res
+        assert res["status"] == "RESOLVED"
 
-    # ── Defect #2 (part 2): csfzzz does not bypass safety gate ───────────────
-    def test_csfzzz_nonsense_term_clarifies(self):
-        """Defect #2: 'csfzzz' must consult safety gate and CLARIFY, not PROCEED."""
+    # ── Unknown terms ────────────────────────────────────────────────────────
+    def test_unknown_term_clarifies(self):
+        """'csfzzz' is not a panel or an observable: the gate returns NOT_FOUND."""
         res = self._run("csfzzz")
         assert res.route == "CLARIFY"
         assert res.status == "NOT_FOUND"
 
-    # ── Lower severity: thousands separator guard ────────────────────────────
+    # ── Thousands separator guard ────────────────────────────────────────────
     def test_ambiguous_thousands_separator_clarifies(self):
         """'Hb 1,250 | g/L' must trigger thousands-separator clarification, not nonsense term."""
         res = self._run("Hb 1,250 | g/L")
@@ -464,16 +432,16 @@ class TestDefectRegressions:
         assert res.status == "AMBIGUOUS"
         assert "thousands separator" in (res.clarification or "").lower()
 
-    # ── Defect #1 (part 2): implausible / negative values fail closed ─────────
+    # ── Implausible values ───────────────────────────────────────────────────
     def test_negative_value_fails_attestation_and_clarifies(self):
-        """Defect #1: 'Hb -5 | g/dL' must fail closed to CLARIFY, not PROCEED."""
+        """'Hb -5 | g/dL' fails attestation and clarifies."""
         res = self._run("Hb -5 | g/dL")
         assert res.route == "CLARIFY"
         assert res.attested is False
         assert "attestation failed" in (res.clarification or "").lower()
 
     def test_implausible_high_value_fails_attestation_and_clarifies(self):
-        """Defect #1: 'Hb 140 | g/dL' exceeds expected_max (25) and must CLARIFY."""
+        """'Hb 140 | g/dL' exceeds the protocol's expected_max (25 g/dL) and clarifies."""
         res = self._run("Hb 140 | g/dL")
         assert res.route == "CLARIFY"
         assert res.attested is False

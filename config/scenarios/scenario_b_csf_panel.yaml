@@ -27,6 +27,8 @@ gaps_addressed:
 test_cases:
   - id: "tc_full_csf_workup"
     input_text: "CSF Emergency Panel"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
     expected_departments:
       - "Clinical Biochemistry"
       - "Microbiology"
@@ -41,6 +43,8 @@ test_cases:
 
   - id: "tc_csf_hematology_only"
     input_text: "CSF Panel | hemat"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
     expected_departments:
       - "Hematology"
     expected_tube_order:
@@ -51,3 +55,9 @@ test_cases:
     input_text: "CSF Panel | radiology"
     expected_gap: "NOT_FOUND"
     expected_route: "CLARIFY"
+
+  - id: "tc_csf_unit_is_not_a_department"
+    input_text: "CSF workup | mg/dL"
+    expected_gap: "NOT_FOUND"
+    expected_route: "CLARIFY"
+    note: "A unit after a panel is not a department filter; fail closed instead of dropping it."

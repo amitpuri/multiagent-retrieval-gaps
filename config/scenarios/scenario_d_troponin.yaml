@@ -1,41 +1,108 @@
-# Scenario D: Cardiac Troponin Look-Alike & Unit Hazard (Extensibility Demonstration)
-# Demonstrates how new retrieval gaps and scenarios are plugged in via pure configuration.
+# Scenario D: Cardiac Troponin Look-Alike & Unit Hazard (zero-code extension)
+# A complete overlay: observables, designations, a facet, reference intervals and
+# protocols are added purely in data — no code changes.
 
 id: "scenario_d_troponin"
 name: "Troponin I vs Troponin T Look-Alike & Unit Collision"
 domain: "laboratory_medicine"
 description: >
-  Clinician orders 'Troponin 15'. Troponin I is typically measured in ng/mL (upper reference < 0.04 ng/mL,
-  critical > 0.40 ng/mL). High-sensitivity Troponin T is measured in ng/L (upper reference < 14 ng/L,
-  critical > 52 ng/L). An ungrounded retriever interpreting 15 ng/L as ng/mL would trigger a false-alarm
-  emergency cath lab activation; conversely, 15 ng/mL interpreted as ng/L would miss a massive MI.
+  Clinician orders 'Troponin 15'. Troponin I is typically reported in ng/mL (upper
+  reference < 0.04 ng/mL, critical > 0.40 ng/mL); high-sensitivity Troponin T in ng/L
+  (upper reference < 14 ng/L, critical > 52 ng/L). 15 ng/L read as ng/mL would trigger
+  a false cath-lab activation; 15 ng/mL read as ng/L would miss a massive MI. The units
+  are disjoint, so the unit (or the subunit) disambiguates.
 
-# Dynamic concept additions registered on-the-fly when scenario is active
-extension_concepts:
-  "loinc:10839-9":
-    label: "Troponin I.cardiac [Mass/volume] in Serum or Plasma"
-    alt_labels: ["troponin", "trop", "tn-i", "ctni", "troponin i"]
-    department: "Clinical Biochemistry"
-    units: ["ng/mL"]
-    specimen: "Serum"
+overlay:
+  analytes:
+    troponin_i: { label: "Cardiac troponin I" }
+    troponin_t: { label: "Cardiac troponin T" }
 
-  "loinc:6598-7":
-    label: "Troponin T.cardiac [Mass/volume] in Serum or Plasma"
-    alt_labels: ["troponin", "trop", "tn-t", "ctnt", "troponin t", "hs-ctnt"]
-    department: "Clinical Biochemistry"
-    units: ["ng/L"]
-    specimen: "Serum"
+  facets:
+    troponin_subunit:
+      label: "Troponin subunit"
+      question: "Was this troponin I or troponin T?"
+      values: ["I", "T"]
+      value_synonyms: { tni: "I", ctni: "I", "tn-i": "I", tnt: "T", ctnt: "T", "tn-t": "T", "hs-ctnt": "T" }
 
-extension_protocols:
-  "loinc:10839-9":
-    reference_range: "< 0.04 ng/mL"
-    panic_limits: "High > 0.40 ng/mL"
-    clinical_guideline: "High-sensitivity Troponin I elevation indicates myocardial necrosis. Serial delta testing recommended."
+  observables:
+    "loinc:10839-9":
+      label: "Troponin I.cardiac [Mass/volume] in Serum or Plasma"
+      display_name: "Troponin I"
+      axes: { component: "Troponin I.cardiac", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+      measures: troponin_i
+      facets: { troponin_subunit: "I" }
+      units: ["ng/mL"]
+      specimen: "specimen:serum_plasma"
+      department: "dept:clinical_biochemistry"
+      confusable_with: ["loinc:6598-7"]
+      governed_by: "protocol:troponin-i"
+      status: draft
+      generated_by: "reference_agent/gemini-2.5-pro"
+      verified_by: null
 
-  "loinc:6598-7":
-    reference_range: "< 14 ng/L"
-    panic_limits: "High > 52 ng/L"
-    clinical_guideline: "High-sensitivity Troponin T elevation suggests acute coronary syndrome or myocardial strain."
+    "loinc:6598-7":
+      label: "Troponin T.cardiac [Mass/volume] in Serum or Plasma"
+      display_name: "Troponin T"
+      axes: { component: "Troponin T.cardiac", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+      measures: troponin_t
+      facets: { troponin_subunit: "T" }
+      units: ["ng/L"]
+      specimen: "specimen:serum_plasma"
+      department: "dept:clinical_biochemistry"
+      confusable_with: ["loinc:10839-9"]
+      governed_by: "protocol:troponin-t"
+      status: draft
+      generated_by: "reference_agent/gemini-2.5-pro"
+      verified_by: null
+
+  designations:
+    "troponin":   { denotes: ["loinc:10839-9", "loinc:6598-7"], kind: ambiguous }
+    "trop":       { denotes: ["loinc:10839-9", "loinc:6598-7"], kind: ambiguous }
+    "tn-i":       { denotes: ["loinc:10839-9"], kind: abbreviation }
+    "ctni":       { denotes: ["loinc:10839-9"], kind: abbreviation }
+    "troponin i": { denotes: ["loinc:10839-9"], kind: preferred }
+    "tn-t":       { denotes: ["loinc:6598-7"], kind: abbreviation }
+    "ctnt":       { denotes: ["loinc:6598-7"], kind: abbreviation }
+    "troponin t": { denotes: ["loinc:6598-7"], kind: preferred }
+    "hs-ctnt":    { denotes: ["loinc:6598-7"], kind: abbreviation }
+
+  reference_intervals:
+    - id: "interval:troponin-i-adult"
+      observable: "loinc:10839-9"
+      unit: "ng/mL"
+      population: { sex: any, age_band: adult }
+      normal: [0.0, 0.04]
+      bounds: "[)"
+      critical: [null, 0.40]
+      derived_from: "protocol:troponin-i"
+      generated_by: "reference_agent/gemini-2.5-pro"
+      verified_by: null
+      clinically_unvalidated: true
+    - id: "interval:troponin-t-hs-adult"
+      observable: "loinc:6598-7"
+      unit: "ng/L"
+      population: { sex: any, age_band: adult }
+      normal: [0.0, 14.0]
+      bounds: "[)"
+      critical: [null, 52.0]
+      derived_from: "protocol:troponin-t"
+      generated_by: "reference_agent/gemini-2.5-pro"
+      verified_by: null
+      clinically_unvalidated: true
+
+  protocols:
+    "protocol:troponin-i":
+      governs: "loinc:10839-9"
+      reference_range: "< 0.04 ng/mL"
+      panic_limits: "High > 0.40 ng/mL"
+      clinical_guideline: "High-sensitivity Troponin I elevation indicates myocardial necrosis. Serial delta testing recommended."
+      status: draft
+    "protocol:troponin-t":
+      governs: "loinc:6598-7"
+      reference_range: "< 14 ng/L"
+      panic_limits: "High > 52 ng/L"
+      clinical_guideline: "High-sensitivity Troponin T elevation suggests acute coronary syndrome or myocardial strain."
+      status: draft
 
 test_cases:
   - id: "tc_unqualified_troponin"
@@ -45,18 +112,37 @@ test_cases:
     expected_candidates:
       - "loinc:10839-9"
       - "loinc:6598-7"
+    expected_missing: ["unit", "troponin_subunit"]
 
   - id: "tc_troponin_t_with_unit"
     input_text: "Troponin 15 | ng/L"
     expected_gap: "NONE"
     expected_route: "PROCEED"
     expected_concept: "loinc:6598-7"
+    expected_readings:
+      "Troponin T": "HIGH"
 
   - id: "tc_troponin_i_with_unit"
     input_text: "Troponin 0.02 | ng/mL"
     expected_gap: "NONE"
     expected_route: "PROCEED"
     expected_concept: "loinc:10839-9"
+    expected_readings:
+      "Troponin I": "NORMAL"
+
+  - id: "tc_troponin_i_critical"
+    input_text: "Troponin 0.5 | ng/mL"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:10839-9"
+    expected_readings:
+      "Troponin I": "CRITICAL_HIGH"
+
+  - id: "tc_troponin_subunit_without_unit"
+    input_text: "Troponin 15 | I"
+    expected_gap: "UNIT_MISMATCH"
+    expected_route: "CLARIFY"
+    expected_missing: ["unit"]
 
   - id: "tc_troponin_invalid_unit"
     input_text: "Troponin 15 | mg/dL"

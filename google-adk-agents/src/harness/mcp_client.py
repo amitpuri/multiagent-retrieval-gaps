@@ -7,10 +7,26 @@ from __future__ import annotations
 
 import inspect
 import math
+import typing
 from typing import Any, Callable, Dict, List, Optional
 from google.genai import types
 
 from src.harness.mcp_server import CLINICAL_MCP_TOOLS, get_mcp_server
+
+
+def _schema_type(annotation: Any) -> "types.Type":
+    """Map a Python annotation to a Gemini schema type."""
+    origin_args = typing.get_args(annotation) or (annotation,)
+    for a in origin_args:
+        if a in (float, int):
+            return types.Type.NUMBER
+        if a is bool:
+            return types.Type.BOOLEAN
+        if a in (list, List) or typing.get_origin(a) is list:
+            return types.Type.ARRAY
+        if a in (dict, Dict) or typing.get_origin(a) is dict:
+            return types.Type.OBJECT
+    return types.Type.STRING
 
 
 class MCPToolBridge:
@@ -25,84 +41,24 @@ class MCPToolBridge:
 
     def get_tool_declarations_for_gemini(self) -> List[types.FunctionDeclaration]:
         """
-        Generates google.genai.types.FunctionDeclaration definitions
-        for all registered clinical MCP tools.
+        Generate google.genai FunctionDeclarations from the canonical tool
+        signatures (one source of truth for names, parameters and descriptions).
         """
-        declarations = [
-            types.FunctionDeclaration(
-                name="resolve_lab_term",
-                description="Map a lab test name and optional unit to canonical LOINC concepts. Returns status: RESOLVED, AMBIGUOUS, UNIT_MISMATCH, or NOT_FOUND.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "term": types.Schema(type=types.Type.STRING, description="Laboratory test name or abbreviation (e.g. 'Hb', 'Troponin')"),
-                        "unit": types.Schema(type=types.Type.STRING, description="Reported unit of measure (e.g. 'g/dL', 'ng/L')"),
-                    },
-                    required=["term"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="evaluate_safety_gate",
-                description="Evaluate clinical input against deterministic safety gate detectors. Fails closed: returns route PROCEED or CLARIFY.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "term": types.Schema(type=types.Type.STRING, description="Laboratory test name"),
-                        "unit": types.Schema(type=types.Type.STRING, description="Reported unit"),
-                        "qualifier": types.Schema(type=types.Type.STRING, description="Qualifier such as total or ionized"),
-                        "patient_value": types.Schema(type=types.Type.NUMBER, description="Numeric patient measurement"),
-                        "status": types.Schema(type=types.Type.STRING, description="Resolution status from resolve_lab_term"),
-                    },
-                    required=["term"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="fetch_grounded_protocol",
-                description="Fetch reference ranges and panic limits bound strictly to a canonical LOINC URI.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "uri": types.Schema(type=types.Type.STRING, description="Canonical concept identifier (e.g. 'loinc:718-7')"),
-                    },
-                    required=["uri"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="csf_workup",
-                description="Pre-scopes emergency CSF diagnostic panel by department and governed tube sequence (Tubes 1-4).",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "department": types.Schema(type=types.Type.STRING, description="Optional department filter (e.g. 'hemat', 'biochem')"),
-                    },
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="check_calcium",
-                description="Evaluates look-alike calcium values (mg/dL) across Total vs. Ionized Calcium interpretations to detect collisions.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "value_mg_dl": types.Schema(type=types.Type.NUMBER, description="Calcium level in mg/dL"),
-                        "qualifier": types.Schema(type=types.Type.STRING, description="Qualifier: 'total', 'ionized', or empty"),
-                    },
-                    required=["value_mg_dl"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="attest_computation",
-                description="Deterministically verifies numeric calculation or range check per OKF v0.2 §5.4. Emits [Attested ✓].",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "value": types.Schema(type=types.Type.NUMBER, description="Patient numeric value"),
-                        "uri": types.Schema(type=types.Type.STRING, description="Canonical LOINC URI"),
-                        "unit": types.Schema(type=types.Type.STRING, description="Measurement unit"),
-                    },
-                    required=["value", "uri"],
-                ),
-            ),
-        ]
+        declarations: List[types.FunctionDeclaration] = []
+        for name, func in self.tools.items():
+            hints = typing.get_type_hints(func)
+            sig = inspect.signature(func)
+            props: Dict[str, types.Schema] = {}
+            required: List[str] = []
+            for pname, param in sig.parameters.items():
+                props[pname] = types.Schema(type=_schema_type(hints.get(pname, str)), description=pname.replace("_", " "))
+                if param.default is inspect.Parameter.empty:
+                    required.append(pname)
+            declarations.append(types.FunctionDeclaration(
+                name=name,
+                description=(func.__doc__ or name).strip().splitlines()[0],
+                parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required or None),
+            ))
         return declarations
 
     def get_gemini_tools(self) -> List[types.Tool]:
@@ -124,15 +80,15 @@ class MCPToolBridge:
         try:
             # Bind arguments cleanly to avoid unexpected kwarg errors
             sig = inspect.signature(func)
+            hints = typing.get_type_hints(func)
             valid_args = {}
             for k, v in args.items():
                 if k in sig.parameters:
-                    # Cast float if required
-                    param = sig.parameters[k]
-                    if param.annotation in (float, Optional[float]) and v is not None:
+                    # Cast float if required (annotations may be postponed strings)
+                    if hints.get(k) in (float, Optional[float]) and v is not None:
                         try:
                             v = float(v)
-                            # Fix 4: reject non-finite values produced by model output
+                            # reject non-finite values produced by model output
                             # before they reach EvaluationContext or any detector.
                             if not math.isfinite(v):
                                 return {

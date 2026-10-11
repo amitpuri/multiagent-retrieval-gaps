@@ -17,9 +17,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY strands-agents/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Shared ontology core + deterministic safety gate (ontogate)
+COPY shared/ /tmp/shared/
+RUN pip install --no-cache-dir "/tmp/shared[mcp]" && rm -rf /tmp/shared
+
 # Copy application source and domain configuration from repo root
 COPY strands-agents/src/ /app/src/
+COPY ontology/ /app/ontology/
 COPY config/ /app/config/
+COPY skills/ /app/skills/
+ENV ONTOGATE_REPO_ROOT=/app
 COPY strands-agents/pytest.ini /app/
 COPY strands-agents/README.md /app/
 

@@ -1,9 +1,10 @@
 """
-Clarification Builder — plain Python function for MAF binding.
-Builds structured HITL clarification queries when the deterministic safety gate blocks progression.
-No framework decorator — bound to agents via YAML 'bindings: {function: build_clarification_prompt}'.
+Clarification Builder Tool — plain Python function for MAF binding.
+Deterministic HITL clarification text generated from the ontology
+(``ontogate.clarify``) when the safety gate blocks progression.
 """
 from typing import Any, Dict, List, Optional
+from ontogate.tools import build_clarification_prompt as _build
 
 
 def build_clarification_prompt(
@@ -12,35 +13,15 @@ def build_clarification_prompt(
     term: str = "",
     collision_details: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build a structured clarification prompt for the clinician when safety gate fails.
+    """Build a structured clarification prompt for the clinician when the safety gate fails.
 
     Args:
         status: Resolution status that triggered clarification.
         candidates: List of candidate concept dicts.
         term: Original lab term queried.
-        collision_details: Range collision details if applicable.
+        collision_details: Gate details (readings, missing facets) if applicable.
 
     Returns:
-        dict with clarification_prompt string and status.
+        dict with clarification_prompt string, status and the missing facets.
     """
-    labels = ", ".join(c.get("label", "") for c in candidates if isinstance(c, dict)) or "none"
-    prompt = (
-        f"Ambiguity detected (Status: {status}). "
-        f"Candidates: {labels}. "
-        f"Please specify the intended test and unit."
-    )
-
-    if collision_details and "readings" in collision_details:
-        readings = collision_details["readings"]
-        collision_str = "; ".join(f"{k}: {v}" for k, v in readings.items())
-        prompt = (
-            f"Range collision detected (Status: {status}). "
-            f"Conflicting interpretations: {collision_str}. "
-            f"Please clarify the specific assay/qualifier (e.g., total vs. ionized calcium)."
-        )
-
-    return {
-        "clarification_prompt": prompt,
-        "status": status,
-        "requires_clarification": True,
-    }
+    return _build(status=status, candidates=candidates, details=collision_details or {}, term=term)

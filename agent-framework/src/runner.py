@@ -21,8 +21,8 @@ for p in (str(_repo_root), str(_agent_framework_dir)):
 load_dotenv(dotenv_path=_agent_framework_dir / "src" / ".env", override=False)
 
 from src.orchestration.workflow_runner import run_scenario
-from src.core.config import get_default_registry, load_scenario_extension
-from src.tools import csf_workup
+from ontogate.config import get_default_registry, load_scenario_extension
+from src.tools import panel_workup
 
 
 def is_live_mode() -> bool:
@@ -61,25 +61,23 @@ async def run_scenario_a():
         _print_result(result)
 
 
+def _print_workup(workup: dict) -> None:
+    for tube in workup.get("tubes", []):
+        print(f"\n  Tube {tube['tube']} — {tube['department']}")
+        for t in tube["tests"]:
+            print(f"    - {t['test_name']} [{t['uri']}]")
+
+
 def run_scenario_b():
     """Scenario B (Q6): CSF emergency panel — tube sequence enforcement (Gap 11)."""
     print("\n" + "=" * 80)
     print("SCENARIO B: Q6 (CSF Emergency Panel — Governed Tube Ordering, Gap 11)")
     print("=" * 80)
 
-    full_workup = csf_workup()
-    print("\nFull Emergency CSF Workup (Pre-scoped by department & tube order):")
-    for dept, tests in full_workup.items():
-        print(f"\n  Department: {dept}")
-        for t in tests:
-            print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
-
+    print("\nFull Emergency CSF Workup (ordered by the ontology's precedes relation):")
+    _print_workup(panel_workup("csf_emergency_panel"))
     print("\nDepartment-Scoped Workup (Hematology only):")
-    hemat = csf_workup("hemat")
-    for dept, tests in hemat.items():
-        print(f"  Department: {dept}")
-        for t in tests:
-            print(f"    - Tube {t['tube']}: {t['test']} [{t['uri']}]")
+    _print_workup(panel_workup("csf_emergency_panel", "hemat"))
 
 
 async def run_scenario_c():

@@ -1,0 +1,78 @@
+# ontogate core (upper) ontology — domain-agnostic vocabulary every domain pack imports.
+#
+# Holds: unit catalogue (UCUM codes + dimensions + scale factors), the relation
+# catalogue with OWL characteristics, population facets, LOINC property → unit
+# dimension rules, and the gate / trust policies. Domain packs add instances only.
+
+schema_version: "1.0.0"
+id: core
+version: "1.0.0"
+
+# ---------------------------------------------------------------------------
+# Units (UCUM case-sensitive codes). `factor` converts to the dimension's base
+# unit: mass_concentration → g/L, substance_concentration → mol/L,
+# number_concentration → /L, fraction → 1.
+# ---------------------------------------------------------------------------
+units:
+  "g/dL":   { dimension: mass_concentration, factor: 10.0 }
+  "g/L":    { dimension: mass_concentration, factor: 1.0 }
+  "mg/dL":  { dimension: mass_concentration, factor: 0.01 }
+  "ng/mL":  { dimension: mass_concentration, factor: 1.0e-6 }
+  "ng/L":   { dimension: mass_concentration, factor: 1.0e-9 }
+  "mmol/L": { dimension: substance_concentration, factor: 1.0e-3 }
+  "/uL":    { dimension: number_concentration, factor: 1.0e+6 }
+  "%":      { dimension: fraction, factor: 0.01 }
+
+# LOINC Property axis → unit dimension it admits (UnitPropertyShape).
+property_dimensions:
+  MCnc: mass_concentration        # mass concentration
+  SCnc: substance_concentration   # substance (molar) concentration
+  NCnc: number_concentration      # number concentration
+  MFr:  fraction                  # mass fraction
+  NFr:  fraction                  # number fraction
+  Prid: none                      # presence / identity (nominal results)
+
+# ---------------------------------------------------------------------------
+# Relation catalogue (replaces the overloaded RelationshipKind usage).
+# Characteristics are materialised at build time (owl:SymmetricProperty etc.).
+# ---------------------------------------------------------------------------
+relations:
+  denotes:          { domain: Designation, range: Observable }
+  confusable_with:  { domain: Observable, range: Observable, symmetric: true, irreflexive: true }
+  governed_by:      { domain: Observable, range: Protocol, functional: true }
+  has_interval:     { domain: Observable, range: ReferenceInterval, inverse: interval_of }
+  differentiated_by: { domain: Observable, range: Facet }
+  measures:         { domain: Observable, range: Analyte, functional: true }
+  includes:         { domain: CollectionStep, range: Observable, inverse: member_of }
+  precedes:         { domain: CollectionStep, range: CollectionStep, transitive: true, asymmetric: true }
+  superseded_by:    { domain: Observable, range: Observable, functional: true }
+  see_also:         { domain: Thing, range: Thing, informational: true }
+
+# ---------------------------------------------------------------------------
+# Population facets (qualify which reference interval applies).
+# ---------------------------------------------------------------------------
+population_facets:
+  sex:
+    values: [male, female]
+    value_synonyms: { m: male, man: male, f: female, woman: female }
+  age_band:
+    values: [adult, pediatric, neonate]
+    value_synonyms: { child: pediatric, paediatric: pediatric, newborn: neonate }
+
+# ---------------------------------------------------------------------------
+# Gate policy (deterministic; consumed by ontogate.detectors).
+# ---------------------------------------------------------------------------
+gate_policy:
+  # When candidate intervals differ only by population (e.g. sex):
+  #   critical_divergence — ask only if a CRITICAL classification differs; otherwise
+  #                         resolve and surface per-population readings for caveats.
+  #   any_divergence      — ask whenever any classification differs.
+  population_required_when: critical_divergence
+
+# ---------------------------------------------------------------------------
+# Trust policy (OKF trust tiers × lifecycle → allowed gate outcome).
+# ---------------------------------------------------------------------------
+trust_policy:
+  stale_protocol: clarify              # attestation refuses stale protocols
+  deprecated_concept: exclude          # never offered as a candidate
+  unverified_interval_critical: caveat # critical readings from unverified intervals must carry a caveat

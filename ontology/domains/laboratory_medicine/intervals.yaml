@@ -1,0 +1,71 @@
+# Reference intervals — the single structured source of clinical numbers.
+# Each interval is declared once in its canonical unit; values reported in any
+# other unit of the same dimension (or convertible via the analyte's molar mass)
+# are converted deterministically before classification.
+#
+# bounds: interval notation for the NORMAL range ("[]" closed, "[)" exclusive high).
+# Provenance: machine-generated demonstration values, not clinically validated.
+
+schema_version: "1.0.0"
+
+_unvalidated: &unvalidated
+  generated_by: "reference_agent/gemini-2.5-pro"
+  verified_by: null
+  clinically_unvalidated: true
+
+reference_intervals:
+  - id: "interval:hemoglobin-adult-male"
+    observable: "loinc:718-7"
+    unit: "g/dL"
+    population: { sex: male, age_band: adult }
+    normal: [13.8, 17.2]
+    critical: [7.0, 20.0]
+    derived_from: "protocol:hemoglobin-adult"
+    <<: *unvalidated
+
+  - id: "interval:hemoglobin-adult-female"
+    observable: "loinc:718-7"
+    unit: "g/dL"
+    population: { sex: female, age_band: adult }
+    normal: [12.1, 15.1]
+    critical: [7.0, 20.0]
+    derived_from: "protocol:hemoglobin-adult"
+    <<: *unvalidated
+
+  - id: "interval:hba1c-adult"
+    observable: "loinc:4548-4"
+    unit: "%"
+    population: { sex: any, age_band: adult }
+    normal: [null, 5.7]
+    bounds: "[)"
+    critical: [null, 13.0]
+    note: "Critical high taken from protocol guideline (> 13% → urgent endocrine escalation)."
+    derived_from: "protocol:hba1c-glycemic-control"
+    <<: *unvalidated
+
+  - id: "interval:total-calcium-adult"
+    observable: "loinc:17861-6"
+    unit: "mg/dL"
+    population: { sex: any, age_band: adult }
+    normal: [8.5, 10.5]
+    critical: [6.0, 13.0]
+    derived_from: "protocol:total-calcium-adult"
+    <<: *unvalidated
+
+  - id: "interval:ionized-calcium-adult"
+    observable: "loinc:17864-0"
+    unit: "mg/dL"
+    population: { sex: any, age_band: adult }
+    normal: [4.5, 5.6]
+    critical: [3.0, 6.5]
+    derived_from: "protocol:ionized-calcium-adult"
+    <<: *unvalidated
+
+  - id: "interval:csf-protein-adult"
+    observable: "loinc:2880-3"
+    unit: "mg/dL"
+    population: { sex: any, age_band: adult }
+    normal: [15.0, 45.0]
+    critical: [5.0, 100.0]
+    derived_from: "protocol:csf-protein"
+    <<: *unvalidated

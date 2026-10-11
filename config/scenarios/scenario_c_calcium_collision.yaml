@@ -27,17 +27,11 @@ gaps_addressed:
       Two assays with the same term and unit but divergent clinical classifications.
       The safety gate must detect this collision deterministically in code (not LLM).
 
-collision_family: "calcium_lookalike"
-assays_involved:
-  - assay_id: "total_calcium"
-    uri: "loinc:17861-6"
-    ref_range: [8.5, 10.5]
-    crit_range: [6.0, 13.0]
-    
-  - assay_id: "ionized_calcium"
-    uri: "loinc:17864-0"
-    ref_range: [4.5, 5.6]
-    crit_range: [3.0, 6.5]
+# Look-alike pair (confusable_with in the ontology). Numbers come from
+# ontology/domains/laboratory_medicine/intervals.yaml — not repeated here.
+look_alikes:
+  - "loinc:17861-6"   # Total calcium   — normal 8.5-10.5 mg/dL, critical < 6.0 / > 13.0
+  - "loinc:17864-0"   # Ionized calcium — normal 4.5-5.6 mg/dL, critical < 3.0 / > 6.5
 
 test_cases:
   - id: "tc_calcium_unqualified_collision"
@@ -47,23 +41,77 @@ test_cases:
     expected_readings:
       "Total calcium": "CRITICAL_LOW"
       "Ionized calcium": "NORMAL"
+    expected_missing: ["fraction", "unit"]
+
+  - id: "tc_calcium_unqualified_collision_mgdl"
+    input_text: "Calcium 4.8 | mg/dL"
+    expected_gap: "RANGE_COLLISION"
+    expected_route: "CLARIFY"
+    expected_readings:
+      "Total calcium": "CRITICAL_LOW"
+      "Ionized calcium": "NORMAL"
+    expected_missing: ["fraction"]
 
   - id: "tc_calcium_qualified_total"
-    input_text: "Calcium 4.8 | total"
+    input_text: "Calcium 4.8 | total | mg/dL"
     expected_gap: "NONE"
     expected_route: "PROCEED"
+    expected_concept: "loinc:17861-6"
     expected_readings:
       "Total calcium": "CRITICAL_LOW"
 
   - id: "tc_calcium_qualified_ionized"
-    input_text: "Calcium 4.8 | ionized"
+    input_text: "Calcium 4.8 | ionized | mg/dL"
     expected_gap: "NONE"
     expected_route: "PROCEED"
+    expected_concept: "loinc:17864-0"
     expected_readings:
       "Ionized calcium": "NORMAL"
 
+  - id: "tc_calcium_qualified_total_no_unit"
+    input_text: "Calcium 4.8 | total"
+    expected_gap: "UNIT_MISMATCH"
+    expected_route: "CLARIFY"
+    expected_missing: ["unit"]
+    note: >
+      4.8 total calcium is CRITICAL_LOW in mg/dL but CRITICAL_HIGH in mmol/L —
+      without a unit there is no safe reading.
+
   - id: "tc_calcium_normal_both"
-    input_text: "Calcium 9.0"
+    input_text: "Calcium 9.0 | mg/dL"
+    expected_gap: "RANGE_COLLISION"
+    expected_route: "CLARIFY"
+    expected_readings:
+      "Total calcium": "NORMAL"
+      "Ionized calcium": "CRITICAL_HIGH"
+    note: >
+      9.0 mg/dL is NORMAL for total calcium but CRITICAL_HIGH for ionized calcium
+      (> 6.5 mg/dL) — a genuine collision.
+
+  - id: "tc_total_calcium_designation"
+    input_text: "total calcium 4.8 | mg/dL"
     expected_gap: "NONE"
     expected_route: "PROCEED"
-    note: "9.0 mg/dL is NORMAL for Total Calcium — no collision detected"
+    expected_concept: "loinc:17861-6"
+    note: "The designation already fixes the fraction."
+
+  - id: "tc_ica_abbreviation_mmol"
+    input_text: "ica 1.2 | mmol/L"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:17864-0"
+    expected_readings:
+      "Ionized calcium": "NORMAL"
+    note: "'ica' denotes ionized calcium unambiguously."
+
+  - id: "tc_calcium_non_divergent_needs_fraction"
+    input_text: "Calcium 15 | mg/dL"
+    expected_gap: "MISSING_QUALIFIER"
+    expected_route: "CLARIFY"
+    expected_missing: ["fraction"]
+    note: "Both fractions read CRITICAL_HIGH — no collision, but the fraction is still required."
+
+  - id: "tc_contradictory_qualifier"
+    input_text: "ionized calcium 4.8 | total | mg/dL"
+    expected_gap: "AMBIGUOUS"
+    expected_route: "CLARIFY"

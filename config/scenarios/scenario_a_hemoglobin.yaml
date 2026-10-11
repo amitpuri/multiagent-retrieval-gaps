@@ -33,12 +33,26 @@ test_cases:
     expected_candidates:
       - "loinc:718-7"
       - "loinc:4548-4"
+    expected_missing: ["unit"]   # disjoint units (g/dL vs %) — the unit disambiguates
 
   - id: "tc_hb_valid_unit_gdl"
     input_text: "Hb 13.5 | g/dL"
     expected_gap: "NONE"
     expected_route: "PROCEED"
     expected_concept: "loinc:718-7"
+    # Sex-specific intervals differ only non-critically → resolve and surface both
+    # readings for a caveat (gate_policy.population_required_when: critical_divergence).
+    expected_population_readings:
+      "age_band=adult,sex=male": "LOW"
+      "age_band=adult,sex=female": "NORMAL"
+
+  - id: "tc_hb_population_female"
+    input_text: "Hb 13.5 | female | g/dL"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:718-7"
+    expected_population_readings:
+      "age_band=adult,sex=female": "NORMAL"
 
   - id: "tc_hb_valid_unit_percent"
     input_text: "Hb 7.8 | %"

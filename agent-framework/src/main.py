@@ -101,7 +101,8 @@ def main():
     print("=" * 80)
     print("   Information Retrieval, Part III: When the Retriever Has to Decide")
     print("   Microsoft Agent Framework (MAF) — Declarative Agents Implementation")
-    mode = "Offline / Deterministic" if args.offline or not is_live_mode() else "Live (OpenAI gpt-5)"
+    from ontogate.catalog import model_for as _model_for
+    mode = "Offline / Deterministic" if args.offline or not is_live_mode() else f"Live ({_model_for('azure')['id']})"
     print(f"   Mode: {mode}")
     print("=" * 80 + "\n")
 
