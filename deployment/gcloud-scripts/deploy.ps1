@@ -91,8 +91,21 @@ if (-not $repoExists) {
 }
 $imageUri = "$Region-docker.pkg.dev/$ProjectId/$RepoName/${ImageName}:$ImageTag"
 
+# ─── STEP 3b: Build & Sync Skills to GCP Skill Registry ───────────────────────
+Write-Host "[3b/8] Building and syncing skills to GCP Skill Registry..." -ForegroundColor Yellow
+python -m ontogate.skills build
+$skillRegistryBucket = if ($env:GCP_SKILL_REGISTRY_BUCKET) { $env:GCP_SKILL_REGISTRY_BUCKET } else { "gs://$ProjectId-skill-registry/skills" }
+$bucketExists = gcloud storage ls $skillRegistryBucket 2>$null
+if ($bucketExists) {
+    Write-Host "    Syncing dist/skills/*.zip to $skillRegistryBucket..."
+    gcloud storage cp dist/skills/*.zip "$skillRegistryBucket/" 2>$null
+    Write-Host "[+] Skills synced to GCP Skill Registry store." -ForegroundColor Green
+} else {
+    Write-Host "    [i] Skill Registry bucket '$skillRegistryBucket' not yet provisioned; skills baked into image via dist/skills." -ForegroundColor DarkYellow
+}
+
 # ─── STEP 4: Build & Push Container ───────────────────────────────────────────
-Write-Host "[4/7] Building and pushing container: $imageUri..." -ForegroundColor Yellow
+Write-Host "[4/8] Building and pushing container: $imageUri..." -ForegroundColor Yellow
 Push-Location $repoRoot
 try {
     gcloud auth configure-docker "$Region-docker.pkg.dev" --quiet
@@ -104,7 +117,7 @@ try {
 Write-Host "[+] Image ready: $imageUri" -ForegroundColor Green
 
 # ─── STEP 5: API Keys → Secret Manager ────────────────────────────────────────
-Write-Host "[5/7] Configuring Vertex AI credentials in Secret Manager..." -ForegroundColor Yellow
+Write-Host "[5/8] Configuring Vertex AI credentials in Secret Manager..." -ForegroundColor Yellow
 $apiKey = $env:GEMINI_API_KEY
 if (-not $apiKey) {
     $envFile = "$repoRoot\google-adk-agents\src\.env"
@@ -137,53 +150,61 @@ if ($apiKey) {
     Write-Host "    [i] GEMINI_API_KEY not found — deploying with Vertex AI ADC fallback." -ForegroundColor DarkYellow
 }
 
-# ─── STEP 6: Deploy to Agent Platform (Vertex AI Agent Engine) ────────────────
-Write-Host "[6/7] Deploying to Google Cloud Agent Platform..." -ForegroundColor Yellow
+# ─── STEP 6: Deploy to Agent Platform (Vertex AI Agent Runtime) ───────────────
+Write-Host "[6/8] Deploying to Google Cloud Agent Platform..." -ForegroundColor Yellow
 
 $agentPlatformDeployed = $false
 
-# Try Vertex AI Reasoning Engine (Agent Engine) first — native managed agent hosting
-Write-Host "    Attempting Vertex AI Agent Engine (Reasoning Engine) deployment..."
+# Try Vertex AI Reasoning Engine (Agent Runtime) first — native ADK agent hosting
+Write-Host "    Attempting Vertex AI Agent Runtime deployment via native ADK app..."
 $reasoningEngines = gcloud ai reasoning-engines list `
     --location=$Region --project=$ProjectId `
     --format="value(name)" 2>$null | Select-String -Pattern $AgentResourceName
 
 if ($UseReasoningEngine -or -not $reasoningEngines) {
-    # Create Agent Engine via Vertex AI SDK (Python-based agent deployment)
-    # The ADK agent is deployed as a Vertex AI Reasoning Engine
+    # Create Agent Runtime via Vertex AI SDK (native ADK app deployment)
     $agentDeployScript = @"
 import vertexai
 from vertexai.preview import reasoning_engines
 
+class ClinicalAdkAgentRuntime:
+    """Clinical Decision Support ADK Agent Runtime application."""
+    def __init__(self, model_id: str = "$ModelId"):
+        self.model_id = model_id
+
+    def set_up(self):
+        from src.workflow import run_clinical_workflow
+        self._workflow = run_clinical_workflow
+
+    def query(self, text: str, **kwargs):
+        import asyncio
+        from src.runner import execute_clinical_turn
+        return asyncio.run(execute_clinical_turn(text))
+
 vertexai.init(project='$ProjectId', location='$Region')
 
-# Deploy the ADK agent as a Vertex AI Reasoning Engine
 app = reasoning_engines.ReasoningEngine.create(
-    reasoning_engines.LangchainAgent(
-        model='$ModelId',
-        system_instruction='You are a clinical decision support agent. Route queries through the safety gate before responding.',
-    ),
-    requirements=['google-cloud-aiplatform[langchain,reasoningengine]', 'google-adk'],
+    ClinicalAdkAgentRuntime(model_id='$ModelId'),
+    requirements=['google-cloud-aiplatform>=1.60.0', 'google-genai>=1.0.0', 'google-adk>=2.11.0', 'pydantic>=2.0.0', 'pyyaml>=6.0.0'],
+    extra_packages=['shared'],
     display_name='$AgentDisplayName',
-    description='Clinical Decision Support - Google ADK on Vertex AI Agent Platform',
+    description='Clinical Decision Support - Google ADK on Agent Runtime',
 )
-print(f'Agent Engine deployed: {app.resource_name}')
-print(f'Agent Engine ID: {app.name}')
+print(f'Agent Runtime deployed: {app.resource_name}')
+print(f'Agent Runtime ID: {app.name}')
 "@
     $tempPy = [System.IO.Path]::GetTempFileName() + ".py"
     [System.IO.File]::WriteAllText($tempPy, $agentDeployScript, (New-Object System.Text.UTF8Encoding $false))
-    Write-Host "    Running Vertex AI Agent Engine deployment script..."
-    # Try to run the Python deployment (requires google-cloud-aiplatform installed)
+    Write-Host "    Running Vertex AI Agent Runtime deployment script..."
     $pythonResult = python $tempPy 2>&1
     Remove-Item $tempPy -Force -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -eq 0 -and $pythonResult) {
-        Write-Host "[+] Vertex AI Agent Engine deployed!" -ForegroundColor Green
+        Write-Host "[+] Vertex AI Agent Runtime deployed!" -ForegroundColor Green
         Write-Host "    $pythonResult"
         $agentPlatformDeployed = $true
-        $agentEngineId = ($pythonResult | Select-String "Agent Engine ID: (.+)").Matches[0].Groups[1].Value
+        $agentEngineId = ($pythonResult | Select-String "Agent Runtime ID: (.+)").Matches[0].Groups[1].Value
     } else {
-        Write-Host "    [i] Agent Engine SDK deployment skipped (may need: pip install google-cloud-aiplatform[langchain,reasoningengine])" -ForegroundColor DarkYellow
-        Write-Host "    Falling back to Cloud Run + Agent Platform configuration..." -ForegroundColor DarkYellow
+        Write-Host "    [i] Agent Runtime SDK deployment skipped. Falling back to Cloud Run + Agent Platform configuration..." -ForegroundColor DarkYellow
     }
 }
 

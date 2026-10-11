@@ -1,0 +1,30 @@
+# Cardiology domain pack — manifest.
+# Second-domain reuse proof: zero changes to shared/ontogate or role specs.
+# This pack adds three cardiac biomarker observables (Troponin I, BNP, CRP-hs)
+# with reference intervals and a look-alike hazard pair (Troponin I vs Troponin T).
+# The ontogate gate, resolver, and MCP server are reused without modification.
+
+schema_version: "1.0.0"
+id: cardiology
+version: "1.0.0"
+imports: [core]
+label: "Cardiology Biomarkers"
+description: >
+  Controlled vocabulary, look-alike hazards, reference intervals, and protocols
+  for cardiac biomarker decision support. Demonstrates second-domain reuse of
+  shared/ontogate without modifying any core code or role specification.
+disclaimer: >
+  Reference values in this pack are demonstration values generated for structural
+  proof purposes. They are NOT clinically validated (intervals carry
+  clinically_unvalidated: true). Do not use in production clinical systems.
+terminology_releases:
+  loinc: "2026 release"
+  ucum: "2.2"
+files:
+  - vocabulary.yaml
+  - analytes.yaml
+  - facets.yaml
+  - observables.yaml
+  - designations.yaml
+  - intervals.yaml
+  - protocols.yaml

@@ -131,7 +131,10 @@ Severity: 🔴 safety or correctness · 🟠 model integrity · 🟡 maintainabi
 - **G3 🟠 GCP does not deploy the ADK agent to Agent Runtime.** It deploys a LangChain wrapper with Cloud Run as a fallback.
 - **G4 🟡 The AgentCore template provisions PaymentManager, Browser and Code Interpreter**, which are unused, and grants `bedrock-agentcore:*`.
 - **G5 🟡 Agent roles are re-declared per framework.**
-- **G6 🟡 There is no cross-cloud conformance check.**
+- **G6 ✅ Cross-cloud conformance checks implemented.**
+  `google-adk-agents/tests/test_conformance.py` covers P13.1 (gate parity),
+  P13.2 (skill parity), P13.6 (Troponin overlay), P13.8 (second-domain reuse —
+  cardiology), and P13.10 (CI guard).
 
 ### H. Procedural knowledge & skills *(new in R3)*
 

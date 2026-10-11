@@ -1,0 +1,3 @@
+# Cardiology population facets (re-use core sex/age_band; add none here).
+schema_version: "1.0.0"
+# No additional facets beyond core (sex, age_band). File required by loader.

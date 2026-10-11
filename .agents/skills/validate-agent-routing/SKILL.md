@@ -20,22 +20,21 @@ is fully deterministic and that no step introduces LLM variance into gate decisi
 
 ## Step 1 — Map the Pipeline
 
-Open these files and trace the call graph:
+Open these files and trace the routing across frameworks:
 
-1. `google-adk-agents/src/workflow.py` — `parse()`, `route_for()`
-2. `google-adk-agents/src/agents/ontology_agent.py` — ontology resolution node
-3. `google-adk-agents/src/agents/safety_guard_agent.py` — `safety_guard_node`
-4. `google-adk-agents/src/agents/protocol_agent.py` — downstream PROCEED branch
-5. `google-adk-agents/src/agents/clarification_agent.py` — downstream CLARIFY branch
+1. `shared/ontogate/parsing.py` — canonical `parse_clinician_query()`
+2. `google-adk-agents/src/workflow.py` — ADK routing graph
+3. `strands-agents/src/workflow.py` — Strands routing graph
+4. `agent-framework/src/workflow.py` — MAF routing graph
 
-Draw or describe the routing graph:
+Pipeline:
 ```
 Input
-  └─ parse()
-       └─ ontology_agent (LLM-assisted resolution)
-            └─ safety_guard_node  ← deterministic gate
-                 ├─ PROCEED → protocol_agent
-                 └─ CLARIFY → clarification_agent
+  └─ parse_clinician_query()
+       └─ ontology_resolver (domain resolution)
+            └─ safety_guard  ← deterministic gate
+                 ├─ PROCEED → protocol_retriever
+                 └─ CLARIFY → clarification_coordinator
 ```
 
 ---
@@ -43,15 +42,15 @@ Input
 ## Step 2 — Verify parse() Output Shape
 
 ```python
-from src.workflow import parse
+from ontogate.parsing import parse_clinician_query
 
-ev = parse("Hb | g/dL")
-assert ev.output["term"] == "Hb"
-assert ev.output["unit"] == "g/dL"
+parsed = parse_clinician_query("Hb | g/dL")
+assert parsed.term == "Hb"
+assert parsed.unit == "g/dL"
 
-ev2 = parse("Hb")
-assert ev2.output["term"] == "Hb"
-assert ev2.output["unit"] == ""
+parsed2 = parse_clinician_query("Hb")
+assert parsed2.term == "Hb"
+assert parsed2.unit is None
 ```
 
 ---

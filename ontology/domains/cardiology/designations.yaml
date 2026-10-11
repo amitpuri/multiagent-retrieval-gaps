@@ -1,0 +1,39 @@
+# Cardiology designations — clinician abbreviations that map to observables.
+schema_version: "1.0.0"
+
+designations:
+  "cTnI":
+    kind: preferred
+    denotes: ["loinc:10839-9"]
+  "Troponin I":
+    kind: preferred
+    denotes: ["loinc:10839-9"]
+  "cTnT":
+    kind: preferred
+    denotes: ["loinc:6598-7"]
+  "Troponin T":
+    kind: preferred
+    denotes: ["loinc:6598-7"]
+  "cTn":
+    kind: ambiguous
+    denotes: ["loinc:10839-9", "loinc:6598-7"]
+    note: "Ambiguous — unit, manufacturer assay, or explicit I/T suffix required to disambiguate"
+  "Troponin":
+    kind: ambiguous
+    denotes: ["loinc:10839-9", "loinc:6598-7"]
+    note: "Without I/T qualifier, ambiguous between cTnI and cTnT"
+  "BNP":
+    kind: preferred
+    denotes: ["loinc:42637-9"]
+  "B-type natriuretic peptide":
+    kind: preferred
+    denotes: ["loinc:42637-9"]
+  "hsCRP":
+    kind: preferred
+    denotes: ["loinc:30522-7"]
+  "CRP-hs":
+    kind: preferred
+    denotes: ["loinc:30522-7"]
+  "high-sensitivity CRP":
+    kind: synonym
+    denotes: ["loinc:30522-7"]

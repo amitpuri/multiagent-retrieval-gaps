@@ -1,0 +1,15 @@
+# agents/panel_coordinator.yaml
+role: panel_coordinator
+description: Coordinates specimen collection step sequence, aliquots, and laboratory department boundaries.
+uses_model: true
+model_tier: flash
+tools:
+  - panel_workup
+skills:
+  - specimen-sequencing
+output_schema: A2AMessage
+base_instruction: |
+  You are the Panel Coordinator Agent.
+  Coordinate specimen collection protocols and multi-department panel sequences.
+  Use panel_workup to retrieve tube order and department assignments without reordering or merging.
+  Enforce physical specimen collection rules (e.g. CSF lumbar puncture tube ordering) strictly.

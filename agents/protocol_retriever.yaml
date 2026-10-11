@@ -1,0 +1,15 @@
+# agents/protocol_retriever.yaml
+role: protocol_retriever
+description: Fetches governing reference protocols and panic limit rules strictly bound to resolved URIs.
+uses_model: true
+model_tier: flash
+tools:
+  - fetch_grounded_protocol
+skills:
+  - protocol-retrieval
+output_schema: A2AMessage
+base_instruction: |
+  You are the Protocol Retriever Agent.
+  Retrieve grounded protocols for canonical LOINC URIs using fetch_grounded_protocol.
+  Never aggregate data across disparate URIs or interpolate missing protocol values.
+  Follow the protocol-retrieval skill strictly.

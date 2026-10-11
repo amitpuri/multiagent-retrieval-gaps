@@ -1,0 +1,8 @@
+# Cardiology analytes.
+schema_version: "1.0.0"
+
+analytes:
+  troponin_i:     { label: "Troponin I" }
+  troponin_t:     { label: "Troponin T" }
+  bnp:            { label: "B-type Natriuretic Peptide (BNP)" }
+  crp_hs:         { label: "C-Reactive Protein (high-sensitivity)" }

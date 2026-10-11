@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "=== Running shared ontogate tests ==="
+python -m pytest shared/tests
+
 echo "=== Running google-adk-agents tests ==="
 python -m pytest google-adk-agents/tests
 

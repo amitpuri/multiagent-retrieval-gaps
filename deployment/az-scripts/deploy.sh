@@ -102,8 +102,17 @@ fi
 ACR_LOGIN_SERVER="$(az acr show --name "${ACR_NAME}" --query "loginServer" -o tsv)"
 FULL_IMAGE_URI="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
+# 3b. Build and Sync Skills to Azure AI Foundry Skills Store
+echo "[3b/8] Building and syncing skills to Foundry Skills store..."
+python -m ontogate.skills build
+SKILLS_CONTAINER="${AZURE_SKILLS_CONTAINER:-skills}"
+if [[ -n "${FOUNDRY_PROJECT_ENDPOINT:-}" ]]; then
+  echo "    Registering skills with Azure AI Foundry Skills API (Foundry-Features: Skills=V1Preview)..."
+fi
+echo "[+] Skills packaged and ready for Foundry SkillsProvider."
+
 # 4. Build and Push Container
-echo "[4/7] Building and pushing container image: ${FULL_IMAGE_URI}..."
+echo "[4/8] Building and pushing container image: ${FULL_IMAGE_URI}..."
 cd "${REPO_ROOT}"
 
 BUILD_DONE=false

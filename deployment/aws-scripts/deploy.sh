@@ -149,8 +149,21 @@ fi
 AGENT_ROLE_ARN="$(aws iam get-role --role-name "${AGENT_ROLE_NAME}" --query "Role.Arn" --output text 2>/dev/null || true)"
 echo "[+] AgentCore Execution Role ARN: ${AGENT_ROLE_ARN}"
 
+# ─── STEP 4b: Build & Sync Skills to AWS S3 Store ─────────────────────────────
+echo "[4b/9] Building and syncing skills to S3 skill store..."
+python -m ontogate.skills build
+SKILLS_BUCKET="${SKILLS_BUCKET:-${PROJECT_NAME}-${ENVIRONMENT}-skills}"
+RELEASE_VERSION="${RELEASE_VERSION:-v1.0.0}"
+if aws s3 ls "s3://${SKILLS_BUCKET}" &>/dev/null; then
+  echo "    Syncing dist/skills/ to s3://${SKILLS_BUCKET}/skills/${RELEASE_VERSION}/..."
+  aws s3 sync dist/skills/ "s3://${SKILLS_BUCKET}/skills/${RELEASE_VERSION}/" --delete
+  echo "[+] Skills synced to S3 skill store."
+else
+  echo "    [i] S3 skills bucket '${SKILLS_BUCKET}' not present; skills baked into image via dist/skills."
+fi
+
 # ─── STEP 5: Build & Push Container ──────────────────────────────────────────
-echo "[5/8] Building and pushing container to ECR..."
+echo "[5/9] Building and pushing container to ECR..."
 cd "${REPO_ROOT}"
 aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 docker build -f strands-agents/Dockerfile -t "${FULL_IMAGE_URI}" .

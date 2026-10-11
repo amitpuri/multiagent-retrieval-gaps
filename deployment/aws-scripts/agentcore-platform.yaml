@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Amazon Bedrock AgentCore & App Runner platform stack for Clinical Decision Support (strands-agents):
-  Runtime, Gateway (+ clinical Lambda target), Memory, Identity, Policy, Payments, Built-in tools
-  (Browser / Code Interpreter), Observability, Online Evaluations, and optional App Runner service.
+  Runtime, Gateway (+ clinical Lambda target), Memory, Identity, Policy, Observability, Online Evaluations,
+  and optional App Runner service.
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -12,8 +12,8 @@ Metadata:
       - Label: { default: Deployment Target }
         Parameters: [DeployTarget, ContainerImageUri, AppRunnerCpu, AppRunnerMemory]
       - Label: { default: Feature toggles }
-        Parameters: [EnableMemory, EnableGateway, EnablePolicy, EnableIdentity, EnableBuiltinTools,
-                     EnablePayments, EnableHarness, EnableEvaluations, EnableTransactionSearch, EnableEcrRepo]
+        Parameters: [EnableMemory, EnableGateway, EnablePolicy, EnableIdentity,
+                     EnableHarness, EnableEvaluations, EnableTransactionSearch, EnableEcrRepo]
       - Label: { default: Runtime & Model }
         Parameters: [BedrockModelId, RuntimeProtocol, NetworkMode, SubnetIds, SecurityGroupIds]
       - Label: { default: Auth }
@@ -76,8 +76,6 @@ Parameters:
   EnableGateway:         { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
   EnablePolicy:          { Type: String, Default: "true",  AllowedValues: ["true", "false"], Description: Requires EnableGateway. }
   EnableIdentity:        { Type: String, Default: "true",  AllowedValues: ["true", "false"] }
-  EnableBuiltinTools:    { Type: String, Default: "true",  AllowedValues: ["true", "false"], Description: Custom Browser + Code Interpreter. }
-  EnablePayments:        { Type: String, Default: "false", AllowedValues: ["true", "false"] }
   EnableHarness:         { Type: String, Default: "false", AllowedValues: ["true", "false"] }
   EnableEvaluations:     { Type: String, Default: "false", AllowedValues: ["true", "false"], Description: Requires a Runtime (ContainerImageUri). }
   EnableTransactionSearch:
@@ -160,8 +158,6 @@ Conditions:
   CreateGateway:    !Equals [!Ref EnableGateway, "true"]
   CreatePolicy:     !And [!Equals [!Ref EnablePolicy, "true"], !Equals [!Ref EnableGateway, "true"]]
   CreateIdentity:   !Equals [!Ref EnableIdentity, "true"]
-  CreateBuiltin:    !Equals [!Ref EnableBuiltinTools, "true"]
-  CreatePayments:   !Equals [!Ref EnablePayments, "true"]
   CreateHarness:    !Equals [!Ref EnableHarness, "true"]
   CreateEvals:      !And [!Equals [!Ref EnableEvaluations, "true"], !Condition CreateRuntime]
   CreateTxSearch:   !Equals [!Ref EnableTransactionSearch, "true"]
@@ -171,7 +167,6 @@ Conditions:
   PolicyEnforce:    !Equals [!Ref PolicyMode, ENFORCE]
   RuntimeUsesMemory:  !And [!Condition CreateRuntime, !Condition CreateMemory]
   RuntimeUsesGateway: !And [!Condition CreateRuntime, !Condition CreateGateway]
-  RuntimeUsesBuiltin: !And [!Condition CreateRuntime, !Condition CreateBuiltin]
 
 Resources:
 
@@ -225,79 +220,6 @@ Resources:
     Properties:
       Name: !Sub "${ProjectName}-${Environment}-agent"
 
-  # ========================================================================= #
-  # BUILT-IN TOOLS  – Browser + Code Interpreter
-  # ========================================================================= #
-  BrowserRecordingBucket:
-    Type: AWS::S3::Bucket
-    Condition: CreateBuiltin
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      VersioningConfiguration: { Status: Enabled }
-      LifecycleConfiguration:
-        Rules:
-          - Id: expire-recordings
-            Status: Enabled
-            ExpirationInDays: 30
-
-  BrowserRole:
-    Type: AWS::IAM::Role
-    Condition: CreateBuiltin
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: { Service: bedrock-agentcore.amazonaws.com }
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
-              ArnLike: { "aws:SourceArn": !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*" }
-      Policies:
-        - PolicyName: recordings
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: [s3:PutObject, s3:ListMultipartUploadParts, s3:AbortMultipartUpload]
-                Resource: !Sub "${BrowserRecordingBucket.Arn}/*"
-
-  CustomBrowser:
-    Type: AWS::BedrockAgentCore::BrowserCustom
-    Condition: CreateBuiltin
-    Properties:
-      Name: !Sub "${ProjectName}_${Environment}_browser"
-      Description: Custom browser with session recording
-      NetworkConfiguration:
-        NetworkMode: PUBLIC
-      ExecutionRoleArn: !GetAtt BrowserRole.Arn
-      RecordingConfig:
-        Enabled: true
-        S3Location:
-          Bucket: !Ref BrowserRecordingBucket
-          Prefix: browser-recordings
-      Tags:
-        Project: !Ref ProjectName
-
-  CustomCodeInterpreter:
-    Type: AWS::BedrockAgentCore::CodeInterpreterCustom
-    Condition: CreateBuiltin
-    Properties:
-      Name: !Sub "${ProjectName}_${Environment}_codeinterp"
-      Description: Sandboxed code interpreter
-      NetworkConfiguration:
-        NetworkMode: SANDBOX
-      Tags:
-        Project: !Ref ProjectName
 
   # ========================================================================= #
   # GATEWAY  – APIs / Lambda functions → MCP tools (+ clinical Lambda target)
@@ -452,46 +374,6 @@ Resources:
               );
             - GwArn: !GetAtt AgentGateway.GatewayArn
 
-  # ========================================================================= #
-  # PAYMENTS  – microtransactions
-  # ========================================================================= #
-  PaymentManagerRole:
-    Type: AWS::IAM::Role
-    Condition: CreatePayments
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: { Service: bedrock-agentcore.amazonaws.com }
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
-      Policies:
-        - PolicyName: baseline
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
-                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/*"
-
-  AgentPaymentManager:
-    Type: AWS::BedrockAgentCore::PaymentManager
-    Condition: CreatePayments
-    Properties:
-      Name: !Sub "${ProjectName}${Environment}payments"
-      Description: Payment authorization for agents
-      RoleArn: !GetAtt PaymentManagerRole.Arn
-      AuthorizerType: !If [UseJwt, CUSTOM_JWT, AWS_IAM]
-      AuthorizerConfiguration: !If
-        - UseJwt
-        - CustomJWTAuthorizer:
-            DiscoveryUrl: !Ref JwtDiscoveryUrl
-            AllowedClients: !Ref JwtAllowedClients
-        - !Ref AWS::NoValue
-      Tags:
-        - { Key: Project, Value: !Ref ProjectName }
 
   # ========================================================================= #
   # RUNTIME EXECUTION ROLE  – for Bedrock AgentCore and App Runner
@@ -563,11 +445,10 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
-                  - bedrock:InvokeAgent
                   - bedrock:GetFoundationModel
-                  - bedrock-agentcore:*
-                  - bedrock-agent-runtime:*
-                Resource: "*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
               - Sid: SecretsManager
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
@@ -605,32 +486,6 @@ Resources:
           - Effect: Allow
             Action: bedrock-agentcore:InvokeGateway
             Resource: !GetAtt AgentGateway.GatewayArn
-
-  RuntimeBuiltinToolsAccess:
-    Type: AWS::IAM::Policy
-    Condition: RuntimeUsesBuiltin
-    Properties:
-      PolicyName: builtin-tools-access
-      Roles: [!Ref RuntimeRole]
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action:
-              - bedrock-agentcore:StartBrowserSession
-              - bedrock-agentcore:GetBrowserSession
-              - bedrock-agentcore:StopBrowserSession
-              - bedrock-agentcore:ConnectBrowserAutomationStream
-              - bedrock-agentcore:ConnectBrowserLiveViewStream
-              - bedrock-agentcore:StartCodeInterpreterSession
-              - bedrock-agentcore:GetCodeInterpreterSession
-              - bedrock-agentcore:InvokeCodeInterpreter
-              - bedrock-agentcore:StopCodeInterpreterSession
-            Resource:
-              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:browser/*"
-              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:browser-custom/*"
-              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:code-interpreter/*"
-              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:*:code-interpreter-custom/*"
 
   # ========================================================================= #
   # RUNTIME  – Amazon Bedrock AgentCore Runtime
@@ -672,9 +527,6 @@ Resources:
         AGENTCORE_MEMORY_ID: !If [CreateMemory, !GetAtt AgentMemory.MemoryId, none]
         MEMORY_ID:          !If [CreateMemory, !GetAtt AgentMemory.MemoryId, none]
         GATEWAY_URL:        !If [CreateGateway, !GetAtt AgentGateway.GatewayUrl, none]
-        BROWSER_ID:         !If [CreateBuiltin, !GetAtt CustomBrowser.BrowserId, none]
-        CODE_INTERPRETER_ID: !If [CreateBuiltin, !GetAtt CustomCodeInterpreter.CodeInterpreterId, none]
-        PAYMENT_MANAGER_ARN: !If [CreatePayments, !GetAtt AgentPaymentManager.PaymentManagerArn, none]
       Tags:
         Project: !Ref ProjectName
         Environment: !Ref Environment
@@ -930,15 +782,6 @@ Outputs:
   PolicyEngineId:
     Condition: CreatePolicy
     Value: !GetAtt AgentPolicyEngine.PolicyEngineId
-  BrowserId:
-    Condition: CreateBuiltin
-    Value: !GetAtt CustomBrowser.BrowserId
-  CodeInterpreterId:
-    Condition: CreateBuiltin
-    Value: !GetAtt CustomCodeInterpreter.CodeInterpreterId
-  PaymentManagerArn:
-    Condition: CreatePayments
-    Value: !GetAtt AgentPaymentManager.PaymentManagerArn
   HarnessArn:
     Condition: CreateHarness
     Value: !GetAtt AgentHarness.Arn

@@ -54,6 +54,28 @@ from ontogate.okf_index import (
 )
 from ontogate.okf_writer import format_log_entry, read_update_log, record_concept_update
 
+from ontogate.roles import RoleSpec, load_all_role_specs, load_role_spec
+from ontogate.skills import (
+    SkillPackage,
+    build_and_lock_skills,
+    lint_skill_package,
+    verify_skills_lock,
+)
+
+from ontogate.cloud_stores import (
+    FoundrySkillsApiStore,
+    GcpSkillRegistryStore,
+    S3SkillStore,
+)
+
+from ontogate.rdf_export import (
+    apply_owl_reasoning,
+    build_ontology_bundle,
+    build_ontology_graph,
+    export_graph,
+    validate_shacl,
+)
+
 __all__ = [
     "TrustTier", "RelationshipKind", "ResolutionStatus", "ConceptLink", "ConceptSource",
     "AttestedComputation", "ConceptDefinition", "Observable", "Designation", "Facet",
@@ -63,4 +85,9 @@ __all__ = [
     "get_direct_links", "neighbors", "find_lookalikes", "find_governing_protocols", "concept_subgraph",
     "record_concept_update", "format_log_entry", "read_update_log",
     "AttestationResult", "attest_numeric", "convert_unit",
+    "RoleSpec", "load_role_spec", "load_all_role_specs",
+    "SkillPackage", "lint_skill_package", "build_and_lock_skills", "verify_skills_lock",
+    "GcpSkillRegistryStore", "S3SkillStore", "FoundrySkillsApiStore",
+    "build_ontology_graph", "export_graph", "validate_shacl",
+    "apply_owl_reasoning", "build_ontology_bundle",
 ]

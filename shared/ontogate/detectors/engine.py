@@ -150,6 +150,10 @@ class SafetyGateEngine:
             },
         )
 
-    def route_for(self, status: ResolutionStatus) -> str:
+    def route_for(self, status: ResolutionStatus | str | GapEvaluationResult) -> str:
         """Deterministic routing: fails closed on anything other than RESOLVED."""
-        return "PROCEED" if status == ResolutionStatus.RESOLVED else "CLARIFY"
+        if isinstance(status, GapEvaluationResult):
+            status = status.status
+        if isinstance(status, ResolutionStatus):
+            return "PROCEED" if status == ResolutionStatus.RESOLVED else "CLARIFY"
+        return "PROCEED" if status == ResolutionStatus.RESOLVED.value else "CLARIFY"

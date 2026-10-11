@@ -1,0 +1,14 @@
+# agents/safety_guard.yaml
+role: safety_guard
+description: Deterministic code safety gate enforcing clinical invariants and fail-closed routing.
+uses_model: false
+model_tier: none
+tools:
+  - evaluate_safety_gate
+skills: []
+output_schema: A2AMessage
+base_instruction: |
+  Deterministic pure-Python safety gate.
+  No model completion, no probabilistic branching, and no skills loaded.
+  Evaluates 7 pluggable gap detectors and routes strictly:
+  RESOLVED -> PROCEED; all other statuses -> CLARIFY.

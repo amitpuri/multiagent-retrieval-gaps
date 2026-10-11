@@ -1,0 +1,39 @@
+# Cardiology protocols — grounded clinical guidelines per observable.
+schema_version: "1.0.0"
+
+protocols:
+  "protocol:troponin-i-acs":
+    governs: "loinc:10839-9"
+    reference_range: "99th-percentile URL <= 0.04 ng/mL (assay-dependent)"
+    panic_limits: "cTnI > 0.04 ng/mL indicates myocardial injury; serial delta rise/fall >= 5 ng/L at 1h indicates acute myocardial infarction"
+    clinical_guideline: "ESC 2023 NSTEMI guidelines: High-sensitivity cTnI rapid 0h/1h or 0h/2h algorithm. Serial sampling delta: >=5 ng/L rise/fall at 1h or >=20 ng/L at 2h."
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    verified_by: null
+
+  "protocol:troponin-t-acs":
+    governs: "loinc:6598-7"
+    reference_range: "99th-percentile URL: 14 ng/L (Elecsys; assay-specific)"
+    panic_limits: "hs-cTnT > 14 ng/L indicates myocardial injury; rise/fall delta >= 5 ng/L at 1h indicates rule-in"
+    clinical_guideline: "ESC 2023 NSTEMI guidelines: Elecsys hs-cTnT 0h/1h algorithm."
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    verified_by: null
+
+  "protocol:bnp-heart-failure":
+    governs: "loinc:42637-9"
+    reference_range: "Normal < 100 ng/L (age-independent)"
+    panic_limits: "BNP > 400 ng/L is highly suggestive of acute heart failure"
+    clinical_guideline: "ACC/AHA 2022 Heart Failure Guidelines. Renal impairment, obesity, and AF affect BNP interpretation. NT-proBNP must not be substituted."
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    verified_by: null
+
+  "protocol:hscrp-cv-risk":
+    governs: "loinc:30522-7"
+    reference_range: "Low risk: < 1.0 mg/L (0.1 mg/dL); Average risk: 1.0-3.0 mg/L; High risk: > 3.0 mg/L"
+    panic_limits: "Values > 10 mg/L suggest acute systemic infection/inflammation rather than isolated CV risk"
+    clinical_guideline: "AHA/CDC 2003 Scientific Statement on CRP cardiovascular risk stratification. Conventional CRP uses different LOINC, units, and methods."
+    status: stable
+    stale_after: "2028-01-01T00:00:00Z"
+    verified_by: null

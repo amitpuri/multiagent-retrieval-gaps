@@ -125,8 +125,22 @@ if (-not $agentRoleArn -or $agentRoleArn -eq "None") {
     Write-Error "Could not retrieve role ARN. Check IAM permissions."; exit 1
 }
 
+# ─── STEP 4b: Build & Sync Skills to AWS S3 Store ─────────────────────────────
+Write-Host "[4b/9] Building and syncing skills to S3 skill store..." -ForegroundColor Yellow
+python -m ontogate.skills build
+$skillsBucket = if ($env:AWS_SKILLS_BUCKET) { $env:AWS_SKILLS_BUCKET } else { "${ProjectName}-${Environment}-skills" }
+$releaseVer = if ($env:ONTOGATE_RELEASE_VERSION) { $env:ONTOGATE_RELEASE_VERSION } else { "v1.0.0" }
+$s3Exists = aws s3 ls "s3://$skillsBucket" 2>$null
+if ($s3Exists) {
+    Write-Host "    Syncing dist/skills/ to s3://$skillsBucket/skills/$releaseVer/..."
+    aws s3 sync dist/skills/ "s3://$skillsBucket/skills/$releaseVer/" --delete
+    Write-Host "[+] Skills synced to S3 skill store." -ForegroundColor Green
+} else {
+    Write-Host "    [i] S3 skills bucket '$skillsBucket' not present; skills baked into image via dist/skills." -ForegroundColor DarkYellow
+}
+
 # ─── STEP 5: Build & Push Container ───────────────────────────────────────────
-Write-Host "[5/8] Building and pushing container to ECR..." -ForegroundColor Yellow
+Write-Host "[5/9] Building and pushing container to ECR..." -ForegroundColor Yellow
 Push-Location $repoRoot
 try {
     aws ecr get-login-password --region $AwsRegion | docker login --username AWS --password-stdin "$accountId.dkr.ecr.$AwsRegion.amazonaws.com"

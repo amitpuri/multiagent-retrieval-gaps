@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "bundle_sha256": "core-bundle-v1",
+  "skills": {
+    "domain-cardiology": {
+      "name": "domain-cardiology",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/domains/cardiology",
+      "sha256": "e86689c4ef9e9172558ddf36f7985f63e8dcfac56bd404c5c003bfbd3fe7c596",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "domain-laboratory-medicine": {
+      "name": "domain-laboratory-medicine",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/domains/laboratory-medicine",
+      "sha256": "046b797b35ef00bbc91ac7b1bebc6a7e786ea74fad86d0e6f47d91e946132681",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "clarification-dialogue": {
+      "name": "clarification-dialogue",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/runtime/clarification-dialogue",
+      "sha256": "8122c179906a101a8ef709f3a10b766cfca89a7a8be767dea137b94626a4b02d",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "clinical-triage": {
+      "name": "clinical-triage",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/runtime/clinical-triage",
+      "sha256": "15a9da79811bf570a5243fdb05535a398fd135ebcff2782b3a61ddeea8eca8bb",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "grounded-synthesis": {
+      "name": "grounded-synthesis",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/runtime/grounded-synthesis",
+      "sha256": "19b99ca5239944b82087394b1aeb2869f01d1fa7fd71c63af21348e915778061",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "lab-term-resolution": {
+      "name": "lab-term-resolution",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/runtime/lab-term-resolution",
+      "sha256": "8a427838bcb8b4e557a79008c57365263e2613f76a415c1e216a31406e89a86a",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "protocol-retrieval": {
+      "name": "protocol-retrieval",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/runtime/protocol-retrieval",
+      "sha256": "fb86c95caad95baf567fe4d576b397d38d3444512ea8f85a23ab452f445f1ec6",
+      "bundle_sha256": "core-bundle-v1"
+    },
+    "specimen-sequencing": {
+      "name": "specimen-sequencing",
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "skills/runtime/specimen-sequencing",
+      "sha256": "7b63e2349a9ef05f56884e71347dfb3bc9841fe11f3e238ec0d6472ab25a3b29",
+      "bundle_sha256": "core-bundle-v1"
+    }
+  }
+}

@@ -10,51 +10,42 @@ description: >-
 
 ## Purpose
 
-The MCP server (`src/harness/mcp_server.py`) is the structured tool dispatch layer.
-Every registered tool must have a correct decorator, delegate to `src/tools.py` or
-`src/core/`, and return the expected shape. This skill validates all of that.
+The canonical MCP server (`shared/ontogate/mcp_server.py`) is the structured tool dispatch layer.
+Every registered tool must have a correct decorator, delegate to `ontogate.tools`, and return a `Dict[str, Any]` with `"status"`. This skill validates all of that.
 
 ---
 
-## Step 1 — Audit Tool Registrations
+## Step 1 — Audit Canonical Tool Registrations
 
-Open `google-adk-agents/src/harness/mcp_server.py`.
+Open `shared/ontogate/mcp_server.py`.
 
-For each entry in `CLINICAL_MCP_TOOLS`, verify:
+For each canonical tool, verify:
 
 | Tool Name | Required Return Fields |
 |---|---|
+| `parse_clinician_input` | `status`, `parsed` |
 | `resolve_lab_term` | `status`, `candidates` |
-| `evaluate_safety_gate` | `route`, `status`, `passed`, `triggered_gaps`, `clarification_prompt`, `candidates` |
-| `fetch_grounded_protocol` | `status` or `reference_range` + `panic_limits` |
-| `csf_workup` | Dept keys with tube-ordered lists, or `{"status": "NOT_FOUND"}` |
-| `check_calcium` | `status`, `readings` |
-| `attest_computation` | `passed`, `verdict`, and `badge: "[Attested ✓]"` on pass |
+| `evaluate_safety_gate` | `route`, `status`, `passed`, `triggered_gaps` |
+| `fetch_grounded_protocol` | `status`, `uri` |
+| `attest_computation` | `status`, `passed`, `verdict`, and `badge: "[Attested ✓]"` on pass |
+| `build_clarification_prompt` | `status`, `prompt` |
+| `panel_workup` | `status`, `departments` |
 
 Check that:
-1. Every tool in `CLINICAL_MCP_TOOLS` dict has a matching `@mcp_server.tool(name=...)` decorator
-2. The `name=` argument matches the dict key exactly
-3. Tool bodies are thin wrappers — business logic lives in `src/tools.py` or `src/core/`
+1. Every canonical tool is registered on the FastMCP instance
+2. Tool return dictionary always contains a `"status"` key
+3. Business logic lives in `shared/ontogate/tools.py`
 
 ---
 
-## Step 2 — Check `get_mcp_server()` Exports
+## Step 2 — Check `create_mcp_server()` Exports
 
 Verify:
 ```python
-from src.harness.mcp_server import get_mcp_server, CLINICAL_MCP_TOOLS
-from mcp.server.fastmcp import FastMCP
+from ontogate.mcp_server import create_mcp_server
 
-server = get_mcp_server()
-assert isinstance(server, FastMCP)
-assert set(CLINICAL_MCP_TOOLS.keys()) == {
-    "resolve_lab_term",
-    "evaluate_safety_gate",
-    "fetch_grounded_protocol",
-    "csf_workup",
-    "check_calcium",
-    "attest_computation",
-}
+server = create_mcp_server()
+assert server is not None
 ```
 
 ---

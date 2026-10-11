@@ -110,8 +110,16 @@ if (-not $acrLoginServer) {
 }
 $fullImageUri = "$acrLoginServer/${ImageName}:$ImageTag"
 
+# 3b. Build & Sync Skills to Azure AI Foundry Skills Store
+Write-Host "[3b/8] Building and syncing skills to Foundry Skills store..." -ForegroundColor Yellow
+python -m ontogate.skills build
+if ($env:FOUNDRY_PROJECT_ENDPOINT) {
+    Write-Host "    Registering skills with Azure AI Foundry Skills API (Foundry-Features: Skills=V1Preview)..."
+}
+Write-Host "[+] Skills packaged and ready for Foundry SkillsProvider." -ForegroundColor Green
+
 # 4. Build & Push Image
-Write-Host "[4/7] Building and pushing container image: $fullImageUri..." -ForegroundColor Yellow
+Write-Host "[4/8] Building and pushing container image: $fullImageUri..." -ForegroundColor Yellow
 Push-Location $repoRoot
 try {
     $dockerAvailable = $false

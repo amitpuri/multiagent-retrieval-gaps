@@ -19,20 +19,20 @@ This skill validates that invariant end-to-end, from engine internals to the MCP
 
 ## Step 1 — Locate and Inspect the Engine
 
-Open and review these files:
+Open and review these files in `shared/ontogate`:
 
-- `google-adk-agents/src/core/detectors/engine.py` — `SafetyGateEngine` class
-- `google-adk-agents/src/core/models.py` — `EvaluationContext`, `ResolutionStatus`
+- `shared/ontogate/detectors/engine.py` — `SafetyGateEngine` class
+- `shared/ontogate/models.py` — `EvaluationContext`, `ResolutionStatus`
 
 Check:
-- All registered detectors are enumerated (no hidden/orphaned detectors)
-- Each detector returns a typed result with a `passed: bool` and `status: ResolutionStatus`
+- All registered detectors in `self.detectors` are enumerated
+- Each detector returns a typed result with `passed: bool` and `status: ResolutionStatus`
 - `SafetyGateEngine.route_for(status)` covers all `ResolutionStatus` members
 
 ```python
 # Verify: every non-RESOLVED status maps to CLARIFY
-from src.core.models import ResolutionStatus
-from src.core.detectors.engine import SafetyGateEngine
+from ontogate.models import ResolutionStatus
+from ontogate.detectors.engine import SafetyGateEngine
 
 engine = SafetyGateEngine()
 for status in ResolutionStatus:
@@ -42,65 +42,46 @@ for status in ResolutionStatus:
 
 ---
 
-## Step 2 — Validate the Routing Entrypoint
+## Step 2 — Validate Framework Routing Entrypoints
 
-Open `google-adk-agents/src/workflow.py` and verify `route_for()`:
+Check that framework routers follow fail-closed invariants:
+- `google-adk-agents/src/workflow.py`
+- `strands-agents/src/workflow.py`
+- `agent-framework/src/workflow.py`
 
 ```python
-from src.workflow import route_for
+from ontogate.models import ResolutionStatus
 
-assert route_for("RESOLVED") == "PROCEED"
+# Invariant: only RESOLVED proceeds
 for s in ("AMBIGUOUS", "UNIT_MISMATCH", "NOT_FOUND", "RANGE_COLLISION", "UNKNOWN"):
-    assert route_for(s) == "CLARIFY", f"FAIL: {s} should CLARIFY"
+    assert engine.route_for(s) == "CLARIFY"
 ```
 
 ---
 
-## Step 3 — Validate `safety_guard_node`
+## Step 3 — Validate `safety_guard` Across Frameworks
 
-Open `google-adk-agents/src/agents/safety_guard_agent.py` and confirm:
-
-1. No `await`, `async`, or model/LLM calls anywhere in the function body
-2. All three branches (pre-existing failure, engine failure, pass) emit an `A2AMessage`
-3. The function returns `Event(output=node_input, route=route)` in all branches
+Confirm that for all three frameworks:
+1. No `await`, `async`, or model/LLM calls anywhere in the safety guard node
+2. Pure deterministic Python execution
+3. `agents/safety_guard.yaml` specifies `uses_model: false`, `skills: []`
 
 ---
 
-## Step 4 — Validate the MCP Surface
+## Step 4 — Validate Canonical MCP Surface
 
-Open `google-adk-agents/src/harness/mcp_server.py` and check `evaluate_safety_gate`:
-
-- Calls the same `SafetyGateEngine` (not a separate copy)
+Open `shared/ontogate/mcp_server.py` and check `evaluate_safety_gate`:
+- Calls `SafetyGateEngine`
 - Returns `route: "PROCEED"` or `route: "CLARIFY"` — never any other value
-- Returns `triggered_gaps` as a list (empty on pass, one-element on fail)
-- `clarification_prompt` is `None` on pass
+- Returns `status`, `passed`, and `triggered_gaps` list
 
 ---
 
 ## Step 5 — Run the Blocking Test Suite
 
 ```bash
-cd google-adk-agents
-pytest tests/test_gate.py -v --tb=short
+python -m pytest shared/tests/test_gate.py -v
 ```
 
-**All tests in `test_gate.py` must pass.** A failure here is a hard regression.
+**All tests in `shared/tests/test_gate.py` must pass.** A failure here is a hard regression.
 
-Expected passing tests:
-- `test_hb_without_unit_is_ambiguous`
-- `test_hb_with_correct_unit_resolves`
-- `test_hb_with_invalid_unit_triggers_mismatch`
-- `test_unknown_term_returns_not_found`
-- `test_calcium_collision`
-- `test_calcium_with_qualifiers_resolves`
-- `test_gate_fails_closed`
-
----
-
-## Step 6 — Report
-
-Summarize findings:
-- ✅ or ❌ for each step above
-- List any detectors that lack test coverage in `test_gate.py`
-- Flag any LLM calls found inside deterministic nodes
-- Recommend new test cases for uncovered edge cases

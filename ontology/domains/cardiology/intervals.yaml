@@ -1,0 +1,44 @@
+# Cardiology reference intervals (demonstration values — NOT clinically validated).
+schema_version: "1.0.0"
+
+reference_intervals:
+  - id: "cTnI-any-ng_per_mL"
+    observable: "loinc:10839-9"
+    unit: "ng/mL"
+    population: { sex: any, age_band: adult }
+    normal:   [null, 0.04]
+    critical: [null, null]
+    verified_by: null
+    clinically_unvalidated: true
+    note: >
+      Demonstration upper reference limit only; 99th-percentile URL varies by
+      assay manufacturer. Do not use without laboratory validation.
+
+  - id: "cTnT-any-ng_per_L"
+    observable: "loinc:6598-7"
+    unit: "ng/L"
+    population: { sex: any, age_band: adult }
+    normal:   [null, 14.0]
+    critical: [null, null]
+    verified_by: null
+    clinically_unvalidated: true
+    note: "Elecsys high-sensitivity cTnT 99th-percentile URL; demonstration only."
+
+  - id: "bnp-any-ng_per_L"
+    observable: "loinc:42637-9"
+    unit: "ng/L"
+    population: { sex: any, age_band: adult }
+    normal:   [null, 100.0]
+    critical: [null, null]
+    verified_by: null
+    clinically_unvalidated: true
+
+  - id: "hscrp-any-mg_per_dL-low"
+    observable: "loinc:30522-7"
+    unit: "mg/dL"
+    population: { sex: any, age_band: adult }
+    normal:   [null, 0.1]
+    critical: [null, null]
+    verified_by: null
+    clinically_unvalidated: true
+    note: "Low CV risk threshold (<1 mg/L). Demonstration only."

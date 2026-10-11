@@ -53,25 +53,25 @@ source load_env.sh
 ## Step 2 — Run the Full Suite
 
 ```bash
-pytest tests/ -v --tb=short 2>&1
+# Run all test suites across shared, ADK, Strands, and MAF (372+ tests)
+./run-all-tests.sh
 ```
 
-For a quick smoke-check (deterministic only, no LLM):
+For a quick smoke-check (deterministic shared core only, no LLM):
 ```bash
-pytest tests/test_gate.py -v --tb=short 2>&1
+python -m pytest shared/tests/ -v --tb=short
 ```
 
 ---
 
-## Step 3 — Interpret Results by Test File
+## Step 3 — Interpret Results by Test Suite
 
-| Test File | Covers | Blocking? |
+| Test Suite | Covers | Blocking? |
 |---|---|---|
-| `test_gate.py` | Deterministic safety gate, fail-closed routing, detectors | **YES — hard block** |
-| `test_harness.py` | Full harness loop, MCP bridge, offline mode | High priority |
-| `test_multiagent_extensible.py` | Multi-agent routing, A2A message flows | High priority |
-| `test_okf_phases_5_8.py` | OKF ontology phases 5–8, grounded protocol retrieval | Medium priority |
-| `test_okf_refinement.py` | OKF refinement loop, HITL pause/resume | Medium priority |
+| `shared/tests/` | Deterministic safety gate, ontology registry, resolver, units, attestation, skills lock | **YES — hard block** |
+| `google-adk-agents/tests/` | Google ADK workflow, runner, A2A messaging | High priority |
+| `strands-agents/tests/` | AWS Bedrock Strands agents, MCP integration | High priority |
+| `agent-framework/tests/` | Azure AI Agent Framework agents | High priority |
 
 ### Failure Classification
 

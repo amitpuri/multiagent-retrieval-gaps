@@ -53,6 +53,9 @@ multiagent-retrieval-gaps/
 │   │   ├── validate.py                  # Ontology integrity & schema validation rules
 │   │   ├── ports.py                     # Runtime ports (audit, telemetry, stores)
 │   │   ├── release.py                   # Knowledge release stamping & manifests
+│   │   ├── skills.py                    # Skills build, clinical lint & lockfile management
+│   │   ├── cloud_stores.py              # Cloud skill stores (GCP Skill Registry, S3, Foundry)
+│   │   ├── rdf_export.py                # SKOS/OWL/SHACL export & ontology bundle builder
 │   │   └── detectors/                   # 7 pluggable deterministic gap detectors + SafetyGateEngine
 │   │       ├── engine.py                # SafetyGateEngine (deterministic gate, fail-closed)
 │   │       ├── ambiguity.py             # AmbiguityDetector (Gap 8)
@@ -65,17 +68,50 @@ multiagent-retrieval-gaps/
 │   └── tests/                           # 78 deterministic unit & invariant tests
 │
 ├── ontology/                            # ── Clinical Knowledge Packs & Upper Ontology ─────────
-│   ├── core/                            # Upper ontology schema & meta-models (core.yaml)
-│   └── domains/laboratory_medicine/     # Laboratory medicine domain pack
-│       ├── domain.yaml                  # Domain specification, version & author metadata
-│       ├── vocabulary.yaml              # Synonyms & clinical aliases mapped to canonical IRIs
-│       ├── analytes.yaml                # Primary analytes (Hb, Calcium, Troponin, CSF)
-│       ├── observables.yaml             # Observable definitions, LOINC codes, UCUM units
-│       ├── facets.yaml                  # Clinical qualifiers (total, ionized, arterial, venous)
-│       ├── intervals.yaml               # Reference & critical intervals across populations
-│       ├── panels.yaml                  # Multi-analyte panels (CSF emergency workup, etc.)
-│       ├── protocols.yaml               # Clinical protocols & emergency escalation rules
-│       └── designations.yaml            # Display names & terminology bindings
+│   ├── core/                            # Upper ontology schema, meta-models & SHACL shapes
+│   │   ├── core.yaml                    # Upper ontology (units, dimensions, relations, facets)
+│   │   └── shapes.ttl                   # W3C SHACL constraints (Observable, Unit, Interval)
+│   ├── domains/laboratory_medicine/     # Laboratory medicine primary domain pack
+│   │   ├── domain.yaml                  # Domain specification, version & author metadata
+│   │   ├── vocabulary.yaml              # Synonyms & clinical aliases mapped to canonical IRIs
+│   │   ├── analytes.yaml                # Primary analytes (Hb, Calcium, Troponin, CSF)
+│   │   ├── observables.yaml             # Observable definitions, LOINC codes, UCUM units
+│   │   ├── facets.yaml                  # Clinical qualifiers (total, ionized, arterial, venous)
+│   │   ├── intervals.yaml               # Reference & critical intervals across populations
+│   │   ├── panels.yaml                  # Multi-analyte panels (CSF emergency workup, etc.)
+│   │   ├── protocols.yaml               # Clinical protocols & emergency escalation rules
+│   │   └── designations.yaml            # Display names & terminology bindings
+│   └── domains/cardiology/              # Cardiology second-domain reuse proof (P13.8)
+│       ├── domain.yaml                  # Cardiology domain specification
+│       ├── vocabulary.yaml              # Controlled departments & specimens
+│       ├── analytes.yaml                # Troponin I, Troponin T, BNP, hsCRP
+│       ├── observables.yaml             # LOINC concepts & confusable_with symmetric pairs
+│       ├── facets.yaml                  # Population facet declarations
+│       ├── intervals.yaml               # Reference intervals (unvalidated demonstration)
+│       ├── protocols.yaml               # Grounded ESC & ACC/AHA clinical guidelines
+│       └── designations.yaml            # Look-alike designations (cTn ambiguity)
+│
+├── skills/                              # ── Multi-Agent Runtime & Domain Skills (agentskills.io)
+│   ├── runtime/                         # 6 role-scoped clinical agent skills
+│   │   ├── clarification-dialogue/      # SKILL.md for clarification coordinator role
+│   │   ├── clinical-triage/             # SKILL.md for triage orchestrator role
+│   │   ├── grounded-synthesis/          # SKILL.md for clinical synthesizer role
+│   │   ├── lab-term-resolution/         # SKILL.md for ontology resolver role
+│   │   ├── protocol-retrieval/          # SKILL.md for protocol retriever role
+│   │   └── specimen-sequencing/         # SKILL.md for panel coordinator role
+│   ├── domains/                         # Domain-specific clinical knowledge skills
+│   │   ├── laboratory-medicine/         # SKILL.md for laboratory medicine domain
+│   │   └── cardiology/                  # SKILL.md for cardiology domain
+│   └── skills.lock.json                 # Cryptographic SHA-256 lockfile pinning all skills
+│
+├── agents/                              # ── Declarative Role Specifications ───────────────────
+│   ├── clarification_coordinator.yaml   # Tools, skills, model tier & base prompt
+│   ├── clinical_synthesizer.yaml        # Synthesis role specification
+│   ├── ontology_resolver.yaml           # Term resolution role specification
+│   ├── panel_coordinator.yaml           # Panel sequencing role specification
+│   ├── protocol_retriever.yaml          # Protocol retrieval role specification
+│   ├── safety_guard.yaml                # Pure-code deterministic gate node (no LLM, no skills)
+│   └── triage_orchestrator.yaml         # Triage coordination role specification
 │
 ├── knowledge/                           # ── Knowledge Base Audit & Change Tracking ────────────
 │   └── log.md                           # Append-only TBox ontology mutation log (OKF §7.5)
@@ -131,7 +167,7 @@ multiagent-retrieval-gaps/
 │   │   └── main.py                      # CLI entrypoint
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
-│   └── tests/                           # 193 deterministic safety invariant, OKF & harness tests
+│   └── tests/                           # 216 deterministic safety invariant, conformance, OKF & harness tests
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details

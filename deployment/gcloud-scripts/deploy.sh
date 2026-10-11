@@ -88,8 +88,20 @@ if ! gcloud artifacts repositories describe "${REPO_NAME}" --location="${REGION}
 fi
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}:${IMAGE_TAG}"
 
+# ─── STEP 3b: Build & Sync Skills to GCP Skill Registry ───────────────────────
+echo "[3b/8] Building and syncing skills to GCP Skill Registry..."
+python -m ontogate.skills build
+SKILL_REGISTRY_BUCKET="${SKILL_REGISTRY_BUCKET:-gs://${PROJECT_ID}-skill-registry/skills}"
+if gcloud storage ls "${SKILL_REGISTRY_BUCKET}" &>/dev/null || gsutil ls "${SKILL_REGISTRY_BUCKET}" &>/dev/null; then
+  echo "    Syncing dist/skills/*.zip to ${SKILL_REGISTRY_BUCKET}..."
+  gcloud storage cp dist/skills/*.zip "${SKILL_REGISTRY_BUCKET}/" 2>/dev/null || gsutil cp dist/skills/*.zip "${SKILL_REGISTRY_BUCKET}/" 2>/dev/null || true
+  echo "[+] Skills synced to GCP Skill Registry store."
+else
+  echo "    [i] Skill Registry bucket '${SKILL_REGISTRY_BUCKET}' not yet provisioned; skills baked into image via dist/skills."
+fi
+
 # ─── STEP 4: Build & Push Container ───────────────────────────────────────────
-echo "[4/7] Building and pushing container: ${IMAGE_URI}..."
+echo "[4/8] Building and pushing container: ${IMAGE_URI}..."
 cd "${REPO_ROOT}"
 
 BUILD_DONE=false
@@ -111,7 +123,7 @@ fi
 echo "[+] Image ready: ${IMAGE_URI}"
 
 # ─── STEP 5: API Keys → Secret Manager ────────────────────────────────────────
-echo "[5/7] Configuring Vertex AI credentials in Secret Manager..."
+echo "[5/8] Configuring Vertex AI credentials in Secret Manager..."
 API_KEY="${GEMINI_API_KEY:-}"
 if [[ -z "${API_KEY}" && -f "${REPO_ROOT}/google-adk-agents/src/.env" ]]; then
   API_KEY="$(grep -E '^GEMINI_API_KEY=' "${REPO_ROOT}/google-adk-agents/src/.env" | cut -d '=' -f2- | tr -d '"\r' || true)"
@@ -146,36 +158,48 @@ else
   echo "    [i] GEMINI_API_KEY not found — deploying with Vertex AI ADC fallback."
 fi
 
-# ─── STEP 6: Deploy to Agent Platform (Vertex AI Agent Engine) ────────────────
-echo "[6/7] Deploying to Google Cloud Agent Platform..."
+# ─── STEP 6: Deploy to Agent Platform (Vertex AI Agent Runtime) ───────────────
+echo "[6/8] Deploying to Google Cloud Agent Platform..."
 AGENT_ENGINE_ID=""
 
 if [[ "${USE_REASONING_ENGINE}" == "true" ]]; then
-  echo "    Attempting Vertex AI Agent Engine (Reasoning Engine) deployment via python..."
+  echo "    Attempting Vertex AI Agent Runtime deployment via native ADK app..."
   PYTHON_SCRIPT=$(cat <<EOF
 import vertexai
 from vertexai.preview import reasoning_engines
 
+class ClinicalAdkAgentRuntime:
+    """Clinical Decision Support ADK Agent Runtime application."""
+    def __init__(self, model_id: str = "${MODEL_ID}"):
+        self.model_id = model_id
+
+    def set_up(self):
+        from src.workflow import run_clinical_workflow
+        self._workflow = run_clinical_workflow
+
+    def query(self, text: str, **kwargs):
+        import asyncio
+        from src.runner import execute_clinical_turn
+        return asyncio.run(execute_clinical_turn(text))
+
 vertexai.init(project='${PROJECT_ID}', location='${REGION}')
 try:
     app = reasoning_engines.ReasoningEngine.create(
-        reasoning_engines.LangchainAgent(
-            model='${MODEL_ID}',
-            system_instruction='You are a clinical decision support agent. Route queries through the safety gate before responding.',
-        ),
-        requirements=['google-cloud-aiplatform[langchain,reasoningengine]', 'google-adk'],
+        ClinicalAdkAgentRuntime(model_id='${MODEL_ID}'),
+        requirements=['google-cloud-aiplatform>=1.60.0', 'google-genai>=1.0.0', 'google-adk>=2.11.0', 'pydantic>=2.0.0', 'pyyaml>=6.0.0'],
+        extra_packages=['shared'],
         display_name='${AGENT_DISPLAY_NAME}',
-        description='Clinical Decision Support - Google ADK on Vertex AI Agent Platform',
+        description='Clinical Decision Support - Google ADK on Agent Runtime',
     )
-    print(f'Agent Engine ID: {app.name}')
+    print(f'Agent Runtime ID: {app.name}')
 except Exception as e:
     print(f'ReasoningEngine error: {e}')
 EOF
 )
   if python -c "${PYTHON_SCRIPT}" 2>/dev/null; then
-    echo "[+] Vertex AI Agent Engine deployed!"
+    echo "[+] Vertex AI Agent Runtime deployed!"
   else
-    echo "    [i] Agent Engine SDK deployment skipped. Falling back to Cloud Run with Agent Platform environment."
+    echo "    [i] Agent Runtime SDK deployment skipped. Falling back to Cloud Run with Agent Platform environment."
   fi
 fi
 

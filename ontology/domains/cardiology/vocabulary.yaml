@@ -1,0 +1,15 @@
+# Cardiology vocabulary — departments, specimens.
+schema_version: "1.0.0"
+
+departments:
+  "dept:cardiology":
+    label: "Cardiology / Biochemistry"
+    synonyms: ["cardiology", "cardiac"]
+
+specimens:
+  "specimen:serum":
+    label: "Serum"
+    loinc_system: "Ser"
+  "specimen:plasma":
+    label: "Plasma (EDTA)"
+    loinc_system: "Plas"

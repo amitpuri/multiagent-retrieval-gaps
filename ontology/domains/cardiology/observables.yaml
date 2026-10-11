@@ -1,0 +1,71 @@
+# Cardiology observables (LOINC-coded).
+# Look-alike hazard: Troponin I (loinc:10839-9) vs Troponin T (loinc:6598-7)
+# both share the abbreviation "cTn" and clinicians occasionally confuse them.
+
+schema_version: "1.0.0"
+
+_prov: &prov
+  status: stable
+  stale_after: "2028-01-01T00:00:00Z"
+  generated_by: "reference_agent/gemini-2.5-pro"
+  generated_at: "2026-10-01T00:00:00Z"
+  verified_by: null
+
+observables:
+  "loinc:10839-9":
+    label: "Troponin I.cardiac [Mass/volume] in Serum or Plasma"
+    display_name: "Troponin I (cTnI)"
+    axes: { component: "Troponin I.cardiac", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+    axes_verified: false
+    measures: troponin_i
+    units: ["ng/mL", "ng/L"]
+    specimen: "specimen:serum"
+    department: "dept:cardiology"
+    confusable_with: ["loinc:6598-7"]
+    governed_by: "protocol:troponin-i-acs"
+    <<: *prov
+    links:
+      - target_uri: "loinc:6598-7"
+        kind: see_also
+        description: "Look-alike: cTnT shares 'cTn' abbreviation; distinct assay, different manufacturer specificities"
+
+  "loinc:6598-7":
+    label: "Troponin T.cardiac [Mass/volume] in Serum or Plasma"
+    display_name: "Troponin T (cTnT)"
+    axes: { component: "Troponin T.cardiac", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+    axes_verified: false
+    measures: troponin_t
+    units: ["ng/L", "ng/mL"]
+    specimen: "specimen:serum"
+    department: "dept:cardiology"
+    confusable_with: ["loinc:10839-9"]
+    governed_by: "protocol:troponin-t-acs"
+    <<: *prov
+    links:
+      - target_uri: "loinc:10839-9"
+        kind: see_also
+        description: "Look-alike: cTnI shares 'cTn' abbreviation; different assay platform"
+
+  "loinc:42637-9":
+    label: "Natriuretic peptide B [Mass/volume] in Serum or Plasma"
+    display_name: "BNP"
+    axes: { component: "Natriuretic peptide B", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+    axes_verified: false
+    measures: bnp
+    units: ["ng/L"]
+    specimen: "specimen:plasma"
+    department: "dept:cardiology"
+    governed_by: "protocol:bnp-heart-failure"
+    <<: *prov
+
+  "loinc:30522-7":
+    label: "C reactive protein [Mass/volume] in Serum or Plasma by High sensitivity method"
+    display_name: "hsCRP"
+    axes: { component: "C reactive protein", property: MCnc, time: Pt, system: Ser/Plas, scale: Qn }
+    axes_verified: false
+    measures: crp_hs
+    units: ["mg/dL"]
+    specimen: "specimen:serum"
+    department: "dept:cardiology"
+    governed_by: "protocol:hscrp-cv-risk"
+    <<: *prov

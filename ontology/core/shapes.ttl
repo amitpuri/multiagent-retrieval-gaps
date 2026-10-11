@@ -1,0 +1,164 @@
+@prefix sh:    <http://www.w3.org/ns/shacl#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+@prefix ag:    <https://ontogate.ai/ns/core#> .
+@prefix loinc: <https://loinc.org/> .
+
+# ============================================================================
+# ontogate SHACL Shapes — shapes.ttl
+#
+# Enforces structural contracts on the exported RDF graph so that:
+# 1. Every Observable has a prefLabel, notation, and inScheme.
+# 2. Every ReferenceInterval is bound to an Observable with a unit and valid bounds.
+# 3. Every Designation has at least one denotes target.
+# 4. The SafetyGate role has no LLM tools (enforced by absence of ag:usesModel).
+# 5. RoleSkillShape — every agent role must have a known risk_class skill set.
+# ============================================================================
+
+# -----------------------------------------------------------------------
+# ObservableShape
+# -----------------------------------------------------------------------
+ag:ObservableShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Observable ;
+    sh:name "Observable" ;
+
+    sh:property [
+        sh:path skos:prefLabel ;
+        sh:minCount 1 ;
+        sh:datatype rdf:langString ;
+        sh:name "prefLabel required" ;
+        sh:message "Observable must have at least one skos:prefLabel (language-tagged string)." ;
+    ] ;
+
+    sh:property [
+        sh:path skos:notation ;
+        sh:minCount 1 ;
+        sh:name "notation (LOINC URI) required" ;
+        sh:message "Observable must have a skos:notation (canonical LOINC URI)." ;
+    ] ;
+
+    sh:property [
+        sh:path skos:inScheme ;
+        sh:minCount 1 ;
+        sh:name "inScheme required" ;
+        sh:message "Observable must belong to a skos:ConceptScheme." ;
+    ] .
+
+
+# -----------------------------------------------------------------------
+# ReferenceIntervalShape
+# -----------------------------------------------------------------------
+ag:ReferenceIntervalShape
+    a sh:NodeShape ;
+    sh:targetClass ag:ReferenceInterval ;
+    sh:name "ReferenceInterval" ;
+
+    sh:property [
+        sh:path ag:forObservable ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "forObservable required (functional)" ;
+        sh:message "Each ReferenceInterval must reference exactly one Observable via ag:forObservable." ;
+    ] ;
+
+    sh:property [
+        sh:path ag:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:name "unit required (functional)" ;
+        sh:message "Each ReferenceInterval must have exactly one ag:unit." ;
+    ] ;
+
+    sh:property [
+        sh:path ag:normalLow ;
+        sh:datatype xsd:double ;
+        sh:name "normalLow must be double" ;
+    ] ;
+
+    sh:property [
+        sh:path ag:normalHigh ;
+        sh:datatype xsd:double ;
+        sh:name "normalHigh must be double" ;
+    ] ;
+
+    sh:property [
+        sh:path ag:criticalLow ;
+        sh:datatype xsd:double ;
+        sh:name "criticalLow must be double" ;
+    ] ;
+
+    sh:property [
+        sh:path ag:criticalHigh ;
+        sh:datatype xsd:double ;
+        sh:name "criticalHigh must be double" ;
+    ] .
+
+
+# -----------------------------------------------------------------------
+# DesignationShape
+# -----------------------------------------------------------------------
+ag:DesignationShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Designation ;
+    sh:name "Designation" ;
+
+    sh:property [
+        sh:path ag:denotes ;
+        sh:minCount 1 ;
+        sh:name "denotes at least one observable" ;
+        sh:message "A Designation must denote at least one Observable." ;
+    ] ;
+
+    sh:property [
+        sh:path skos:prefLabel ;
+        sh:minCount 1 ;
+        sh:datatype rdf:langString ;
+        sh:name "label required" ;
+        sh:message "Designation must carry a skos:prefLabel." ;
+    ] .
+
+
+# -----------------------------------------------------------------------
+# UnitShape
+# -----------------------------------------------------------------------
+ag:UnitShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Unit ;
+    sh:name "Unit" ;
+
+    sh:property [
+        sh:path ag:dimension ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "dimension required" ;
+        sh:message "Unit must declare its physical dimension." ;
+    ] ;
+
+    sh:property [
+        sh:path ag:scaleFactor ;
+        sh:minCount 1 ;
+        sh:datatype xsd:double ;
+        sh:name "scaleFactor required" ;
+        sh:message "Unit must declare a numeric scale factor (conversion to base unit)." ;
+    ] .
+
+
+# -----------------------------------------------------------------------
+# OntologyHeaderShape
+# -----------------------------------------------------------------------
+ag:OntologyHeaderShape
+    a sh:NodeShape ;
+    sh:targetClass owl:Ontology ;
+    sh:name "OntologyHeader" ;
+
+    sh:property [
+        sh:path ag:bundleSha256 ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "bundleSha256 required" ;
+        sh:message "The ontology header must carry an ag:bundleSha256 for tamper detection." ;
+    ] .
