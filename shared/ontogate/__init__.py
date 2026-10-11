@@ -13,8 +13,12 @@ attestation          OKF §5.4 attested computation over reference intervals
 parsing / clarify    Clinician input parser and deterministic clarification text
 tools / mcp_server   Canonical tool contract and its MCP server
 validate             Ontology integrity rules
+rdf_export           SKOS / OWL / SHACL / PROV-O export and the ontology bundle
 catalog              Model catalog (config/models.yaml)
 skills / roles       Runtime Agent Skills build and role specifications
+skill_refs           Skill references rendered from the ontology
+cloud_stores         Skill stores per cloud (GCS, S3, Azure Blob) behind SkillStorePort
+cli                  `ontogate` command line (validate, skills, rdf, build)
 ports / release      Runtime ports (audit, telemetry, stores) and release identity
 """
 
@@ -55,26 +59,10 @@ from ontogate.okf_index import (
 from ontogate.okf_writer import format_log_entry, read_update_log, record_concept_update
 
 from ontogate.roles import RoleSpec, load_all_role_specs, load_role_spec
-from ontogate.skills import (
-    SkillPackage,
-    build_and_lock_skills,
-    lint_skill_package,
-    verify_skills_lock,
-)
+from ontogate.skills import SkillPackage, build_skills, check_skills, lint_skill_package, skills_for_role, verify_skills_lock
 
-from ontogate.cloud_stores import (
-    FoundrySkillsApiStore,
-    GcpSkillRegistryStore,
-    S3SkillStore,
-)
-
-from ontogate.rdf_export import (
-    apply_owl_reasoning,
-    build_ontology_bundle,
-    build_ontology_graph,
-    export_graph,
-    validate_shacl,
-)
+# Optional layers import on demand: ontogate.rdf_export (needs the [rdf] extra)
+# and ontogate.cloud_stores (cloud SDKs are imported lazily per store).
 
 __all__ = [
     "TrustTier", "RelationshipKind", "ResolutionStatus", "ConceptLink", "ConceptSource",
@@ -86,8 +74,6 @@ __all__ = [
     "record_concept_update", "format_log_entry", "read_update_log",
     "AttestationResult", "attest_numeric", "convert_unit",
     "RoleSpec", "load_role_spec", "load_all_role_specs",
-    "SkillPackage", "lint_skill_package", "build_and_lock_skills", "verify_skills_lock",
-    "GcpSkillRegistryStore", "S3SkillStore", "FoundrySkillsApiStore",
-    "build_ontology_graph", "export_graph", "validate_shacl",
-    "apply_owl_reasoning", "build_ontology_bundle",
+    "SkillPackage", "build_skills", "check_skills", "lint_skill_package", "skills_for_role",
+    "verify_skills_lock",
 ]

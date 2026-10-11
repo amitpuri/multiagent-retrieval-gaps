@@ -1,4 +1,3 @@
-# agents/panel_coordinator.yaml
 role: panel_coordinator
 description: Coordinates specimen collection step sequence, aliquots, and laboratory department boundaries.
 uses_model: true

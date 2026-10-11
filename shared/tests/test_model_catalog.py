@@ -19,8 +19,10 @@ MODEL_ID = re.compile(
 )
 # Provenance strings name the model that generated a knowledge artifact (historical fact).
 PROVENANCE = re.compile(r"reference_agent/gemini-[\w.-]+")
+# docs/ holds dated research and the review plan (history by design); everything else —
+# code, scripts, templates, agent YAML and every README — must name catalog models only.
 SKIP_PREFIXES = ("docs/", "config/models.yaml")
-SCANNED_SUFFIXES = (".py", ".sh", ".ps1", ".yaml", ".yml", ".toml", ".example", ".env", "Dockerfile")
+SCANNED_SUFFIXES = (".py", ".sh", ".ps1", ".yaml", ".yml", ".toml", ".example", ".env", "Dockerfile", ".md")
 
 
 def _tracked_files():

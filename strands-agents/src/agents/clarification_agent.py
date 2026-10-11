@@ -5,6 +5,7 @@ Builds human-in-the-loop clarification questions when ambiguous tests or range c
 from typing import Optional
 from strands import Agent
 from strands.models.model import Model
+from src.skills_loader import skill_plugins_for
 from src.tools.clarification_tool import build_clarification_prompt
 
 
@@ -12,6 +13,7 @@ def create_clarification_agent(model: Optional[Model] = None) -> Agent:
     """Create a Clarification Coordinator Agent."""
     return Agent(
         model=model,
+        plugins=skill_plugins_for("clarification_coordinator"),
         system_prompt=(
             "You are a Clinical Clarification Coordinator.\n"
             "When a query fails the deterministic safety gate (due to ambiguity, unit mismatch, "

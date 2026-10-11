@@ -1,0 +1,28 @@
+# Domain summary
+
+{% for d in domains %}
+## {{ d.label }} (`{{ d.id }}`)
+
+{{ d.description }}
+
+{% if d.disclaimer %}
+> {{ d.disclaimer }}
+{% endif %}
+
+{% endfor %}
+## Observables covered
+
+Anything not listed here is outside the pack: the gate returns NOT_FOUND for it.
+Values and intervals are never stated here; retrieve them through the tools.
+
+| Observable | URI | Department | Units | Trust tier | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+{% for o in observables %}
+| {{ o.name }} | `{{ o.uri }}` | {{ o.department }} | {{ o.units }} | {{ o.trust_tier }} | {{ o.status }} |
+{% endfor %}
+{% if panels %}
+
+## Panels
+
+{{ panels | join(", ") }}
+{% endif %}

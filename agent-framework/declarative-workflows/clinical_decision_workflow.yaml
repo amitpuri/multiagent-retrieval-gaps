@@ -27,13 +27,13 @@ actions:
       - kind: InvokeAgent
         id: protocol
         displayName: Protocol Retriever
-        agent: protocol_retriever_agent
+        agent: protocol_retriever
         input: =actions.triage.output
 
       - kind: InvokeAgent
         id: synthesis
         displayName: Clinical Synthesizer
-        agent: clinical_synthesizer_agent
+        agent: clinical_synthesizer
         input: =actions.protocol.output
 
     else:
@@ -41,7 +41,7 @@ actions:
       - kind: InvokeAgent
         id: clarify
         displayName: Clarification Coordinator
-        agent: clarification_coordinator_agent
+        agent: clarification_coordinator
         input: =actions.triage.output
 
   # Step 3: Emit final output

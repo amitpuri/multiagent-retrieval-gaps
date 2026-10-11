@@ -10,6 +10,7 @@ Architecture (plan-aligned):
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -30,21 +31,27 @@ load_dotenv(dotenv_path=_agent_framework_dir / "src" / ".env", override=False)
 
 AGENT_DIR = _agent_framework_dir / "declarative-agents"
 WORKFLOW_DIR = _agent_framework_dir / "declarative-workflows"
+log = logging.getLogger("maf.workflow")
 
 from src.tools import (
-    parse_clinician_input,
-    resolve_lab_term,
+    attest_computation,
+    build_clarification_prompt,
     evaluate_safety_gate,
     fetch_grounded_protocol,
-    build_clarification_prompt,
+    panel_workup,
+    parse_clinician_input,
+    resolve_lab_term,
 )
 
+# Every canonical tool a role spec can grant (declarative YAML binds by name).
 TOOL_BINDINGS: Dict[str, Any] = {
-    "parse_clinician_input":    parse_clinician_input,
-    "resolve_lab_term":         resolve_lab_term,
-    "evaluate_safety_gate":          evaluate_safety_gate,
-    "fetch_grounded_protocol":           fetch_grounded_protocol,
+    "parse_clinician_input": parse_clinician_input,
+    "resolve_lab_term": resolve_lab_term,
+    "evaluate_safety_gate": evaluate_safety_gate,
+    "fetch_grounded_protocol": fetch_grounded_protocol,
+    "attest_computation": attest_computation,
     "build_clarification_prompt": build_clarification_prompt,
+    "panel_workup": panel_workup,
 }
 
 
@@ -56,20 +63,27 @@ def _is_offline() -> bool:
 
 
 def _try_load_agents() -> dict:
-    """Attempt to load MAF declarative agents. Returns empty dict if not available."""
+    """Load the declarative agents (keyed by role) with their role-scoped skills.
+
+    Returns an empty dict when no model credential is configured; a role whose
+    agent or skills fail to load is logged and left out (the deterministic
+    result is still returned).
+    """
     try:
         from src.models.provider import build_agent_factory
+        from src.skills_loader import attach_skills
         agent_factory = build_agent_factory(offline=False, bindings=TOOL_BINDINGS, safe_mode=False)
-        agents = {}
-        for yaml_file in sorted(AGENT_DIR.glob("*.yaml")):
-            try:
-                agent = agent_factory.create_agent_from_yaml_path(yaml_file)
-                agents[agent.name] = agent
-            except Exception:
-                pass
-        return agents
-    except (ImportError, RuntimeError):
+    except (ImportError, RuntimeError) as exc:
+        log.info("MAF agents unavailable (%s); returning deterministic results", exc)
         return {}
+    agents = {}
+    for yaml_file in sorted(AGENT_DIR.glob("*.yaml")):
+        role = yaml_file.stem
+        try:
+            agents[role] = attach_skills(agent_factory.create_agent_from_yaml_path(yaml_file), role)
+        except Exception:
+            log.warning("Could not load MAF agent for role '%s'", role, exc_info=True)
+    return agents
 
 
 async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str, Any]:
@@ -136,6 +150,7 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
                 resp = await protocol_agent.run(agent_prompt)
                 output_text = resp.text if hasattr(resp, "text") and resp.text else str(resp)
             except Exception:
+                log.warning("protocol_retriever enrichment failed", exc_info=True)
                 output_text = ""
 
         prefix = "[LIVE]" if agents else "[LIVE-DETERMINISTIC]"
@@ -161,7 +176,7 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
     )
     clarification_text = clarification.get("clarification_prompt", "")
 
-    clarification_agent = agents.get("clarification_agent")
+    clarification_agent = agents.get("clarification_coordinator")
     if clarification_agent is not None:
         try:
             resp = await clarification_agent.run(
@@ -169,7 +184,7 @@ async def run_scenario(raw_query: str, offline: bool | None = None) -> Dict[str,
             )
             clarification_text = resp.text if hasattr(resp, "text") and resp.text else clarification_text
         except Exception:
-            pass
+            log.warning("clarification_coordinator enrichment failed", exc_info=True)
 
     prefix = "[LIVE]" if agents else "[LIVE-DETERMINISTIC]"
     return {

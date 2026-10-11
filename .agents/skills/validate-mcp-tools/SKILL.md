@@ -38,13 +38,13 @@ Check that:
 
 ---
 
-## Step 2 — Check `create_mcp_server()` Exports
+## Step 2 — Check `get_mcp_server()` Exports
 
 Verify:
 ```python
-from ontogate.mcp_server import create_mcp_server
+from ontogate.mcp_server import get_mcp_server
 
-server = create_mcp_server()
+server = get_mcp_server()
 assert server is not None
 ```
 

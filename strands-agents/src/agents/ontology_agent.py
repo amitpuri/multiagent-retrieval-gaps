@@ -5,6 +5,7 @@ Maps clinician queries to canonical LOINC identifiers.
 from typing import Optional
 from strands import Agent
 from strands.models.model import Model
+from src.skills_loader import skill_plugins_for
 from src.tools.ontology_tool import resolve_lab_term
 
 
@@ -12,6 +13,7 @@ def create_ontology_agent(model: Optional[Model] = None) -> Agent:
     """Create an Ontology Specialist Agent."""
     return Agent(
         model=model,
+        plugins=skill_plugins_for("ontology_resolver"),
         system_prompt=(
             "You are an Ontology Resolution Specialist for Laboratory Medicine.\n"
             "Your sole responsibility is to map incoming lab test terms and units to canonical "

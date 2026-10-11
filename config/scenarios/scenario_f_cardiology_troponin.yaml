@@ -1,0 +1,60 @@
+# Scenario F: Troponin I vs Troponin T on the cardiology pack (second-domain reuse)
+# Runs the unchanged gate, parser and tools over ontology/domains/cardiology —
+# no overlay and no code change. Expectations hold on ADK, Strands and MAF alike
+# (conformance/run.py).
+
+id: "scenario_f_cardiology_troponin"
+name: "Troponin I/T Look-alike on the Cardiology Pack"
+domain: "cardiology"
+description: >
+  "cTn" and "Troponin" denote both cardiac troponin I (LOINC 10839-9) and
+  troponin T (LOINC 6598-7). The two share units, so the unit cannot tell them
+  apart: the gate asks which assay was run (AMBIGUOUS), or reports a
+  RANGE_COLLISION when the value would read differently under each. Named
+  assays resolve; an analyte outside the pack (NT-proBNP) is NOT_FOUND.
+
+gaps_addressed:
+  - id: "gap_8"
+    name: "Ambiguous Retrieval (Semantic Blurring)"
+    description: "Unqualified troponin denotes two assays with assay-specific limits."
+  - id: "gap_2"
+    name: "Unit Mismatch"
+    description: "BNP is reported in ng/L; mg/dL is rejected rather than converted by guess."
+
+test_cases:
+  - id: "tc_ctn_unqualified"
+    input_text: "cTn 12 | ng/L"
+    expected_gap: "AMBIGUOUS"
+    expected_route: "CLARIFY"
+    expected_candidates: ["loinc:10839-9", "loinc:6598-7"]
+
+  - id: "tc_troponin_divergent_readings"
+    input_text: "troponin 0.04 | ng/mL"
+    expected_gap: "RANGE_COLLISION"
+    expected_route: "CLARIFY"
+    expected_candidates: ["loinc:10839-9", "loinc:6598-7"]
+    expected_readings:
+      "Troponin I (cTnI)": "NORMAL"
+      "Troponin T (cTnT)": "HIGH"
+
+  - id: "tc_ctni_named"
+    input_text: "cTnI 12 | ng/L"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:10839-9"
+
+  - id: "tc_troponin_t_named"
+    input_text: "Troponin T 30 | ng/L"
+    expected_gap: "NONE"
+    expected_route: "PROCEED"
+    expected_concept: "loinc:6598-7"
+
+  - id: "tc_bnp_wrong_unit"
+    input_text: "BNP 50 | mg/dL"
+    expected_gap: "UNIT_MISMATCH"
+    expected_route: "CLARIFY"
+
+  - id: "tc_nt_probnp_out_of_scope"
+    input_text: "NT-proBNP 300 | ng/L"
+    expected_gap: "NOT_FOUND"
+    expected_route: "CLARIFY"

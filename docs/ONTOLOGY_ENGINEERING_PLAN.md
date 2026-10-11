@@ -131,10 +131,7 @@ Severity: 🔴 safety or correctness · 🟠 model integrity · 🟡 maintainabi
 - **G3 🟠 GCP does not deploy the ADK agent to Agent Runtime.** It deploys a LangChain wrapper with Cloud Run as a fallback.
 - **G4 🟡 The AgentCore template provisions PaymentManager, Browser and Code Interpreter**, which are unused, and grants `bedrock-agentcore:*`.
 - **G5 🟡 Agent roles are re-declared per framework.**
-- **G6 ✅ Cross-cloud conformance checks implemented.**
-  `google-adk-agents/tests/test_conformance.py` covers P13.1 (gate parity),
-  P13.2 (skill parity), P13.6 (Troponin overlay), P13.8 (second-domain reuse —
-  cardiology), and P13.10 (CI guard).
+- **G6 🟡 There is no cross-cloud conformance check.** *(Resolved: `conformance/run.py` runs every competency question through the ADK, Strands and MAF tool wrappers and fails on any divergence from the canonical core — see P13.)*
 
 ### H. Procedural knowledge & skills *(new in R3)*
 
@@ -437,12 +434,14 @@ The lint step (§8.5) enforces the ❌ cells.
 | Role | Model? | Skills loaded | Tool grants |
 | :--- | :---: | :--- | :--- |
 | triage_orchestrator | ✅ | `clinical-triage` | parse, resolve, gate |
-| ontology_resolver | ✅ | `lab-term-resolution`, `domain-laboratory-medicine` | resolve |
+| ontology_resolver | ✅ | `lab-term-resolution` + the served pack's domain skill | resolve |
 | **safety_guard** | ❌ **code node** | **none** | gate (in-process) |
 | protocol_retriever | ✅ | `protocol-retrieval` | fetch protocol |
-| clinical_synthesizer | ✅ | `grounded-synthesis`, `domain-laboratory-medicine` | fetch protocol, attest |
+| clinical_synthesizer | ✅ | `grounded-synthesis` + the served pack's domain skill | fetch protocol, attest |
 | clarification_coordinator | ✅ | `clarification-dialogue` | build clarification |
 | panel_coordinator *(split out of triage)* | ✅ | `specimen-sequencing` | panel_workup |
+
+Domain skills are never listed by name: a role with `domain_skills: true` loads `domain-<pack id>` for every pack it serves, so a second pack needs no role-spec edit (§13.8).
 
 Role-scoped loading gives two benefits:
 - **Least privilege:** a role cannot "discover" another role's procedure.
@@ -454,12 +453,13 @@ Role-scoped loading gives two benefits:
 ---
 name: grounded-synthesis
 description: Write the clinician-facing answer after the safety gate returned PROCEED. Use only protocol data fetched for the resolved LOINC URI and numbers returned by attest_computation.
-license: Proprietary
+allowed-tools: fetch_grounded_protocol attest_computation
+license: Apache-2.0
 metadata:
   roles: clinical_synthesizer
   risk_class: clinical
-  bundle_sha256: "{{ bundle.sha256 }}"
-  verified_by: "pending"
+  version: 1.0.0
+  references: trust-caveats
 ---
 
 # Grounded synthesis
@@ -482,8 +482,8 @@ See `references/trust-caveats.md` for mandated wording.
 
 `ontogate skills build`:
 
-1. **Render** `references/*.md.j2` templates from the ontology bundle (designations, facets, panels, trust tiers). Rendered output goes to `dist/skills/` and is never hand-edited.
-2. **Stamp** `metadata.bundle_sha256` and a semver per skill.
+1. **Render** each reference a skill names in `metadata.references` from the ontology (templates in `shared/ontogate/templates/skills/`: designation index, facet questions, trust caveats, panels, domain summary). Rendered files are committed under the skill's `references/` with a do-not-edit header; `ontogate skills check` fails on drift.
+2. **Pin** the ontology bundle hash in `skills.lock.json` (not in each SKILL.md, so an ontology edit does not touch every skill); each skill carries a semver in `metadata.version`.
 3. **Validate** against the agentskills.io specification, plus the platform constraints:
    - name regex and ≤ 64 chars;
    - description ≤ 1,024 chars;
@@ -497,7 +497,7 @@ See `references/trust-caveats.md` for mandated wording.
    - tool names ⊆ the canonical MCP contract;
    - no `https://` skill sources.
 5. **SHACL** `RoleSkillShape`, `SkillShape` and `ToolShape` over the `ag:` graph.
-6. **Lock**: write `skills.lock.json` (name, version, sha256 of the directory, bundle hash) and zip each skill for upload.
+6. **Lock**: write `skills.lock.json` (version, roles, allowed tools, line-ending-normalised content hash, deterministic archive hash, bundle hash) and write a deterministic zip per skill to `dist/skills/`.
 
 ### 8.6 Skills in the ontology (`ag:` meta-ontology)
 
@@ -527,14 +527,24 @@ The adapter builds one loader per role from `agents/<role>.yaml → skills[]`. A
 
 ### 8.8 Cloud skill stores (governance and delivery)
 
+Implemented in `ontogate.cloud_stores` behind `SkillStorePort`: one content-addressed
+archive store (`<prefix>/<name>/<archive_sha256>.zip`) with a transport per cloud.
+A published archive is immutable, and materialising a lock fails closed twice — on the
+archive hash before extraction and on the content hash after it.
+
 | | **GCP** | **AWS** | **Azure** |
 | :--- | :--- | :--- | :--- |
-| Governed store | **Skill Registry** (Gemini Enterprise Agent Platform): skills with immutable **revisions** | **S3**: versioned prefix per release (`s3://…/skills/<release>/<name>/`), execution-role read only | **Foundry Skills API**: immutable `SkillVersion`, `default_version` |
-| Status | Preview | AgentCore harness skills documented (S3, Git, path, AWS Skills); Strands plugin GA in SDK | **Preview** (`Foundry-Features: Skills=V1Preview`) |
-| Publish (CI) | Upload zip per skill → new revision | `aws s3 sync dist/skills s3://…/<release>/` | `create_from_files(name, zip)` → new version |
-| Delivery to runtime | Pinned revisions synced into the container at build (preferred) or at startup → `SkillToolset` | **Baked into the image** at the release path (preferred), or S3 path fetched at session start; Strands `AgentSkills` reads local paths | **Direct injection**: download the **pinned version** into the hosted agent's `skills/` → `SkillsProvider` |
-| Version pinning | revision IDs recorded in `skills.lock.json` | release prefix + sha256 | **explicit `version`**, never `default_version` in production |
-| Not used for clinical roles | — | `awsSkills` (AWS Agent Toolkit catalog), Git sources | catalog skills (docx, pptx…); toolbox auto-follow of `default_version` |
+| Store | Cloud Storage `gs://<project>-skills/skills` | S3 `s3://<project>-<env>-skills/skills` | Blob Storage `azblob://<account>/skills/skills` |
+| Publish (deploy script) | `ontogate skills publish gs://…` | `ontogate skills publish s3://…` | `ontogate skills publish azblob://…` |
+| Runtime read | service account `storage.objects.get` | execution role `s3:GetObject` | managed identity `Storage Blob Data Reader` |
+| Delivery | baked into the image (default); `ONTOGATE_SKILL_STORE` materialises at startup | same | same |
+| Pinning | archive hash in `skills.lock.json` | same | same |
+
+The governed registries — GCP **Skill Registry** (revisions) and the Foundry **Skills
+API** (`Foundry-Features: Skills=V1Preview`, immutable versions) — are both in preview.
+They are an adapter swap behind `SkillStorePort` once their APIs are verified, and the
+pin stays the archive hash. AWS `awsSkills`, Git sources and catalog skills are never
+used for clinical roles.
 
 **Optional, cross-cloud: skills over MCP.** Foundry toolboxes expose skills as MCP Resources (`resources/list` / `resources/read`), following the proposed MCP Skills extension (SEP-2640). The canonical `ontogate` MCP server can serve the locked skills the same way, giving one endpoint for tools and skills on every cloud. This is gated on the SEP's status and client support, and is evaluated in P13, not assumed.
 
@@ -642,6 +652,27 @@ flowchart TD
 
 Effort: **S** ≤ 1 day · **M** 2–4 days · **L** 1–2 weeks.
 
+### Implementation status (2026-10-11)
+
+Everything below runs offline in `./run-all-tests.sh`; nothing has been deployed to a cloud account.
+
+| Phase | Status | Where |
+| :--- | :--- | :--- |
+| P0 CQs + dev-skill fix | ✅ | `shared/tests/test_competency_questions.py` (35 CQs, both packs), `shared/tests/test_developer_skills.py` |
+| P1 shared core + ports | ✅ | `shared/ontogate/` |
+| P2 strict schema + validator | ✅ | `ontogate validate`, one failing fixture per rule |
+| P3 TBox refactor | ✅ | `ontology/core`, `ontology/domains/*` (schema 1.0.0) |
+| P4 semantic-web layer + bundle | ✅ | `ontogate.rdf_export`, `ontology/core/shapes.ttl`, `ontogate build` → `dist/release/` |
+| P5 gate derives behaviour | ✅ | `shared/ontogate/detectors/` |
+| P6 graph runtime | ✅ | `ontogate.concept_graph`, protocol nodes, `precedes` checks |
+| P7 provenance + ABox separation | ✅ | `AuditPort`, TBox-only `knowledge/log.md` |
+| P8 role specs + MCP contract | 🟡 | `agents/*.yaml`, MAF YAML generated + drift-checked; ADK/Strands instructions are still written per framework (8.4), A2A AgentCards not generated (8.6) |
+| P9 runtime skills | 🟡 | 8 skills, rendered references, lint, lock, native loaders in all three frameworks; skill-activation CQs (9.9) need live models; `CODEOWNERS` (9.8) not added |
+| P10 model catalog | ✅ | `config/models.yaml`, repository-wide guard |
+| P11 deployments + skill stores | 🟡 | ADK `AdkApp` on Agent Runtime (`deployment/gcloud-scripts/agent_runtime.py`, offline dry-run tested); release build + skill publish in every deploy script; AgentCore IAM scoped. Not done: Agent Gateway/Registry routing (G3), AgentCore Gateway/Policy for the ontogate MCP (A3), Foundry hosted agent (Z1, Z3), live CQ runner (C2) |
+| P12 developer skills | 🟡 | snippet-tested; `author-runtime-skill`, `add-hazard-detector` current; other 12.3 skills not written; no discovery mirror (12.5) |
+| P13 conformance | 🟡 | gate parity across ADK/Strands/MAF wrappers (13.1, `conformance/run.py`), same lock on all three (13.2, offline), troponin overlay (13.6), YAML-only scenarios (13.7), cardiology reuse (13.8). Live-model evals and ablation (13.3–13.5) and skills over MCP (13.9) not started |
+
 ### P0 — Executable competency questions + developer-skill hotfix (S) · O, D
 
 | Step | Change |
@@ -701,7 +732,7 @@ Honest provenance; trust policy as config; validated overlays; TBox-only `knowle
 
 | Step | Change |
 | :--- | :--- |
-| 8.1 | **Canonical tool names** (fixes H1): `parse_clinician_input`, `resolve_lab_term`, `evaluate_safety_gate`, `fetch_grounded_protocol`, `attest_computation`, `build_clarification_prompt`, `panel_workup` (generalises `csf_workup`). `check_calcium` is retired in P5. Old names are kept as deprecated aliases for one release |
+| 8.1 | **Canonical tool names** (fixes H1): `parse_clinician_input`, `resolve_lab_term`, `evaluate_safety_gate`, `fetch_grounded_protocol`, `attest_computation`, `build_clarification_prompt`, `panel_workup` (generalises `csf_workup`), plus the read-only `classify_lookalikes` |
 | 8.2 | One `ontogate` MCP server is the only tool implementation. ADK, Strands and MAF bind to it (in-process in dev, remote via the gateway in prod). Contract tests assert every tool returns a dict with `status` (invariant 3) |
 | 8.3 | `agents/<role>.yaml`: `role`, `uses_model`, `tools[]`, `skills[]`, `output_schema`, `model_tier`, plus a **short** base instruction (≤ 10 lines). Procedural detail moves to skills in P9 |
 | 8.4 | Generators: role spec → ADK `Agent`, Strands `Agent`, MAF `kind: Prompt` YAML (generated, drift-checked in CI) |
@@ -744,7 +775,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | 11.G1 | ADK app on **Agent Runtime** via `google-cloud-agentplatform` 2.x (replaces the LangChain path); Cloud Run only as `--target cloudrun` |
 | 11.G2 | Sessions; Memory Bank for non-PHI preferences only |
 | 11.G3 | `ontogate` MCP in Agent Registry, routed via Agent Gateway (VPC-SC, IAM UAP) |
-| 11.G4 | **Skill Registry:** CI uploads each skill zip as a new revision; the revision IDs go into `skills.lock.json`; the image build pulls the pinned revisions into `dist/skills/` |
+| 11.G4 | **Skills:** `ontogate skills publish gs://…` (content-addressed, §8.8); Skill Registry revisions once the preview API is verified |
 | 11.G5 | Telemetry to Cloud Trace; audit to BigQuery; bundle from Artifact Registry |
 | 11.G6 | `ALLOW_UNAUTHENTICATED=false` |
 
@@ -755,7 +786,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | 11.A1 | Strands on **AgentCore Runtime** with Claude Opus 5.5 |
 | 11.A2 | AgentCore Memory (short-term; long-term non-PHI only) |
 | 11.A3 | `ontogate` MCP as an AgentCore Gateway target; AgentCore Policy (Cedar) allows only canonical tools |
-| 11.A4 | **Skills:** sync to `s3://…/skills/<release>/` (execution role: `s3:GetObject`, `s3:ListBucket` only on that prefix); bake the same files into the image at the lock path for the Strands `AgentSkills` plugin. Do not enable `awsSkills` or Git sources |
+| 11.A4 | **Skills:** `ontogate skills publish s3://…` (content-addressed, §8.8); the image bakes the same files for the Strands `AgentSkills` plugin. Do not enable `awsSkills` or Git sources |
 | 11.A5 | Remove PaymentManager, Browser and Code Interpreter from the default stack; scope IAM |
 | 11.A6 | AgentCore Observability; `EvalSamplingPercentage` → P13 |
 
@@ -766,7 +797,7 @@ Add a CI guard against stray model IDs and a retirement warning.
 | 11.Z1 | MAF as a **Foundry Agent Service** hosted agent (ACA fallback) |
 | 11.Z2 | `gpt-6.1-sol`, keyless via Managed Identity |
 | 11.Z3 | `ontogate` MCP as a Foundry tool connection |
-| 11.Z4 | **Foundry Skills API** (`Foundry-Features: Skills=V1Preview`): CI creates a new immutable version per skill; deploy downloads the **pinned version** (never `default_version`) into the hosted agent's `skills/`; `SkillsProvider.from_paths` loads it |
+| 11.Z4 | **Skills:** `ontogate skills publish azblob://…` (content-addressed, §8.8); Foundry Skills API versions once the preview API is verified — always a pinned version, never `default_version` |
 | 11.Z5 | Application Insights; Log Analytics audit; bundle from ACR |
 
 **Common**
@@ -805,25 +836,27 @@ Add a CI guard against stray model IDs and a retirement warning.
 
 ---
 
-## 11. Repository Layout (target)
+## 11. Repository Layout
 
 ```text
 multiagent-retrieval-gaps/
 ├── ontology/
-│   ├── core/                          # upper ontology + ag: meta-ontology + shapes.ttl
-│   └── domains/laboratory_medicine/   # domain pack + scenarios (CQs)
+│   ├── core/                          # core.yaml (units, relations, policies) + shapes.ttl
+│   └── domains/{laboratory_medicine,cardiology}/   # domain packs (instances only)
+├── config/
+│   ├── models.yaml                    # model catalog
+│   └── scenarios/*.yaml               # competency questions (+ overlays), per domain
 ├── skills/
-│   ├── runtime/<name>/SKILL.md        # role-scoped clinical skills (+ references/*.md.j2)
-│   ├── domains/laboratory-medicine/   # domain skill (references generated from bundle)
-│   └── skills.lock.json               # written by build; committed per release
-├── agents/<role>.yaml                 # role specs: tools, skills, model tier, output schema
-├── shared/ontogate/                   # gate, resolver, RDF, SHACL, bundle, skills build, MCP server, ports
-├── config/models.yaml                 # model catalog
+│   ├── runtime/<name>/                # role-scoped procedure; references/ rendered from the ontology
+│   ├── domains/domain-<pack>/         # domain orientation skill per pack
+│   └── skills.lock.json               # content + archive hashes, bundle hash
+├── agents/<role>.yaml                 # role specs: tools, skills, domain_skills, model tier, instruction
+├── shared/ontogate/                   # gate, resolver, RDF/SHACL, skills build, stores, MCP server, CLI
 ├── google-adk-agents/  strands-agents/  agent-framework/   # thin adapters (MAF YAML generated)
-├── deployment/{gcloud,aws,az}-scripts/                     # deploy a knowledge release
-├── .agents/{rules,skills}/            # developer rules and skills (source of truth)
-├── knowledge/log.md                   # TBox change log only
-└── docs/adr/                          # IRI, unit/Property, bundle signing, trust policy, skills content rules
+├── conformance/                       # cross-cloud parity runner over the CQs
+├── deployment/{gcloud,aws,az}-scripts/                     # build + publish a release, deploy
+├── .agents/{rules,skills}/            # developer rules and skills (snippet-tested)
+└── knowledge/log.md                   # TBox change log only
 ```
 
 ---

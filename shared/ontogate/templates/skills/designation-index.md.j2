@@ -1,0 +1,15 @@
+# Ambiguous designations
+
+These clinician designations denote more than one observable. The safety gate
+returns AMBIGUOUS for them until the differentiator below is known. Present
+every candidate; never choose one.
+
+{% for row in rows %}
+## `{{ row.text }}`
+
+- **Candidates:** {{ row.candidates | join("; ") }}
+- **Told apart by:** {{ row.differentiators | join("; ") }}
+
+{% else %}
+No ambiguous designations in the loaded ontology.
+{% endfor %}

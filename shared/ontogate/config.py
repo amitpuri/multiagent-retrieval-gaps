@@ -397,21 +397,32 @@ def load_scenario_extension(
 ) -> OntologyRegistry:
     """Apply a scenario's ``overlay:`` to a registry.
 
-    Without ``registry`` the default registry is deep-copied first, so the global
-    singleton is never mutated.
+    Without ``registry`` the scenario's ``domain:`` pack is the base: the default
+    registry (deep-copied, so the global singleton is never mutated) when it is
+    the served pack, else that pack loaded fresh.
     """
-    if registry is None:
-        registry = copy.deepcopy(get_default_registry())
     scenario_path = Path(scenario_path)
-    if not scenario_path.exists():
-        return registry
-    overlay = _read_yaml(scenario_path).get("overlay")
+    data = _read_yaml(scenario_path) if scenario_path.exists() else {}
+    if registry is None:
+        from ontogate.paths import domain_dir
+        default = get_default_registry()
+        domain = data.get("domain")
+        registry = (load_domain_config(domain_dir(domain)) if domain and domain not in default.domains
+                    else copy.deepcopy(default))
+    overlay = data.get("overlay")
     if not overlay:
         return registry
     return apply_pack(registry, overlay, overlay=True)
 
 
 _DEFAULT_REGISTRY: Optional[OntologyRegistry] = None
+
+
+def set_default_registry(registry: Optional[OntologyRegistry]) -> None:
+    """Serve ``registry`` as the default (a scenario overlay in tests, conformance probes);
+    ``None`` reloads the configured pack on next use."""
+    global _DEFAULT_REGISTRY
+    _DEFAULT_REGISTRY = registry
 
 
 def get_default_registry(reload: bool = False) -> OntologyRegistry:

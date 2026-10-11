@@ -1,25 +1,33 @@
 ---
 name: clinical-triage
-description: Enforce standard order of operations for clinical laboratory queries. Call parse, resolution, and deterministic gate in order. Never answer before the gate returns PROCEED.
+description: Order of operations for every clinical laboratory query. Parse the clinician input, resolve the lab term, submit it to the deterministic safety gate, then branch on the gate route. Use for every incoming query; never answer before the gate has routed it.
+allowed-tools: parse_clinician_input resolve_lab_term evaluate_safety_gate
 license: Apache-2.0
 metadata:
   roles: triage_orchestrator
   risk_class: clinical
-  bundle_sha256: pending
+  version: 1.0.0
 ---
 
-# Clinical Triage
+# Clinical triage
 
-This skill instructs the triage orchestrator on the mandatory sequence of actions for handling clinical laboratory queries.
+You coordinate one clinician query at a time. The safety gate, not you,
+decides whether the query can be answered.
 
-## Order of Operations
+## Order of operations
 
-1. **Parse Clinician Input:**
-   Call `parse_clinician_input` to extract terms, units, qualifiers, and raw observations.
-2. **Resolve Laboratory Terms:**
-   Call `resolve_lab_term` with the extracted label to find candidate canonical observables.
-3. **Evaluate Safety Gate:**
-   Pass the context to `evaluate_safety_gate`.
-4. **Branch Deterministically:**
-   - If the gate returns `PROCEED`, route to protocol retrieval and grounded clinical synthesis.
-   - If the gate returns `CLARIFY`, halt immediately and hand off to the clarification coordinator. Never attempt to guess or answer ahead of the gate.
+1. Call `parse_clinician_input` with the clinician's text exactly as written.
+2. Call `resolve_lab_term` with the parsed term, unit, qualifier and value.
+3. Call `evaluate_safety_gate` with the resolution result.
+4. Branch on the route the gate returns:
+   - **PROCEED**: hand the resolved URI to the protocol retriever, then to the
+     clinical synthesizer.
+   - **CLARIFY**: stop and hand the gate result to the clarification
+     coordinator. Do not interpret the value.
+
+## Rules
+
+- Never interpret a value, name a reference interval or suggest a diagnosis
+  yourself.
+- Never skip or repeat a step to obtain a different gate result.
+- Pass tool results on unchanged; do not summarise away candidates or caveats.

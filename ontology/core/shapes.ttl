@@ -1,164 +1,297 @@
-@prefix sh:    <http://www.w3.org/ns/shacl#> .
-@prefix owl:   <http://www.w3.org/2002/07/owl#> .
-@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
-@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
-@prefix ag:    <https://ontogate.ai/ns/core#> .
-@prefix loinc: <https://loinc.org/> .
+@prefix sh:     <http://www.w3.org/ns/shacl#> .
+@prefix owl:    <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos:   <http://www.w3.org/2004/02/skos/core#> .
+@prefix skosxl: <http://www.w3.org/2008/05/skos-xl#> .
+@prefix prov:   <http://www.w3.org/ns/prov#> .
+@prefix ag:     <https://ontogate.ai/ns/core#> .
 
-# ============================================================================
-# ontogate SHACL Shapes — shapes.ttl
+# =============================================================================
+# ontogate core SHACL shapes — the formal statement of the integrity rules.
 #
-# Enforces structural contracts on the exported RDF graph so that:
-# 1. Every Observable has a prefLabel, notation, and inScheme.
-# 2. Every ReferenceInterval is bound to an Observable with a unit and valid bounds.
-# 3. Every Designation has at least one denotes target.
-# 4. The SafetyGate role has no LLM tools (enforced by absence of ag:usesModel).
-# 5. RoleSkillShape — every agent role must have a known risk_class skill set.
-# ============================================================================
+# Validated by `ontogate rdf validate` / `ontogate build` over the graph that
+# ontogate.rdf_export builds from the YAML packs (plus the agent meta-graph of
+# roles, skills and tools). Every shape has a failing fixture in
+# shared/tests/test_rdf_export.py. Validation runs without inference: every
+# node is typed explicitly, so sh:class proves the target exists.
+# =============================================================================
 
-# -----------------------------------------------------------------------
-# ObservableShape
-# -----------------------------------------------------------------------
-ag:ObservableShape
-    a sh:NodeShape ;
-    sh:targetClass ag:Observable ;
-    sh:name "Observable" ;
+ag:
+    sh:declare [ sh:prefix "ag" ;     sh:namespace "https://ontogate.ai/ns/core#"^^xsd:anyURI ] ,
+               [ sh:prefix "owl" ;    sh:namespace "http://www.w3.org/2002/07/owl#"^^xsd:anyURI ] ,
+               [ sh:prefix "prov" ;   sh:namespace "http://www.w3.org/ns/prov#"^^xsd:anyURI ] ,
+               [ sh:prefix "skos" ;   sh:namespace "http://www.w3.org/2004/02/skos/core#"^^xsd:anyURI ] .
 
-    sh:property [
-        sh:path skos:prefLabel ;
-        sh:minCount 1 ;
-        sh:datatype rdf:langString ;
-        sh:name "prefLabel required" ;
-        sh:message "Observable must have at least one skos:prefLabel (language-tagged string)." ;
-    ] ;
-
-    sh:property [
-        sh:path skos:notation ;
-        sh:minCount 1 ;
-        sh:name "notation (LOINC URI) required" ;
-        sh:message "Observable must have a skos:notation (canonical LOINC URI)." ;
-    ] ;
-
-    sh:property [
-        sh:path skos:inScheme ;
-        sh:minCount 1 ;
-        sh:name "inScheme required" ;
-        sh:message "Observable must belong to a skos:ConceptScheme." ;
-    ] .
-
-
-# -----------------------------------------------------------------------
-# ReferenceIntervalShape
-# -----------------------------------------------------------------------
-ag:ReferenceIntervalShape
-    a sh:NodeShape ;
-    sh:targetClass ag:ReferenceInterval ;
-    sh:name "ReferenceInterval" ;
-
-    sh:property [
-        sh:path ag:forObservable ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:name "forObservable required (functional)" ;
-        sh:message "Each ReferenceInterval must reference exactly one Observable via ag:forObservable." ;
-    ] ;
-
-    sh:property [
-        sh:path ag:unit ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:name "unit required (functional)" ;
-        sh:message "Each ReferenceInterval must have exactly one ag:unit." ;
-    ] ;
-
-    sh:property [
-        sh:path ag:normalLow ;
-        sh:datatype xsd:double ;
-        sh:name "normalLow must be double" ;
-    ] ;
-
-    sh:property [
-        sh:path ag:normalHigh ;
-        sh:datatype xsd:double ;
-        sh:name "normalHigh must be double" ;
-    ] ;
-
-    sh:property [
-        sh:path ag:criticalLow ;
-        sh:datatype xsd:double ;
-        sh:name "criticalLow must be double" ;
-    ] ;
-
-    sh:property [
-        sh:path ag:criticalHigh ;
-        sh:datatype xsd:double ;
-        sh:name "criticalHigh must be double" ;
-    ] .
-
-
-# -----------------------------------------------------------------------
-# DesignationShape
-# -----------------------------------------------------------------------
-ag:DesignationShape
-    a sh:NodeShape ;
-    sh:targetClass ag:Designation ;
-    sh:name "Designation" ;
-
-    sh:property [
-        sh:path ag:denotes ;
-        sh:minCount 1 ;
-        sh:name "denotes at least one observable" ;
-        sh:message "A Designation must denote at least one Observable." ;
-    ] ;
-
-    sh:property [
-        sh:path skos:prefLabel ;
-        sh:minCount 1 ;
-        sh:datatype rdf:langString ;
-        sh:name "label required" ;
-        sh:message "Designation must carry a skos:prefLabel." ;
-    ] .
-
-
-# -----------------------------------------------------------------------
-# UnitShape
-# -----------------------------------------------------------------------
-ag:UnitShape
-    a sh:NodeShape ;
-    sh:targetClass ag:Unit ;
-    sh:name "Unit" ;
-
-    sh:property [
-        sh:path ag:dimension ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:name "dimension required" ;
-        sh:message "Unit must declare its physical dimension." ;
-    ] ;
-
-    sh:property [
-        sh:path ag:scaleFactor ;
-        sh:minCount 1 ;
-        sh:datatype xsd:double ;
-        sh:name "scaleFactor required" ;
-        sh:message "Unit must declare a numeric scale factor (conversion to base unit)." ;
-    ] .
-
-
-# -----------------------------------------------------------------------
-# OntologyHeaderShape
-# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Ontology header — the bundle identity every runtime and skill is pinned to.
+# -----------------------------------------------------------------------------
 ag:OntologyHeaderShape
     a sh:NodeShape ;
     sh:targetClass owl:Ontology ;
-    sh:name "OntologyHeader" ;
-
     sh:property [
-        sh:path ag:bundleSha256 ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:name "bundleSha256 required" ;
-        sh:message "The ontology header must carry an ag:bundleSha256 for tamper detection." ;
+        sh:path ag:bundleSha256 ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^[0-9a-f]{64}$" ;
+        sh:message "The ontology header must carry exactly one ag:bundleSha256 (64 hex characters)." ;
+    ] ;
+    sh:property [
+        sh:path owl:versionInfo ; sh:minCount 1 ;
+        sh:message "The ontology header must carry owl:versionInfo." ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# ObservableShape — identity, units, trust and the look-alike relation.
+# -----------------------------------------------------------------------------
+ag:ObservableShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Observable ;
+    sh:property [ sh:path skos:prefLabel ; sh:minCount 1 ; sh:datatype rdf:langString ;
+                  sh:message "Observable needs a language-tagged skos:prefLabel." ] ;
+    sh:property [ sh:path skos:notation ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "Observable needs exactly one skos:notation (its canonical URI)." ] ;
+    sh:property [ sh:path skos:inScheme ; sh:minCount 1 ; sh:class skos:ConceptScheme ;
+                  sh:message "Observable must belong to a skos:ConceptScheme." ] ;
+    sh:property [ sh:path ag:trustTier ; sh:minCount 1 ; sh:maxCount 1 ; sh:class ag:TrustTier ;
+                  sh:message "Observable needs exactly one trust tier." ] ;
+    sh:property [ sh:path ag:status ; sh:minCount 1 ; sh:in ( "draft" "stable" "deprecated" ) ;
+                  sh:message "Observable status must be draft, stable or deprecated." ] ;
+    sh:property [ sh:path ag:admitsUnit ; sh:class ag:Unit ;
+                  sh:message "Observable admits a unit that is not in the unit catalogue." ] ;
+    sh:property [ sh:path ag:governedBy ; sh:maxCount 1 ; sh:class ag:Protocol ;
+                  sh:message "Observable is governed by at most one existing protocol (functional)." ] ;
+    sh:property [ sh:path ag:measures ; sh:maxCount 1 ; sh:class ag:Analyte ;
+                  sh:message "Observable measures at most one existing analyte (functional)." ] ;
+    sh:property [ sh:path ag:inDepartment ; sh:maxCount 1 ; sh:class ag:Department ;
+                  sh:message "Observable belongs to at most one existing department." ] ;
+    sh:property [ sh:path ag:confusableWith ; sh:class ag:Observable ;
+                  sh:message "confusableWith must point to an existing observable." ] ;
+    sh:property [ sh:path ag:supersededBy ; sh:maxCount 1 ; sh:class ag:Observable ;
+                  sh:message "supersededBy must point to one existing observable." ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "confusableWith is irreflexive: an observable cannot be its own look-alike." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE { $this ag:confusableWith $this . }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "confusableWith is symmetric: {?other} does not point back." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?other WHERE {
+            $this ag:confusableWith ?other .
+            FILTER NOT EXISTS { ?other ag:confusableWith $this }
+        }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A quantitative (Qn) observable in use needs a reference interval or ag:intervalsNotApplicable." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE {
+            $this ag:loincScale "Qn" ; ag:status ?status .
+            FILTER (?status != "deprecated")
+            FILTER NOT EXISTS { ?interval ag:intervalOf $this }
+            FILTER NOT EXISTS { $this ag:intervalsNotApplicable ?reason }
+        }""" ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# IntervalShape — bounds order, unit admission, provenance.
+# -----------------------------------------------------------------------------
+ag:IntervalShape
+    a sh:NodeShape ;
+    sh:targetClass ag:ReferenceInterval ;
+    sh:property [ sh:path ag:intervalOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:class ag:Observable ;
+                  sh:message "A reference interval belongs to exactly one existing observable." ] ;
+    sh:property [ sh:path ag:unit ; sh:minCount 1 ; sh:maxCount 1 ; sh:class ag:Unit ;
+                  sh:message "A reference interval has exactly one catalogued unit." ] ;
+    sh:property [ sh:path ag:normalLow ;    sh:maxCount 1 ; sh:datatype xsd:double ] ;
+    sh:property [ sh:path ag:normalHigh ;   sh:maxCount 1 ; sh:datatype xsd:double ] ;
+    sh:property [ sh:path ag:criticalLow ;  sh:maxCount 1 ; sh:datatype xsd:double ] ;
+    sh:property [ sh:path ag:criticalHigh ; sh:maxCount 1 ; sh:datatype xsd:double ] ;
+    sh:property [ sh:path ag:trustTier ; sh:minCount 1 ; sh:maxCount 1 ; sh:class ag:TrustTier ] ;
+    sh:property [ sh:path ag:clinicallyUnvalidated ; sh:maxCount 1 ; sh:datatype xsd:boolean ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Bounds must satisfy criticalLow < normalLow < normalHigh < criticalHigh ({?p1} >= {?p2})." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?p1 ?p2 WHERE {
+            { $this ag:criticalLow ?a ; ag:normalLow ?b . BIND (ag:criticalLow AS ?p1) BIND (ag:normalLow AS ?p2) }
+            UNION
+            { $this ag:normalLow ?a ; ag:normalHigh ?b . BIND (ag:normalLow AS ?p1) BIND (ag:normalHigh AS ?p2) }
+            UNION
+            { $this ag:normalHigh ?a ; ag:criticalHigh ?b . BIND (ag:normalHigh AS ?p1) BIND (ag:criticalHigh AS ?p2) }
+            UNION
+            { $this ag:criticalLow ?a ; ag:normalHigh ?b . BIND (ag:criticalLow AS ?p1) BIND (ag:normalHigh AS ?p2) }
+            UNION
+            { $this ag:normalLow ?a ; ag:criticalHigh ?b . BIND (ag:normalLow AS ?p1) BIND (ag:criticalHigh AS ?p2) }
+            UNION
+            { $this ag:criticalLow ?a ; ag:criticalHigh ?b . BIND (ag:criticalLow AS ?p1) BIND (ag:criticalHigh AS ?p2) }
+            FILTER (?a >= ?b)
+        }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The interval's unit is not admitted by its observable." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE {
+            $this ag:unit ?unit ; ag:intervalOf ?observable .
+            FILTER NOT EXISTS { ?observable ag:admitsUnit ?unit }
+        }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "ProvenanceShape: a human-verified interval cannot also be flagged clinically unvalidated." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE {
+            $this prov:wasAttributedTo ?verifier ; ag:clinicallyUnvalidated true .
+            FILTER (STRSTARTS(STR(?verifier), "human:"))
+        }""" ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# DesignationShape — no silent synonymy, no false ambiguity.
+# -----------------------------------------------------------------------------
+ag:DesignationShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Designation ;
+    sh:property [ sh:path skosxl:literalForm ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "A designation has exactly one literal form." ] ;
+    sh:property [ sh:path ag:denotes ; sh:minCount 1 ; sh:class ag:Observable ;
+                  sh:message "A designation denotes at least one existing observable." ] ;
+    sh:property [ sh:path ag:kind ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:in ( "preferred" "synonym" "abbreviation" "ambiguous" ) ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Silent synonymy: a designation denoting more than one observable must have kind 'ambiguous'." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT DISTINCT $this WHERE {
+            $this ag:kind ?kind ; ag:denotes ?a , ?b .
+            FILTER (?a != ?b && ?kind != "ambiguous")
+        }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "False ambiguity: kind 'ambiguous' requires more than one denoted observable." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE {
+            $this ag:kind "ambiguous" .
+            FILTER NOT EXISTS { $this ag:denotes ?a , ?b . FILTER (?a != ?b) }
+        }""" ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# UnitShape / ProtocolShape
+# -----------------------------------------------------------------------------
+ag:UnitShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Unit ;
+    sh:property [ sh:path skos:notation ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ag:dimension ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path ag:scaleFactor ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:double ;
+                  sh:minExclusive 0 ;
+                  sh:message "A unit needs one positive scale factor to its dimension's base unit." ] .
+
+ag:ProtocolShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Protocol ;
+    sh:property [ sh:path ag:governs ; sh:minCount 1 ; sh:maxCount 1 ; sh:class ag:Observable ;
+                  sh:message "A protocol governs exactly one existing observable (URI binding)." ] ;
+    sh:property [ sh:path ag:status ; sh:minCount 1 ; sh:in ( "draft" "stable" "deprecated" ) ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "{?other} is governed by this protocol, but the protocol governs a different observable." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?other WHERE {
+            ?other ag:governedBy $this .
+            $this ag:governs ?observable .
+            FILTER (?other != ?observable)
+        }""" ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# SequenceShape — collection order is acyclic and department-consistent.
+# -----------------------------------------------------------------------------
+ag:SequenceShape
+    a sh:NodeShape ;
+    sh:targetClass ag:CollectionStep ;
+    sh:property [ sh:path ag:stepNumber ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ag:precedes ; sh:maxCount 1 ; sh:class ag:CollectionStep ;
+                  sh:message "A step precedes at most one existing step." ] ;
+    sh:property [ sh:path ag:includes ; sh:class ag:Observable ] ;
+    sh:property [ sh:path ag:inDepartment ; sh:maxCount 1 ; sh:class ag:Department ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "precedes is acyclic: this step (transitively) precedes itself." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE { $this ag:precedes+ $this . }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "{?observable} belongs to a different department than the step it is collected in." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?observable WHERE {
+            $this ag:inDepartment ?dept ; ag:includes ?observable .
+            ?observable ag:inDepartment ?other .
+            FILTER (?dept != ?other)
+        }""" ;
+    ] .
+
+# -----------------------------------------------------------------------------
+# Agent meta-graph (plan §8.6): RoleSkillShape, SkillShape, ToolShape.
+# -----------------------------------------------------------------------------
+ag:RoleSkillShape
+    a sh:NodeShape ;
+    sh:targetClass ag:Role ;
+    sh:property [ sh:path ag:usesModel ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ag:grantedTool ; sh:class ag:Tool ;
+                  sh:message "ToolShape: a role may only be granted tools of the canonical MCP contract." ] ;
+    sh:property [ sh:path ag:usesSkill ; sh:class ag:SkillPackage ;
+                  sh:message "A role may only load skills that exist." ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A code node (usesModel false) loads no skills ({?skill})." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?skill WHERE { $this ag:usesModel false ; ag:usesSkill ?skill . }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Skill {?skill} requires tool {?tool}, which this role is not granted." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?skill ?tool WHERE {
+            $this ag:usesSkill ?skill .
+            ?skill ag:requiresTool ?tool .
+            FILTER NOT EXISTS { $this ag:grantedTool ?tool }
+        }""" ;
+    ] .
+
+ag:SkillShape
+    a sh:NodeShape ;
+    sh:targetClass ag:SkillPackage ;
+    sh:property [ sh:path ag:skillName ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:pattern "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" ; sh:maxLength 64 ] ;
+    sh:property [ sh:path ag:riskClass ; sh:minCount 1 ; sh:in ( "clinical" "general" ) ] ;
+    sh:property [ sh:path ag:requiresTool ; sh:class ag:Tool ;
+                  sh:message "ToolShape: a skill may only name tools of the canonical MCP contract." ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A clinical skill must not ship scripts." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE { $this ag:riskClass "clinical" ; ag:hasScripts true . }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The skill was locked against bundle {?locked}, not the bundle being built." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this ?locked WHERE {
+            $this ag:derivedFromBundle ?locked .
+            ?ontology a owl:Ontology ; ag:bundleSha256 ?bundle .
+            FILTER (?locked != ?bundle)
+        }""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The skill is not in skills.lock.json." ;
+        sh:prefixes ag: ;
+        sh:select """SELECT $this WHERE { $this ag:unlocked true . }""" ;
     ] .

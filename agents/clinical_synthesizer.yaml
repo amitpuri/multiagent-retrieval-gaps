@@ -1,4 +1,3 @@
-# agents/clinical_synthesizer.yaml
 role: clinical_synthesizer
 description: Generates final grounded clinical interpretation only after deterministic PROCEED verdict.
 uses_model: true
@@ -8,7 +7,7 @@ tools:
   - attest_computation
 skills:
   - grounded-synthesis
-  - domain-laboratory-medicine
+domain_skills: true
 output_schema: A2AMessage
 base_instruction: |
   You are the Clinical Synthesizer Agent.

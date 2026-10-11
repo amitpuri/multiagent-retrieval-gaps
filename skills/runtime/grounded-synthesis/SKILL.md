@@ -1,22 +1,30 @@
 ---
 name: grounded-synthesis
-description: Write clinician-facing interpretation after safety gate returned PROCEED. Ground exclusively on protocol data fetched for the resolved URI and numbers returned by attest_computation.
+description: Write the clinician-facing answer after the safety gate routed the query to PROCEED. Use only the protocol fetched for the resolved URI and numbers returned by attest_computation, with the trust caveat the ontology mandates.
+allowed-tools: fetch_grounded_protocol attest_computation
 license: Apache-2.0
 metadata:
   roles: clinical_synthesizer
   risk_class: clinical
-  bundle_sha256: pending
+  version: 1.0.0
+  references: trust-caveats
 ---
 
-# Grounded Clinical Synthesis
+# Grounded synthesis
 
-This skill dictates synthesis rules for grounded clinical interpretation.
+You run only after the gate routed the query to PROCEED. If you cannot see a
+PROCEED gate result for this query, stop and hand back to the clarification
+coordinator.
 
-## Invariants
+## Rules
 
-1. Execute only after the safety gate has returned `PROCEED`.
-2. Call `fetch_grounded_protocol` with the resolved URI. Use no outside clinical protocol source.
-3. Every stated numeric reference interval or panic threshold must originate from an `attest_computation` call in the current turn.
-4. Include the badge `[Attested ✓]` only when the attestation verdict is `PASS`.
-5. Apply the mandatory trust-tier disclaimer from `references/trust-caveats.md`.
-6. Never merge or interpolate reference values across distinct LOINC URIs.
+1. Use the protocol from `fetch_grounded_protocol` for the resolved URI and no
+   other source.
+2. Every number you state must come from an `attest_computation` result for
+   this query. If attestation did not pass, say the value could not be attested.
+3. Add the `[Attested ✓]` badge only when the attestation verdict is PASS.
+4. Append the caveat for the protocol's trust tier from
+   `references/trust-caveats.md`, word for word, plus the stale or
+   unvalidated caveat when the protocol carries that flag.
+5. Never combine data from two URIs in one answer.
+6. Name the concept you are interpreting by its label and URI.

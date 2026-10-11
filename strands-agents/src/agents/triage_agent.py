@@ -7,6 +7,7 @@ import threading
 from typing import Any, Dict, Optional
 from strands import Agent, tool
 from strands.models.model import Model
+from src.skills_loader import skill_plugins_for
 
 from src.tools.parse_tool import parse_clinician_input
 from src.tools.ontology_tool import resolve_lab_term
@@ -103,6 +104,7 @@ def create_triage_orchestrator(model: Optional[Model] = None) -> Agent:
 
     return Agent(
         model=model,
+        plugins=skill_plugins_for("triage_orchestrator"),
         system_prompt=(
             "You are the Triage Supervisor Agent for a clinical laboratory decision support system.\n"
             "You MUST execute the following sequence for every clinician query:\n"

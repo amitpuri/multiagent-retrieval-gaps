@@ -18,7 +18,7 @@ flowchart TD
         GCRun["Vertex AI Agent Platform / Cloud Run\nclinical-adk-agent:8000"]
         GAR["Artifact Registry\nclinical-agents"]
         GSM["Secret Manager\nclinical-gemini-api-key"]
-        VAE["Vertex AI Agent Engine\nReasoning Engine"]
+        VAE["Vertex AI Agent Runtime\nADK AdkApp (--use-agent-runtime)"]
         GCRun --- GAR
         GCRun --- GSM
         GCRun --- VAE
@@ -53,9 +53,9 @@ flowchart TD
 
 | Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Skill Store | Authentication & Secrets | Target Port | Health Check |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | GCP Skill Registry (`projects/.../skills`) | Secret Manager (`GEMINI_API_KEY`) + `roles/aiplatform.user` | 8000 | `/healthz`, `/readyz` |
-| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (`claude-opus-5-5`) / Sonnet 4.5 | S3 Skill Store (`s3://.../skills/<release>/`) | IAM Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
-| **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | Foundry Skills API (`Foundry-Features: Skills=V1Preview`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
+| **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | Cloud Storage, content-addressed (`gs://<project>-skills/skills`) | Secret Manager (`GEMINI_API_KEY`) + `roles/aiplatform.user` | 8000 | `/healthz`, `/readyz` |
+| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`) | S3, content-addressed (`s3://<project>-<env>-skills/skills`) | IAM Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
+| **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | Blob Storage, content-addressed (`azblob://<account>/skills/skills`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
 
 ---
 
@@ -66,7 +66,7 @@ Each framework connects to its native cloud LLM provider, with automated IAM rol
 ```mermaid
 flowchart LR
     subgraph AWS_Bedrock["AWS Bedrock AgentCore"]
-        Strands["strands-agents/"] -->|IAM Execution Role| Bedrock["Bedrock AgentCore\nClaude Sonnet 4.5"]
+        Strands["strands-agents/"] -->|IAM Execution Role| Bedrock["Bedrock AgentCore\nClaude Opus 5.5"]
         Strands -.->|Fallback| DetMock1["Deterministic SafetyGateEngine / Mock"]
     end
 
@@ -82,7 +82,7 @@ flowchart LR
 ```
 
 ### 1. Amazon Bedrock AgentCore Setup (AWS)
-- **Model Used**: Anthropic Claude Sonnet 4.5 (`anthropic.claude-sonnet-4-5-20251203-v1:0`).
+- **Model Used**: Anthropic Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`).
 - **Target Region**: `us-east-1` (recommended for Bedrock AgentCore features and Claude availability).
 - **Setup in AWS**:
   1. Ensure model access is enabled at [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess).
@@ -99,7 +99,7 @@ flowchart LR
 - **Setup in GCP**:
   1. The deployment script enables `aiplatform.googleapis.com`, `discoveryengine.googleapis.com`, `dialogflow.googleapis.com`, `run.googleapis.com`, and `artifactregistry.googleapis.com`.
   2. Provisions Secret Manager secret `clinical-gemini-api-key` and grants both `roles/secretmanager.secretAccessor` and `roles/aiplatform.user` to the compute service account.
-  3. Provisions Vertex AI Reasoning Engine (Agent Engine) and deploys Cloud Run service (`clinical-adk-agent`) with Agent Platform runtime flags (`AGENT_PLATFORM_ENABLED=true`, `VERTEX_AI_PROJECT`, `GEMINI_MODEL`).
+  3. Builds the knowledge release (`ontogate build`), publishes the locked skills, optionally deploys the ADK workflow to Vertex AI Agent Runtime as an `AdkApp` (`--use-agent-runtime`), and deploys the Cloud Run service (`clinical-adk-agent`) with Agent Platform runtime flags (`AGENT_PLATFORM_ENABLED=true`, `VERTEX_AI_PROJECT`, `GEMINI_MODEL`).
   4. Registers the agent with Vertex AI Agent Builder.
 - **Offline / CI Mode**: When `GEMINI_API_KEY` is omitted, the service boots with `offline_mode: true` (alerted in `/readyz` as `status: degraded`) and deterministically enforces all 6 safety gap detectors.
 
@@ -173,7 +173,7 @@ AWS_REGION="us-east-1"
 AGENT_NAME="clinical-strands-agent"
 ECR_REPO_NAME="strands-clinical-agents"
 IMAGE_TAG="latest"
-BEDROCK_MODEL_ID="anthropic.claude-sonnet-4-5-20251203-v1:0"
+BEDROCK_MODEL_ID="global.anthropic.claude-opus-5-5"
 AGENT_ROLE_NAME="BedrockAgentCoreExecutionRole"
 MEMORY_NAME="clinical-agent-memory"
 PORT=8000
@@ -237,7 +237,7 @@ aws bedrock-agentcore create-memory-resource \
 
 ## 5. Google Cloud Deployment (`deployment/gcloud-scripts/`)
 
-Deploys the Google ADK continuous clinical agent harness (`google-adk-agents/`) to **Google Cloud Agent Platform** (Vertex AI Reasoning Engine / Cloud Run) using **Artifact Registry** and **Secret Manager**.
+Deploys the Google ADK continuous clinical agent harness (`google-adk-agents/`) to **Google Cloud Agent Platform** (Vertex AI Agent Runtime / Cloud Run) using **Artifact Registry** and **Secret Manager**.
 
 ### Quickstart (1 Command)
 
@@ -262,7 +262,7 @@ REGION="europe-west1"
 AGENT_RESOURCE_NAME="clinical-adk-agent"
 REPO_NAME="clinical-agents"
 IMAGE_NAME="clinical-adk-harness"
-MODEL_ID="gemini-2.0-flash-001"
+MODEL_ID="gemini-3.8-flash"
 PORT=8000
 CPU="1"
 MEMORY="2Gi"
@@ -329,7 +329,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --memory=2Gi \
   --min-instances=0 \
   --max-instances=10 \
-  --set-env-vars="ALLOWED_ORIGINS=*,MAX_SESSIONS=1000,VERTEX_AI_PROJECT=${PROJECT_ID},VERTEX_AI_LOCATION=${REGION},GEMINI_MODEL=gemini-2.0-flash-001,AGENT_PLATFORM_ENABLED=true" \
+  --set-env-vars="ALLOWED_ORIGINS=*,MAX_SESSIONS=1000,VERTEX_AI_PROJECT=${PROJECT_ID},VERTEX_AI_LOCATION=${REGION},GEMINI_MODEL=gemini-3.8-flash,AGENT_PLATFORM_ENABLED=true" \
   --set-secrets="GEMINI_API_KEY=clinical-gemini-api-key:latest" \
   --allow-unauthenticated \
   --project="${PROJECT_ID}"
@@ -389,7 +389,7 @@ MAX_REPLICAS=5
 AI_FOUNDRY_ACCOUNT_NAME="ais-clinical-agents"
 AI_FOUNDRY_PROJECT_NAME="aiproj-clinical-agents"
 AI_FOUNDRY_RESOURCE_GROUP="rg-clinical-agents"
-FOUNDRY_MODEL="gpt-5"
+FOUNDRY_MODEL="gpt-6.1-sol"
 ```
 
 ### Manual Deployment Walkthrough with `az` CLI
@@ -447,7 +447,7 @@ az containerapp create \
   --memory 2.0Gi \
   --min-replicas 0 \
   --max-replicas 5 \
-  --env-vars ALLOWED_ORIGINS=* MAX_SESSIONS=1000 AZURE_AI_FOUNDRY_PROJECT_ENDPOINT="${FOUNDRY_ENDPOINT}" FOUNDRY_MODEL="gpt-5"
+  --env-vars ALLOWED_ORIGINS=* MAX_SESSIONS=1000 AZURE_AI_FOUNDRY_PROJECT_ENDPOINT="${FOUNDRY_ENDPOINT}" FOUNDRY_MODEL="gpt-6.1-sol"
 
 # 7. Grant Container App Managed Identity access to Azure AI Foundry
 APP_PRINCIPAL_ID="$(az containerapp show --name ${APP_NAME} --resource-group ${RESOURCE_GROUP} --query identity.principalId -o tsv)"

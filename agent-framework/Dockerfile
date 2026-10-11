@@ -28,6 +28,7 @@ COPY agent-framework/src/ /app/src/
 COPY ontology/ /app/ontology/
 COPY config/ /app/config/
 COPY skills/ /app/skills/
+COPY agents/ /app/agents/
 ENV ONTOGATE_REPO_ROOT=/app
 COPY agent-framework/pytest.ini /app/
 COPY agent-framework/README.md /app/

@@ -1,16 +1,37 @@
 #!/usr/bin/env bash
+# Offline verification: knowledge integrity, skills, generated artifacts, every
+# framework's tests and cross-cloud conformance. No cloud credentials needed.
+# Prerequisite: pip install -e "shared[dev]" plus each framework's requirements.txt.
 set -euo pipefail
+cd "$(dirname "$0")"
+export PYTHONPATH="${PWD}/shared${PYTHONPATH:+:${PYTHONPATH}}"
 
-echo "=== Running shared ontogate tests ==="
+echo "=== Ontology integrity (pack + scenario overlays) ==="
+python -m ontogate validate
+
+echo "=== Runtime skills: lint, role checks, reference and lock drift ==="
+python -m ontogate skills check
+
+echo "=== SHACL over the ontology and the agent meta-graph ==="
+python -m ontogate rdf validate
+python -m ontogate rdf validate --domain cardiology
+
+echo "=== MAF declarative agents match the role specs ==="
+(cd agent-framework && python -m src.declarative --check)
+
+echo "=== shared (ontogate) tests ==="
 python -m pytest shared/tests
 
-echo "=== Running google-adk-agents tests ==="
+echo "=== google-adk-agents tests ==="
 python -m pytest google-adk-agents/tests
 
-echo "=== Running strands-agents tests ==="
+echo "=== strands-agents tests ==="
 python -m pytest strands-agents/tests
 
-echo "=== Running agent-framework tests ==="
+echo "=== agent-framework tests ==="
 python -m pytest agent-framework/tests
 
-echo "=== All test suites passed! ==="
+echo "=== Cross-cloud conformance (ADK / Strands / MAF) ==="
+python conformance/run.py
+
+echo "=== All checks passed ==="

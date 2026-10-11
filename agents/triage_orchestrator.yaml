@@ -1,4 +1,3 @@
-# agents/triage_orchestrator.yaml
 role: triage_orchestrator
 description: Primary clinician-facing entrypoint agent that orchestrates parsing, resolution, and gating.
 uses_model: true

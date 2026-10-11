@@ -13,10 +13,6 @@ pydantic>=2.13.4
 PyYAML>=6.0.3
 python-dotenv>=1.2.2
 
-# RDF/Ontology export (ontogate.rdf_export, SHACL validation, OWL 2 RL reasoning)
-rdflib>=6.3.2
-pyshacl>=0.25.0
-owlrl>=6.0.2
 
 # Testing
 pytest>=8.0.0

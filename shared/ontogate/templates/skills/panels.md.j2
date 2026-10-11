@@ -1,0 +1,23 @@
+# Panels
+
+Present collection steps in exactly this order. Never reorder, merge or
+reassign steps between departments.
+
+{% for p in panels %}
+## {{ p.name }} (`{{ p.id }}`)
+
+- **Specimen:** {{ p.specimen }}{% if p.collection_method %} ({{ p.collection_method }}){% endif %}
+
+{% if p.designations %}
+- **Also called:** {{ p.designations | join(", ") }}
+{% endif %}
+
+| Step | Department | Purpose | Observables |
+| :--- | :--- | :--- | :--- |
+{% for s in p.steps %}
+| Tube {{ s.tube }} | {{ s.department }} | {{ s.description }} | {{ s.includes | join(", ") }} |
+{% endfor %}
+
+{% else %}
+No panels in the loaded ontology.
+{% endfor %}

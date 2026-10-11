@@ -12,7 +12,7 @@ new implementations in this repository. Violating any of these is a regression.
 ## 1. Safety Gate Is Deterministic — No LLM Calls Inside
 
 `safety_guard_node` in `src/agents/safety_guard_agent.py` and `SafetyGateEngine` in
-`src/core/detectors/engine.py` must **never** contain LLM calls, `await` on model
+`shared/ontogate/detectors/engine.py` must **never** contain LLM calls, `await` on model
 completions, or probabilistic branching. The gate is pure Python.
 
 ```python
@@ -55,10 +55,10 @@ Raw string literals for sender/recipient/action are forbidden.
 
 ```python
 # CORRECT
-A2AMessage(sender=AgentRole.SAFETY_GUARD, action=A2AAction.REQUEST_CLARIFICATION, ...)
+A2AMessage(sender=AgentRole.SAFETY_GUARD, action=A2AAction.REQUEST_CLARIFICATION)
 
 # WRONG
-A2AMessage(sender="safety_guard", action="request_clarification", ...)
+A2AMessage(sender="safety_guard", action="request_clarification")
 ```
 
 ---
@@ -67,7 +67,7 @@ A2AMessage(sender="safety_guard", action="request_clarification", ...)
 
 A passing `attest_computation` result must always include:
 ```python
-{"badge": "[Attested ✓]", "verdict": "PASS", "passed": True, ...}
+{"badge": "[Attested ✓]", "verdict": "PASS", "passed": True}
 ```
 This badge is consumed by downstream agents for OKF §5.4 compliance marking.
 

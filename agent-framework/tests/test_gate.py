@@ -160,36 +160,89 @@ def test_ontology_emits_a2a_message():
 # ── YAML agent files parseable ─────────────────────────────────────────────────
 
 def test_all_agent_yamls_parse():
-    """All 6 declarative agent YAML files must parse without error."""
+    """Every declarative agent YAML parses and is a Prompt agent named after its role."""
     import yaml
     agent_dir = _agent_framework_dir / "declarative-agents"
-    yaml_files = list(agent_dir.glob("*.yaml"))
-    assert len(yaml_files) >= 6, f"Expected >=6 agent YAMLs, found {len(yaml_files)}"
-    for f in yaml_files:
+    for f in agent_dir.glob("*.yaml"):
         data = yaml.safe_load(f.read_text(encoding="utf-8"))
         assert data.get("kind") == "Prompt", f"{f.name}: missing or wrong 'kind'"
-        assert data.get("name"), f"{f.name}: missing 'name'"
+        assert data.get("name") == f.stem, f"{f.name}: name must equal the role"
         assert data.get("instructions"), f"{f.name}: missing 'instructions'"
 
 
-def test_safety_guard_yaml_has_gate_tool():
-    """safety_guard.yaml must declare evaluate_safety_gate as a tool."""
-    import yaml
-    f = _agent_framework_dir / "declarative-agents" / "safety_guard.yaml"
-    data = yaml.safe_load(f.read_text(encoding="utf-8"))
-    tool_names = [t.get("name") for t in data.get("tools", [])]
-    assert "evaluate_safety_gate" in tool_names
+def test_declarative_agents_are_generated_from_role_specs():
+    """declarative-agents/*.yaml match agents/<role>.yaml (python -m src.declarative --check)."""
+    from src.declarative import main
+    assert main(["--check"]) == 0
 
 
-def test_triage_yaml_has_all_tools():
-    """triage_orchestrator.yaml must declare all 5 tool functions."""
+def test_safety_guard_is_a_code_node_not_a_prompt_agent():
+    """The gate never runs behind a model: no declarative agent exists for safety_guard."""
+    assert not (_agent_framework_dir / "declarative-agents" / "safety_guard.yaml").exists()
+
+
+def test_agent_tools_match_role_grants():
     import yaml
-    f = _agent_framework_dir / "declarative-agents" / "triage_orchestrator.yaml"
-    data = yaml.safe_load(f.read_text(encoding="utf-8"))
-    tool_names = {t.get("name") for t in data.get("tools", [])}
-    expected = {"parse_clinician_input", "resolve_lab_term", "evaluate_safety_gate",
-                "fetch_grounded_protocol", "build_clarification_prompt"}
-    assert expected == tool_names
+    from ontogate.roles import load_all_role_specs
+    for role, spec in load_all_role_specs().items():
+        f = _agent_framework_dir / "declarative-agents" / f"{role}.yaml"
+        if not spec.uses_model:
+            continue
+        data = yaml.safe_load(f.read_text(encoding="utf-8"))
+        assert [t["name"] for t in data.get("tools", [])] == spec.tools, role
+
+
+def test_every_granted_tool_has_a_binding():
+    from src.orchestration.workflow_runner import TOOL_BINDINGS
+    from ontogate.skills import CANONICAL_MCP_TOOLS
+    from ontogate.roles import load_all_role_specs
+    granted = {t for spec in load_all_role_specs().values() for t in spec.tools}
+    assert granted <= set(TOOL_BINDINGS) <= CANONICAL_MCP_TOOLS
+
+
+def test_workflow_invokes_only_declared_agents():
+    import yaml
+    workflow = yaml.safe_load((_agent_framework_dir / "declarative-workflows" /
+                               "clinical_decision_workflow.yaml").read_text(encoding="utf-8"))
+    names = set()
+
+    def walk(actions):
+        for action in actions or []:
+            if action.get("kind") == "InvokeAgent":
+                names.add(action["agent"])
+            walk(action.get("then"))
+            walk(action.get("else"))
+    walk(workflow["actions"])
+    declared = {f.stem for f in (_agent_framework_dir / "declarative-agents").glob("*.yaml")}
+    assert names and names <= declared
+
+
+# ── Runtime skills (SkillsProvider per role) ─────────────────────────────────
+
+def test_code_node_gets_no_skills_provider():
+    from src.skills_loader import skills_provider_for
+    assert skills_provider_for("safety_guard") is None
+
+
+def test_skills_are_attached_as_a_context_provider():
+    from agent_framework import SkillsProvider
+    from src.skills_loader import attach_skills
+
+    class _Agent:
+        def __init__(self):
+            self.context_providers = []
+
+    agent = attach_skills(_Agent(), "ontology_resolver")
+    assert len(agent.context_providers) == 1
+    assert isinstance(agent.context_providers[0], SkillsProvider)
+    assert attach_skills(_Agent(), "safety_guard").context_providers == []
+
+
+def test_attach_refuses_agents_without_context_providers():
+    import pytest
+    from src.skills_loader import attach_skills
+    with pytest.raises(TypeError):
+        attach_skills(object(), "ontology_resolver")
 
 
 # ── Workflow YAML parseable ────────────────────────────────────────────────────

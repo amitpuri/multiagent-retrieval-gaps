@@ -1,4 +1,3 @@
-# agents/protocol_retriever.yaml
 role: protocol_retriever
 description: Fetches governing reference protocols and panic limit rules strictly bound to resolved URIs.
 uses_model: true

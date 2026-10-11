@@ -8,6 +8,7 @@ from src.tools.safety_gate_tool import evaluate_safety_gate
 from src.tools.protocol_tool import fetch_grounded_protocol
 from src.tools.clarification_tool import build_clarification_prompt
 from src.tools.panel_tool import panel_workup
+from src.tools.attestation_tool import attest_computation
 
 __all__ = [
     "parse_clinician_input",
@@ -16,4 +17,5 @@ __all__ = [
     "fetch_grounded_protocol",
     "build_clarification_prompt",
     "panel_workup",
+    "attest_computation",
 ]

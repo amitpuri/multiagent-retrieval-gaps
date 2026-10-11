@@ -121,7 +121,7 @@ flowchart TD
 | Step | What it does | File |
 | :--- | :--- | :--- |
 | **1 — Core Loop** | `ClinicalADKHarness.run()` loops until model answers or safety gate pauses for HITL | `src/harness/agent.py` |
-| **2 — MCP Integration** | `FastMCP` server registers 6 clinical tools; `MCPToolBridge` intercepts `function_call` events | `src/harness/mcp_server.py` · `src/harness/mcp_client.py` |
+| **2 — MCP Integration** | `FastMCP` server registers the 7 canonical clinical tools; `MCPToolBridge` intercepts `function_call` events | `src/harness/mcp_server.py` · `src/harness/mcp_client.py` |
 | **3 — Context Window** | Tool outputs caught → `types.Part.from_function_response` → appended to session; sliding-window pruning; OKF progressive disclosure | `src/harness/context.py` · `src/harness/session.py` |
 | **4 — Deploy** | FastAPI ASGI server (`/api/v1/query`, `/healthz`, `/readyz`, `/api/v1/mcp/tools`); interactive CLI console; `Dockerfile` | `src/harness/server.py` · `src/harness/console.py` · `Dockerfile` |
 
@@ -192,7 +192,7 @@ google-adk-agents/
 │   │   └── synthesis_agent.py     # Trust-calibrated synthesis & attestation gate
 │   ├── harness/                   # ── Agent Harness (4-step MCP loop) ──────────────────
 │   │   ├── agent.py               # Step 1: ClinicalADKHarness continuous reasoning loop
-│   │   ├── mcp_server.py          # Step 2: FastMCP server (6 clinical tools)
+│   │   ├── mcp_server.py          # Step 2: FastMCP server (the 7 canonical clinical tools)
 │   │   ├── mcp_client.py          # Step 2: Gemini function_call ↔ MCP bridge
 │   │   ├── context.py             # Step 3: Token budgeting & OKF progressive disclosure
 │   │   ├── session.py             # Step 3: Turn-by-turn conversation session state
@@ -211,7 +211,9 @@ google-adk-agents/
     ├── test_multiagent_extensible.py # Registry, dynamic scenario extensions, detector tests (16 tests)
     ├── test_okf_index_graph_attestation.py # Progressive disclosure index, graph traversal, attestation (25 tests)
     ├── test_okf_trust_and_lifecycle.py # Trust tiers, staleness filtering, lifecycle status, synthesis (46 tests)
-    └── test_workflow_and_attestation.py # Workflow execution and attestation integration (16 tests)
+    ├── test_workflow_and_attestation.py # Workflow execution and attestation integration (16 tests)
+    ├── test_role_skills.py        # Each role agent carries exactly its skills; no script tool (4 tests)
+    └── test_agent_runtime_packaging.py # Agent Runtime package imports and verifies offline (1 test)
 ```
 
 ---
@@ -309,4 +311,6 @@ sh run-all-tests.sh
 | `tests/test_okf_index_graph_attestation.py` | **25 tests** | Progressive disclosure index, typed graph traversal, audit writeback log, and numeric attestation gate. |
 | `tests/test_okf_trust_and_lifecycle.py` | **46 tests** | OKF trust tier derivation, staleness filtering, lifecycle status, and calibrated synthesis instructions. |
 | `tests/test_workflow_and_attestation.py` | **16 tests** | End-to-end workflow execution, state graph traversal, and attested computation verification. |
-| **Total** | **193 tests** | **100% Passing** |
+| `tests/test_role_skills.py` | **4 tests** | Native `SkillToolset` per role from `agents/<role>.yaml`; `run_skill_script` never exposed; the safety guard loads none. |
+| `tests/test_agent_runtime_packaging.py` | **1 test** | The Agent Runtime package (`deployment/gcloud-scripts/agent_runtime.py --dry-run`) imports and verifies its release without the repository. |
+| **Total** | **198 tests** | **100% Passing** |

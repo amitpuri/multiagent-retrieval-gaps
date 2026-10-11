@@ -10,6 +10,7 @@ from google.adk import Agent
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
 
 from ontogate.catalog import model_for
+from src.skills_loader import skill_tools_for
 
 DEFAULT_MODEL = model_for("gcp")["id"]  # config/models.yaml
 
@@ -26,6 +27,7 @@ def create_triage_agent(model: Optional[str] = None) -> Agent:
     chosen_model = model or DEFAULT_MODEL
     return Agent(
         name="triage_orchestrator",
+        tools=skill_tools_for("triage_orchestrator"),
         model=chosen_model,
         instruction=(
             "You are the Triage Orchestrator for a clinical laboratory decision-support system.\n"

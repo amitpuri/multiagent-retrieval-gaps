@@ -15,6 +15,7 @@ from typing import Any, Literal, Optional
 from google.adk import Agent
 
 from ontogate.catalog import model_for
+from src.skills_loader import skill_tools_for
 
 DEFAULT_MODEL = model_for("gcp")["id"]  # config/models.yaml
 
@@ -89,6 +90,7 @@ def create_synthesize_agent(
 
     return Agent(
         name="clinical_synthesizer",
+        tools=skill_tools_for("clinical_synthesizer"),
         model=chosen_model,
         mode="single_turn",
         instruction=instruction,

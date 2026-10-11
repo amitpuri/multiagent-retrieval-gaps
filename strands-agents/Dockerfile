@@ -26,6 +26,7 @@ COPY strands-agents/src/ /app/src/
 COPY ontology/ /app/ontology/
 COPY config/ /app/config/
 COPY skills/ /app/skills/
+COPY agents/ /app/agents/
 ENV ONTOGATE_REPO_ROOT=/app
 COPY strands-agents/pytest.ini /app/
 COPY strands-agents/README.md /app/

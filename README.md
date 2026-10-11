@@ -18,7 +18,7 @@ By Dr. Amit Puri · October 2026
 | :--- | :--- | :--- | :--- | :--- |
 | **Shared Core (`ontogate`)** | `shared/` | Pure Python / Deterministic Gate / FastMCP | Framework-Agnostic Core (`ontogate` v1.0.0) | ✅ Complete |
 | **Google ADK ≥2.11.0** | `google-adk-agents/` | Gemini 3.8 Flash | Google Cloud Agent Platform / Cloud Run | ✅ Complete |
-| **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Sonnet 4.5 | AWS Bedrock AgentCore / ECS Fargate | ✅ Complete |
+| **AWS Strands Agents SDK + Bedrock AgentCore** | `strands-agents/` | Anthropic Claude Opus 5.5 | AWS Bedrock AgentCore / ECS Fargate | ✅ Complete |
 | **Microsoft Agent Framework (MAF) / Azure AI Foundry** | `agent-framework/` | `gpt-6.1-sol` via Azure AI Foundry / OpenAI | Azure Container Apps + AI Foundry | ✅ Complete |
 | **Multi-Cloud Deployment Automation** | `deployment/` | Multi-Cloud Agent Fleet | GCP, AWS & Azure (Bash & PowerShell) | ✅ Complete |
 
@@ -49,13 +49,16 @@ multiagent-retrieval-gaps/
 │   │   ├── attestation.py               # Deterministic numeric range attestation (OKF §5.4)
 │   │   ├── catalog.py                   # Model catalog loader (config/models.yaml)
 │   │   ├── tools.py                     # Canonical clinical tool contract implementations
-│   │   ├── mcp_server.py                # FastMCP server (6 clinical tools via MCP protocol)
+│   │   ├── mcp_server.py                # FastMCP server (the 7 canonical clinical tools)
 │   │   ├── validate.py                  # Ontology integrity & schema validation rules
 │   │   ├── ports.py                     # Runtime ports (audit, telemetry, stores)
-│   │   ├── release.py                   # Knowledge release stamping & manifests
-│   │   ├── skills.py                    # Skills build, clinical lint & lockfile management
-│   │   ├── cloud_stores.py              # Cloud skill stores (GCP Skill Registry, S3, Foundry)
-│   │   ├── rdf_export.py                # SKOS/OWL/SHACL export & ontology bundle builder
+│   │   ├── release.py                   # Knowledge release build (`ontogate build`) & verification
+│   │   ├── roles.py                     # Role specs (agents/<role>.yaml)
+│   │   ├── skills.py                    # Skills render, lint, role checks, lock, archives, per-role resolution
+│   │   ├── skill_refs.py                # Skill references rendered from the ontology (templates/skills/)
+│   │   ├── cloud_stores.py              # Content-addressed skill stores: GCS, S3, Azure Blob, local
+│   │   ├── rdf_export.py                # SKOS/OWL/PROV export, SHACL validation, OWL 2 RL, bundle
+│   │   ├── cli.py                       # `ontogate` command line (validate, skills, rdf, build)
 │   │   └── detectors/                   # 7 pluggable deterministic gap detectors + SafetyGateEngine
 │   │       ├── engine.py                # SafetyGateEngine (deterministic gate, fail-closed)
 │   │       ├── ambiguity.py             # AmbiguityDetector (Gap 8)
@@ -65,12 +68,12 @@ multiagent-retrieval-gaps/
 │   │       ├── range_collision.py       # RangeCollisionDetector (Look-Alikes)
 │   │       ├── specimen_sequence.py     # SpecimenSequenceDetector (Gap 11)
 │   │       └── population_context.py    # PopulationContextDetector
-│   └── tests/                           # 78 deterministic unit & invariant tests
+│   └── tests/                           # gate, CQs, validator, skills, RDF/SHACL, stores, packaging
 │
 ├── ontology/                            # ── Clinical Knowledge Packs & Upper Ontology ─────────
 │   ├── core/                            # Upper ontology schema, meta-models & SHACL shapes
 │   │   ├── core.yaml                    # Upper ontology (units, dimensions, relations, facets)
-│   │   └── shapes.ttl                   # W3C SHACL constraints (Observable, Unit, Interval)
+│   │   └── shapes.ttl                   # SHACL: intervals, look-alikes, designations, sequencing, provenance, roles/skills/tools
 │   ├── domains/laboratory_medicine/     # Laboratory medicine primary domain pack
 │   │   ├── domain.yaml                  # Domain specification, version & author metadata
 │   │   ├── vocabulary.yaml              # Synonyms & clinical aliases mapped to canonical IRIs
@@ -99,10 +102,10 @@ multiagent-retrieval-gaps/
 │   │   ├── lab-term-resolution/         # SKILL.md for ontology resolver role
 │   │   ├── protocol-retrieval/          # SKILL.md for protocol retriever role
 │   │   └── specimen-sequencing/         # SKILL.md for panel coordinator role
-│   ├── domains/                         # Domain-specific clinical knowledge skills
-│   │   ├── laboratory-medicine/         # SKILL.md for laboratory medicine domain
-│   │   └── cardiology/                  # SKILL.md for cardiology domain
-│   └── skills.lock.json                 # Cryptographic SHA-256 lockfile pinning all skills
+│   ├── domains/                         # One orientation skill per domain pack
+│   │   ├── domain-laboratory-medicine/  # references/ rendered from the laboratory medicine pack
+│   │   └── domain-cardiology/           # references/ rendered from the cardiology pack
+│   └── skills.lock.json                 # Content + archive SHA-256 per skill, and the bundle hash
 │
 ├── agents/                              # ── Declarative Role Specifications ───────────────────
 │   ├── clarification_coordinator.yaml   # Tools, skills, model tier & base prompt
@@ -110,7 +113,7 @@ multiagent-retrieval-gaps/
 │   ├── ontology_resolver.yaml           # Term resolution role specification
 │   ├── panel_coordinator.yaml           # Panel sequencing role specification
 │   ├── protocol_retriever.yaml          # Protocol retrieval role specification
-│   ├── safety_guard.yaml                # Pure-code deterministic gate node (no LLM, no skills)
+│   ├── safety_guard.yaml                # Code node: uses_model false, no skills
 │   └── triage_orchestrator.yaml         # Triage coordination role specification
 │
 ├── knowledge/                           # ── Knowledge Base Audit & Change Tracking ────────────
@@ -122,14 +125,17 @@ multiagent-retrieval-gaps/
 │       ├── scenario_a_hemoglobin.yaml   # Hb ambiguity & unit mismatch (Gap 2 & 8)
 │       ├── scenario_b_csf_panel.yaml    # CSF emergency panel tube ordering (Gap 11)
 │       ├── scenario_c_calcium_collision.yaml # Calcium look-alike range collision
-│       └── scenario_d_troponin.yaml     # Dynamic extension: Troponin I vs T (zero-code)
+│       ├── scenario_d_troponin.yaml     # Dynamic extension: Troponin I vs T (zero-code)
+│       ├── scenario_e_glucose_specimen.yaml # Glucose specimen facet overlay
+│       └── scenario_f_cardiology_troponin.yaml # Cardiology pack CQs (second-domain reuse)
 │
 ├── deployment/                          # ── Multi-Cloud Production Deployment Automation ─────
 │   ├── README.md                        # Multi-cloud deployment guide (GCP, AWS, Azure)
 │   ├── IMPLEMENTATION_PLAN.md           # Architecture, security & provisioning specification
 │   ├── gcloud-scripts/                  # Google Cloud Agent Platform / Cloud Run
 │   │   ├── config.env                   # Project ID, region (europe-west1), service config
-│   │   ├── deploy.sh / deploy.ps1       # Automated Cloud Run & Agent Platform provisioning
+│   │   ├── deploy.sh / deploy.ps1       # Release build + skill publish, Cloud Run, optional Agent Runtime
+│   │   ├── agent_runtime.py             # ADK AdkApp → Vertex AI Agent Runtime (--dry-run offline check)
 │   │   ├── destroy.sh / destroy.ps1     # Clean resource teardown
 │   │   └── test-service.sh / .ps1       # End-to-end integration & health verification
 │   ├── aws-scripts/                     # AWS Bedrock AgentCore / ECS Fargate
@@ -167,7 +173,7 @@ multiagent-retrieval-gaps/
 │   │   └── main.py                      # CLI entrypoint
 │   ├── requirements.txt                 # google-adk, google-genai, mcp, fastapi, uvicorn
 │   ├── load_env.sh
-│   └── tests/                           # 216 deterministic safety invariant, conformance, OKF & harness tests
+│   └── tests/                           # gate, OKF, harness, role-skill & Agent Runtime packaging tests
 │
 ├── strands-agents/                      # ── Framework 2: AWS Strands Agents SDK ──────────────
 │   ├── README.md                        # Framework 2 documentation & AgentCore memory details
@@ -179,7 +185,7 @@ multiagent-retrieval-gaps/
 │   │   ├── .env                         # ANTHROPIC_API_KEY + ANTHROPIC_MODEL_ID (gitignored)
 │   │   ├── env.example
 │   │   ├── server.py                    # Production FastAPI ASGI server (REST + healthz + MCP tools)
-│   │   ├── models/provider.py           # AnthropicModel (claude-sonnet-4-5) or BedrockModel
+│   │   ├── models/provider.py           # AnthropicModel (claude-opus-5-5) or BedrockModel
 │   │   ├── a2a/contracts.py             # Shared A2A contracts (same schema as ADK)
 │   │   ├── agents/                      # 6 Strands agent roles
 │   │   ├── memory/session.py            # Bedrock AgentCore managed session / local fallback
@@ -187,7 +193,7 @@ multiagent-retrieval-gaps/
 │   │   ├── tools/                       # Strands @tool wrappers over ontogate.tools
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint
-│   └── tests/                           # 54 deterministic offline & invariant tests
+│   └── tests/                           # deterministic offline, invariant & role-skill tests
 │
 ├── agent-framework/                     # ── Framework 3: Microsoft Agent Framework (MAF) ────
 │   ├── README.md                        # Framework 3 documentation & declarative workflow details
@@ -195,13 +201,13 @@ multiagent-retrieval-gaps/
 │   ├── pytest.ini                       # pythonpath = . src ../shared
 │   ├── requirements.txt
 │   ├── load_env.sh
-│   ├── declarative-agents/              # 6 × kind: Prompt YAML agent definitions
-│   │   ├── triage_orchestrator.yaml     # Primary entrypoint — all 5 tools bound
+│   ├── declarative-agents/              # kind: Prompt YAML, GENERATED from agents/<role>.yaml
+│   │   ├── triage_orchestrator.yaml     # parse → resolve → gate
 │   │   ├── ontology_resolver.yaml       # LOINC concept resolution
-│   │   ├── safety_guard.yaml            # Deterministic code gate (Gap 9)
-│   │   ├── protocol_retriever.yaml      # Reference range + panic limits
-│   │   ├── clinical_synthesizer.yaml    # Grounded LLM synthesis (only after PROCEED)
-│   │   └── clarification_coordinator.yaml # HITL pause — returns gap to clinician
+│   │   ├── protocol_retriever.yaml      # URI-bound protocol retrieval
+│   │   ├── clinical_synthesizer.yaml    # Grounded synthesis (only after PROCEED)
+│   │   ├── clarification_coordinator.yaml # HITL clarification
+│   │   └── panel_coordinator.yaml       # Specimen sequencing (the safety guard is code, not a prompt agent)
 │   ├── declarative-workflows/
 │   │   └── clinical_decision_workflow.yaml # WorkflowFactory + InvokeAgent conditional routing
 │   ├── src/
@@ -215,14 +221,17 @@ multiagent-retrieval-gaps/
 │   │   │   ├── providers.py             # ClinicalTodoProvider, ClinicalModeProvider, SafetyGateApprovalPolicy
 │   │   │   └── console.py               # Terminal UX — /todos /mode /scenario /status
 │   │   ├── tools/                       # Plain Python tool wrappers over ontogate.tools
+│   │   ├── declarative.py               # Role spec → declarative YAML generator (--check in CI)
+│   │   ├── skills_loader.py             # Role-scoped SkillsProvider (context provider)
 │   │   ├── models/provider.py           # Credential auto-detection (Foundry, Azure OpenAI, OpenAI)
 │   │   ├── orchestration/workflow_runner.py # Live MAF workflow + offline fast path
 │   │   ├── runner.py                    # Scenarios A–D runner
 │   │   └── main.py                      # CLI entrypoint (--harness, --harness-scenario)
-│   └── tests/                           # 44 deterministic safety invariant & harness tests
+│   └── tests/                           # safety invariants, harness, declarative drift & skills tests
 │
+├── conformance/                         # Cross-cloud parity: every CQ through ADK, Strands & MAF wrappers
 ├── docs/                                # Architectural blueprints, OKF specs & memory models
-├── run-all-tests.sh                     # Runs all 369 tests across shared core & 3 frameworks
+├── run-all-tests.sh                     # Integrity, skills, SHACL, generated-file drift, all suites, conformance
 ├── run-all.sh                           # Runs all 4 clinical scenarios across all 3 frameworks
 └── .gitignore
 ```
@@ -242,7 +251,7 @@ multiagent-retrieval-gaps/
 | **Gap 5: Missing Qualifier** | Agent Loop | `shared/ontogate/detectors/missing_qualifier.py` | Flags numeric results in look-alike assay families (Calcium, Troponin) when no qualifier is supplied. |
 | **Gap 8: Ambiguity & Silent Guessing** | Agent Loop | `shared/ontogate/detectors/ambiguity.py` | Returns explicit `AMBIGUOUS`, `UNIT_MISMATCH`, or `NOT_FOUND` statuses instead of silent guesses. |
 | **Gap 9: Safety Rule in Prompt** | Agent Loop | `shared/ontogate/detectors/engine.py` | Deterministic routing `SafetyGateEngine` and `safety_guard_node`; fails closed on uncertainty. Human-in-the-loop pause. |
-| **Gap 10: Trajectory Never Evaluated** | Agent Loop | `shared/tests/`, `*/tests/` | Pure-code `pytest` suite verifying invariants in milliseconds without LLM calls (369 tests total). |
+| **Gap 10: Trajectory Never Evaluated** | Agent Loop | `shared/tests/`, `*/tests/` | Pure-code `pytest` suites and cross-cloud conformance verifying invariants without LLM calls. |
 | **Gap 11: Tool Output Trusted, Unscoped** | Agent Loop | `shared/ontogate/detectors/specimen_sequence.py` | Enforces CSF panel tube sequencing and department scope boundaries. |
 | **Range Collisions (Look-Alikes)** | Clinical Safety | `shared/ontogate/detectors/range_collision.py` | Evaluates numeric values against look-alike assay families to prevent lethal classification errors. |
 | **Dynamic Gap Extensibility** | Framework | `config/scenarios/` | New gaps declared entirely in YAML — zero changes to Python code. |
@@ -282,13 +291,16 @@ flowchart LR
 4. **Attested Numeric Computation (OKF §5.4):**
    Evaluates patient lab values against age/sex/qualifier reference intervals deterministically and stamps the `[Attested ✓]` compliance badge.
 5. **Canonical FastMCP Tool Server:**
-   Exposes the 6 canonical clinical decision-support tools via FastMCP:
+   Exposes the 7 canonical clinical decision-support tools via FastMCP:
+   - `parse_clinician_input`
    - `resolve_lab_term`
    - `evaluate_safety_gate`
    - `fetch_grounded_protocol`
-   - `classify_lookalikes`
-   - `panel_workup`
+   - `attest_computation`
    - `build_clarification_prompt`
+   - `panel_workup`
+
+   `classify_lookalikes` is a read-only helper in `ontogate.tools` (not an MCP tool).
 6. **Cross-Framework Consumption:**
    - **Local Dev / Testing:** Each framework includes `shared/` on `PYTHONPATH` (e.g. `pytest.ini` with `pythonpath = . src ../shared` and automatic discovery via `ontogate.paths`).
    - **Production Containers:** Dockerfiles install the package directly: `pip install "/tmp/shared[mcp]"`.
@@ -298,8 +310,50 @@ flowchart LR
 ```bash
 cd shared
 python -m pytest tests/ -v
-# 78 passed in ~0.6 s (pure Python, 0 LLM calls, 100% deterministic)
+# 207 passed (pure Python, 0 LLM calls; the RDF/SHACL tests need `pip install -e ".[dev]"`)
 ```
+
+---
+
+## Knowledge Release, Runtime Skills & Cross-Cloud Conformance
+
+Everything an agent knows or is told to do ships as one **knowledge release**,
+built and verified offline before any deployment:
+
+```bash
+python -m ontogate validate              # integrity rules over the pack and every scenario overlay
+python -m ontogate skills build          # render skill references from the ontology, lint, lock, archive
+python -m ontogate rdf validate          # SHACL over the ontology + the role/skill/tool meta-graph
+python -m ontogate build                 # all of the above + OWL 2 RL → dist/release/manifest.json
+python conformance/run.py                # same decisions on ADK, Strands and MAF for every CQ
+```
+
+| Layer | Source of truth | Checked by |
+| :--- | :--- | :--- |
+| **Ontology** | `ontology/core`, `ontology/domains/<pack>` | integrity rules, SHACL (`ontology/core/shapes.ttl`), 35 competency questions |
+| **Formal view** | generated: SKOS / SKOS-XL / OWL 2 / PROV-O (`ontogate.rdf_export`) | SHACL; OWL 2 RL materialises symmetric and inverse relations |
+| **Role specs** | `agents/<role>.yaml` (tools, skills, `domain_skills`, model tier, instruction) | role ↔ skill ↔ tool consistency (lint + SHACL `RoleSkillShape`) |
+| **Runtime skills** | `skills/runtime/*`, `skills/domains/domain-<pack>` | agentskills.io format, clinical lint (no numbers, no routing, no scripts), lock drift |
+| **Skill references** | rendered from the ontology (designations, facets, trust caveats, panels) | `ontogate skills check` fails if a reference differs from the ontology |
+| **Release** | `skills.lock.json` (content + archive hashes, bundle hash), `dist/release/manifest.json` | runtimes verify hashes at startup and fail closed |
+
+**Runtime skills per framework.** Each role loads exactly its skills through the
+framework's native loader, built from the same hash-verified directories:
+ADK `SkillToolset` (script tool filtered out), Strands `AgentSkills` (local
+`Skill` instances, `strict=True`) and MAF `SkillsProvider` (no script
+extensions). `safety_guard` is a code node with no model and no skills. A role
+with `domain_skills: true` loads the domain skill of whichever pack is served,
+so the cardiology pack needed no role-spec change.
+
+**Skill stores.** `ontogate skills publish gs://… | s3://… | azblob://…`
+uploads content-addressed archives (`<name>/<archive_sha256>.zip`); setting
+`ONTOGATE_SKILL_STORE` makes a runtime materialise and hash-verify them at
+startup instead of using the copies baked into the image.
+
+**Conformance.** `conformance/run.py` runs every competency question (both
+packs) through each framework's own tool wrappers in a separate process and
+fails on any difference from the canonical `ontogate` decision — status, route,
+resolved URI, candidates, readings, attestation and panel order.
 
 ---
 
@@ -403,7 +457,7 @@ flowchart TD
 
         SafetyGuard -.-> Gap_Detectors
         SafetyGuard -- "PROCEED" --> ProtocolAgent[Protocol Retriever Agent]
-        ProtocolAgent --> SynthesisAgent[Clinical Synthesizer Agent<br/><i>Claude Sonnet 4.5</i>]
+        ProtocolAgent --> SynthesisAgent[Clinical Synthesizer Agent<br/><i>Claude Opus 5.5</i>]
         SafetyGuard -- "CLARIFY" --> ClarifyAgent[Clarification Coordinator Agent<br/><i>HITL RequestInput</i>]
 
         subgraph AgentCore["Amazon Bedrock AgentCore"]
@@ -422,8 +476,8 @@ flowchart TD
 
 | Mode | Model ID | Trigger |
 | :--- | :--- | :--- |
-| **Local / Direct Anthropic** | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` set in `src/.env` |
-| **AWS Bedrock** | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | `AWS_REGION` + credentials, `ANTHROPIC_API_KEY` unset |
+| **Local / Direct Anthropic** | `claude-opus-5-5` | `ANTHROPIC_API_KEY` set in `src/.env` |
+| **AWS Bedrock** | `global.anthropic.claude-opus-5-5` | `AWS_REGION` + credentials, `ANTHROPIC_API_KEY` unset |
 | **Offline / Mock** | `MockBedrockModel` | `STRANDS_OFFLINE_MODE=true` or no credentials |
 
 ### Getting Started — Strands Agents
@@ -438,10 +492,10 @@ pip install -r requirements.txt
 
 # 2. Verify src/.env (key is shared from google-adk-agents):
 #    ANTHROPIC_API_KEY="sk-ant-..."
-#    ANTHROPIC_MODEL_ID="claude-sonnet-4-5"
+#    ANTHROPIC_MODEL_ID="claude-opus-5-5"
 cat src/.env
 
-# 3. Run all scenarios (live Claude Sonnet 4.5 via direct Anthropic API)
+# 3. Run all scenarios (live Claude Opus 5.5 via direct Anthropic API)
 python src/main.py
 
 # 4. Offline mode (no API key needed, deterministic mock)
@@ -464,7 +518,7 @@ uvicorn src.server:app --host 0.0.0.0 --port 8000
 ```bash
 export AWS_REGION=us-east-1
 export AWS_PROFILE=your-profile
-export BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+export BEDROCK_MODEL_ID=global.anthropic.claude-opus-5-5
 unset ANTHROPIC_API_KEY   # let Bedrock auto-discovery take over
 python src/main.py
 ```
@@ -611,19 +665,20 @@ All four scenarios are declared as **declarative YAML** under `config/scenarios/
 Pure-code deterministic `pytest` suites verify safety invariants **without LLM calls**:
 
 ```bash
-# Shared Core (ontogate) — 78 tests (~0.6 s)
+# Shared Core (ontogate) — 207 tests (gate, CQs, validator, skills, RDF/SHACL, stores)
 cd shared && python -m pytest tests/ -v
 
-# Google ADK ≥2.11.0 — 193 tests (~12.2 s)
+# Google ADK ≥2.11.0 — 198 tests
 cd google-adk-agents && python -m pytest tests/ -v
 
-# AWS Strands SDK — 54 tests (~7.8 s)
+# AWS Strands SDK — 65 tests
 cd strands-agents && python -m pytest tests/ -v
 
-# Microsoft Agent Framework (MAF) — 44 tests (~6.1 s)
+# Microsoft Agent Framework (MAF) — 50 tests
 cd agent-framework && python -m pytest tests/ -v
 
-# Total: 369 deterministic safety invariants & contracts verified across the repository!
+# Cross-cloud conformance — 35 CQs × 3 frameworks
+python conformance/run.py
 ```
 
 ### One-Command Unified Execution Scripts
@@ -631,7 +686,7 @@ cd agent-framework && python -m pytest tests/ -v
 From the repository root, run the entire multi-cloud agent fleet and test suites using the top-level bash scripts:
 
 ```bash
-# 1. Run all test suites across shared core and all 3 frameworks (369 tests in ~27 s)
+# 1. Integrity, skills, SHACL, generated-file drift, every suite and cross-cloud conformance
 sh run-all-tests.sh
 
 # 2. Run end-to-end multi-agent clinical scenarios A–D across all 3 frameworks
@@ -643,7 +698,7 @@ sh run-all.sh
 | Framework | Orchestration & Synthesis Mode | Scenario Highlights & Behavioral Verification |
 | :--- | :--- | :--- |
 | **Google ADK 2.0** | Live Gemini 3.8 Flash (`gemini-3.8-flash`) | • **Scenario A**: Turn 1 (`Hb 13.5` no unit) pauses deterministically with `status=AMBIGUOUS` (`route=CLARIFY`). Turn 2 (`Hb 13.5 \| g/dL`) resolves to `loinc:718-7`, fetching reference range 13.8–17.2 g/dL with `[Attested ✓]` badge. Turn 3 (`Hb 13.5 \| mg/dL`) triggers `status=UNIT_MISMATCH` (`route=CLARIFY`).<br>• **Scenario B**: CSF Emergency Panel strictly enforces tube sequence: Tube 1 (Biochemistry), Tube 2 (Microbiology), Tube 3 (Hematology).<br>• **Scenario C**: `Calcium 4.8 mg/dL` triggers `RANGE_COLLISION` (`CLARIFY`); qualifying as `total` yields `CRITICAL_LOW`, whereas `ionized` yields `NORMAL`.<br>• **Scenario D**: Troponin I vs T dynamic YAML extension resolves `Troponin 15 \| ng/L` to `loinc:6598-7` (hs-cTnT) with panic limits (> 52 ng/L). |
-| **AWS Strands SDK + Bedrock AgentCore** | Anthropic Claude on AWS Bedrock (`claude-sonnet-4-5`) | • Full A2A supervisor orchestration with Bedrock AgentCore memory session manager.<br>• Resilient fallback to deterministic offline pipeline if cloud API quotas or rate limits are reached.<br>• Identical scenario outcomes: `AMBIGUOUS` on Turn 1, `RESOLVED` on Turn 2, and `UNIT_MISMATCH` on Turn 3. |
+| **AWS Strands SDK + Bedrock AgentCore** | Anthropic Claude on AWS Bedrock (`claude-opus-5-5`) | • Full A2A supervisor orchestration with Bedrock AgentCore memory session manager.<br>• Resilient fallback to deterministic offline pipeline if cloud API quotas or rate limits are reached.<br>• Identical scenario outcomes: `AMBIGUOUS` on Turn 1, `RESOLVED` on Turn 2, and `UNIT_MISMATCH` on Turn 3. |
 | **Microsoft Agent Framework (MAF)** | Live `gpt-6.1-sol` via OpenAI Agents SDK / Azure AI Foundry | • Declarative `kind: Prompt` agents and `WorkflowFactory` conditional routing.<br>• Identical clinical decisions: intercepts look-alike collisions (Calcium 4.8) and rejects incompatible units (`mg/dL` for Troponin). |
 
 ---
@@ -765,7 +820,7 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | **3** | **Episodic** | Session event logs, execution trajectories, and historical query resolutions. | Repeating past diagnostic failures or re-asking answered questions. |
 | **4** | **Procedural** | Pluggable `SafetyGateEngine` detectors, A2A action contracts, skill recipes, and protocol resolution algorithms. | Blind replay of outdated runbooks or inconsistent gate execution. |
 | **5** | **External (Retrieval)** | OpenSearch hybrid search (BM25 + dense vectors) over document chunks and evidence spans. | Hallucinating clinical literature not present in guidelines. |
-| **6** | **Parametric** | Frozen weights of base foundation models (Gemini 3.8 Flash, Claude Sonnet 4.5, `gpt-6.1-sol` via Azure AI Foundry / OpenAI). | Answering changing clinical thresholds from stale training data. |
+| **6** | **Parametric** | Frozen weights of base foundation models (Gemini 3.8 Flash, Claude Opus 5.5, `gpt-6.1-sol` via Azure AI Foundry / OpenAI). | Answering changing clinical thresholds from stale training data. |
 | **7** | **Prospective** | Pending clarification triggers in `ClarificationCoordinatorAgent` awaiting clinician input (`RequestInput`), async lab result hooks. | Unresolved clinical ambiguities left hanging or forgotten. |
 | **8** | **Spatial** | Physical CSF lumbar puncture tube sequencing (Tubes 1–3) and owning laboratory department boundaries (Biochemistry, Microbiology, Haematology). | Specimen cross-contamination; dispatching tests to the wrong lab department. |
 | **9** | **Temporal** | Bitemporal records (`valid_from`/`valid_to` vs. `recorded_at`), explicit `[:SUPERSEDES]` graph edges, and guideline expiration dates. | Recommending obsolete or superseded clinical guidelines. |
@@ -804,16 +859,17 @@ Grounding the fourteen memory types from [`docs/ai-agent-memory-architecture.md`
 | :--- | :--- | :--- | :--- |
 | **Shared Core Library** | `ontogate` (`shared/`) | `ontogate` (`shared/`) | `ontogate` (`shared/`) |
 | **Agent framework** | Google ADK ≥2.11.0 | AWS Strands SDK + Bedrock AgentCore | Microsoft Agent Framework (MAF) Python SDK |
-| **Model** | Gemini 3.8 Flash | Claude Sonnet 4.5 | `gpt-6.1-sol` via Azure AI Foundry / OpenAI |
+| **Model** | Gemini 3.8 Flash | Claude Opus 5.5 | `gpt-6.1-sol` via Azure AI Foundry / OpenAI |
 | **Session memory** | ADK `InMemorySessionService` + `HarnessSession` | Bedrock AgentCore managed sessions | MAF `HarnessSession` / Local session manager |
 | **Agent Harness** | `ClinicalADKHarness` (FastMCP, ASGI server, REST API) | FastAPI ASGI server (`src/server.py`, REST API) | `ClinicalHarnessAgent` + ASGI server (`src/harness/server.py`) |
-| **MCP Integration** | FastMCP server — 6 clinical tools via MCP protocol | FastMCP tools & REST bridge via `src/server.py` | FastMCP tools & REST bridge via `src/harness/server.py` |
+| **MCP Integration** | FastMCP server — the 7 canonical clinical tools | FastMCP tools & REST bridge via `src/server.py` | FastMCP tools & REST bridge via `src/harness/server.py` |
 | **Production Target** | Google Cloud Agent Platform / Cloud Run | AWS Bedrock AgentCore / ECS Fargate | Azure Container Apps + AI Foundry |
 | **Container Port** | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) | Port 8000 (`/healthz`, `/readyz`, `/api/v1/query`) |
 | **Safety gate** | `SafetyGateEngine` (shared deterministic code via `ontogate`) | `SafetyGateEngine` (shared deterministic code via `ontogate`) | `SafetyGateEngine` (shared deterministic code via `ontogate`) |
-| **Tests** | **193 offline `pytest` tests** (OKF v0.2 + Gate + Harness) | **54 offline `pytest` tests** (Invariants + Extensible + Roles) | **44 offline `pytest` tests** (Invariants + Pipeline + Harness) |
+| **Runtime skills** | `SkillToolset` per role (no script tool) | `AgentSkills` plugin per role (`strict=True`) | `SkillsProvider` per role (no scripts) |
+| **Tests** | **198 offline `pytest` tests** (OKF + Gate + Harness + Skills) | **65 offline `pytest` tests** (Invariants + Extensible + Roles + Skills) | **50 offline `pytest` tests** (Invariants + Pipeline + Harness + Declarative drift) |
 
-> *Note: Includes an additional **78 deterministic tests** in the shared core (`shared/tests/`), bringing total repository test coverage to **369 offline tests**.*
+> *Note: the shared core adds **207 tests** (`shared/tests/`) and `conformance/` checks all 35 competency questions on the three frameworks — **526 offline tests** in total.*
 
 | Shared Infrastructure | Production Choice |
 | :--- | :--- |
@@ -843,7 +899,7 @@ flowchart TD
         GCRun["Vertex AI Agent Platform / Cloud Run\nclinical-adk-agent:8000"]
         GAR["Artifact Registry\nclinical-agents"]
         GSM["Secret Manager\nclinical-gemini-api-key"]
-        VAE["Vertex AI Agent Engine\nReasoning Engine"]
+        VAE["Vertex AI Agent Runtime\nADK AdkApp (--use-agent-runtime)"]
         GCRun --- GAR
         GCRun --- GSM
         GCRun --- VAE
@@ -878,9 +934,9 @@ flowchart TD
 
 | Cloud Provider | Framework Deployed | Target Compute / Agent Service | Foundation Model Backend | Skill Store | Authentication & Secrets | Port | Health Checks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | GCP Skill Registry (`projects/.../skills`) | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
-| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (`claude-opus-5-5`) / Sonnet 4.5 | S3 Skill Store (`s3://.../skills/<release>/`) | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
-| **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | Foundry Skills API (`Foundry-Features: Skills=V1Preview`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
+| **Google Cloud** | **`google-adk-agents/`** (Google ADK 2.0) | **Google Cloud Agent Platform** (Agent Runtime / Cloud Run) | Gemini 3.8 Flash (`gemini-3.8-flash`) | Cloud Storage, content-addressed (`gs://<project>-skills/skills`) | Secret Manager (`GEMINI_API_KEY`) + ADC (`roles/aiplatform.user`) | 8000 | `/healthz`, `/readyz` |
+| **AWS** | **`strands-agents/`** (AWS Strands SDK) | **Amazon Bedrock AgentCore Runtime** (Gateway, Memory, ECS Fargate) | Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`) | S3, content-addressed (`s3://<project>-<env>-skills/skills`) | IAM Execution Role (`BedrockAgentCoreExecutionRole`) | 8000 | `/healthz`, `/readyz` |
+| **Microsoft Azure** | **`agent-framework/`** (Microsoft Agent Framework) | **Azure Container Apps** (ACA / Foundry Agent Service) | Azure AI Foundry / Azure OpenAI (`gpt-6.1-sol`) | Blob Storage, content-addressed (`azblob://<account>/skills/skills`) | System-Assigned Managed Identity (`Cognitive Services OpenAI User`) | 8000 | `/healthz`, `/readyz` |
 
 ### Automated Deployment Scripts
 

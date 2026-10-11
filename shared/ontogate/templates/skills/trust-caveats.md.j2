@@ -1,0 +1,17 @@
+# Trust caveats
+
+Append the caveat for the protocol's trust tier to every answer, word for word.
+
+| Trust tier | Mandated caveat |
+| :--- | :--- |
+{% for t in tiers %}
+| `{{ t.tier }}` | {{ t.wording }} |
+{% endfor %}
+{% if stale %}
+
+**Stale protocol** (past its review date): {{ stale }}
+{% endif %}
+{% if clinically_unvalidated %}
+
+**Clinically unvalidated interval:** {{ clinically_unvalidated }}
+{% endif %}

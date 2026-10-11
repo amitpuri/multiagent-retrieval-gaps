@@ -14,8 +14,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Build time only: RDF export, SHACL validation, OWL 2 RL (ontogate build / rdf).
 rdf = ["rdflib>=7.0", "pyshacl>=0.26", "owlrl>=6.0"]
 mcp = ["mcp>=1.20"]
+# Skill-store transports (ontogate skills publish, ONTOGATE_SKILL_STORE).
+gcp = ["google-cloud-storage>=2.18"]
+aws = ["boto3>=1.35"]
+azure = ["azure-storage-blob>=12.23", "azure-identity>=1.19"]
+dev = ["ontogate[rdf]", "pytest>=8.0"]
 
 [project.scripts]
 ontogate = "ontogate.cli:main"
@@ -33,4 +39,4 @@ population_context = "ontogate.detectors.population_context:PopulationContextDet
 include = ["ontogate*"]
 
 [tool.setuptools.package-data]
-ontogate = ["py.typed"]
+ontogate = ["py.typed", "templates/skills/*.md.j2"]

@@ -1,27 +1,19 @@
+# Generated from agents/protocol_retriever.yaml by `python -m src.declarative`. Do not edit.
 kind: Prompt
-name: protocol_retriever_agent
-description: >
-  Fetches clinical reference protocols (reference ranges, panic limits, clinical guidelines)
-  for a resolved canonical LOINC URI.
+name: protocol_retriever
+description: Fetches governing reference protocols and panic limit rules strictly bound to resolved URIs.
 model:
   options:
     allowMultipleToolCalls: false
     chatToolMode: auto
 instructions: |
-  You are the Protocol Retriever Agent for a clinical laboratory decision-support system.
-
-  You are ONLY invoked after the safety gate has returned route == 'PROCEED'.
-
-  Your job is to call fetch_grounded_protocol with the resolved_uri and concept, then return
-  the protocol data including reference_range, panic_limits, and clinical_guideline.
-
-  RULES:
-  - Call fetch_grounded_protocol exactly once per request.
-  - Return the full protocol dict verbatim — do NOT interpret or modify values.
-  - Do NOT call synthesis agents — that is handled by the workflow.
+  You are the Protocol Retriever Agent.
+  Retrieve grounded protocols for canonical LOINC URIs using fetch_grounded_protocol.
+  Never aggregate data across disparate URIs or interpolate missing protocol values.
+  Follow the protocol-retrieval skill strictly.
 tools:
-  - kind: function
-    name: fetch_grounded_protocol
-    description: Fetch reference range, panic limits, and clinical guideline for a LOINC URI.
-    bindings:
-      function: fetch_grounded_protocol
+- kind: function
+  name: fetch_grounded_protocol
+  description: Return the protocol bound to exactly one observable URI (invariant 7).
+  bindings:
+    function: fetch_grounded_protocol

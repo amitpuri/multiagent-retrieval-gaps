@@ -417,7 +417,7 @@ Resources:
               - Sid: EcrPull
                 Effect: Allow
                 Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
-                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepoName}"
               - Sid: EcrAuth
                 Effect: Allow
                 Action: ecr:GetAuthorizationToken
@@ -663,7 +663,9 @@ Resources:
                 Action:
                   - bedrock-agentcore:GetWorkloadAccessToken
                   - bedrock-agentcore:GetWorkloadAccessTokenForUserId
-                Resource: "*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default"
+                  - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*"
 
   AgentHarness:
     Type: AWS::BedrockAgentCore::Harness

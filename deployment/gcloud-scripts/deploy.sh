@@ -30,7 +30,7 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 MODEL_ID="${MODEL_ID:-gemini-3.8-flash}"
 PORT="${PORT:-8000}"
 ALLOW_UNAUTHENTICATED="${ALLOW_UNAUTHENTICATED:-true}"
-USE_REASONING_ENGINE="${USE_REASONING_ENGINE:-false}"
+USE_AGENT_RUNTIME="${USE_AGENT_RUNTIME:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
     --region|-r) REGION="$2"; shift 2 ;;
     --model|-m) MODEL_ID="$2"; shift 2 ;;
     --agent-name) AGENT_RESOURCE_NAME="$2"; shift 2 ;;
-    --use-reasoning-engine) USE_REASONING_ENGINE=true; shift ;;
+    --use-agent-runtime) USE_AGENT_RUNTIME=true; shift ;;
     --no-allow-unauthenticated) ALLOW_UNAUTHENTICATED=false; shift ;;
     *) shift ;;
   esac
@@ -49,7 +49,7 @@ echo " Google Cloud Agent Platform Deployment"
 echo " Project:  ${PROJECT_ID}"
 echo " Region:   ${REGION}"
 echo " Model:    ${MODEL_ID}"
-echo " Platform: Vertex AI Agent Platform + Agent Engine"
+echo " Platform: Cloud Run + (optional) Vertex AI Agent Runtime"
 echo " Repo:     ${REPO_ROOT}"
 echo "=============================================================================="
 
@@ -88,16 +88,19 @@ if ! gcloud artifacts repositories describe "${REPO_NAME}" --location="${REGION}
 fi
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-# ─── STEP 3b: Build & Sync Skills to GCP Skill Registry ───────────────────────
-echo "[3b/8] Building and syncing skills to GCP Skill Registry..."
-python -m ontogate.skills build
-SKILL_REGISTRY_BUCKET="${SKILL_REGISTRY_BUCKET:-gs://${PROJECT_ID}-skill-registry/skills}"
-if gcloud storage ls "${SKILL_REGISTRY_BUCKET}" &>/dev/null || gsutil ls "${SKILL_REGISTRY_BUCKET}" &>/dev/null; then
-  echo "    Syncing dist/skills/*.zip to ${SKILL_REGISTRY_BUCKET}..."
-  gcloud storage cp dist/skills/*.zip "${SKILL_REGISTRY_BUCKET}/" 2>/dev/null || gsutil cp dist/skills/*.zip "${SKILL_REGISTRY_BUCKET}/" 2>/dev/null || true
-  echo "[+] Skills synced to GCP Skill Registry store."
+# ─── STEP 3b: Knowledge release + skill store ─────────────────────────────────
+# `ontogate build` fails closed on any integrity, skill-lint or SHACL error.
+echo "[3b/8] Building the knowledge release and publishing locked skills..."
+cd "${REPO_ROOT}"
+export PYTHONPATH="${REPO_ROOT}/shared${PYTHONPATH:+:${PYTHONPATH}}"
+python -m ontogate build
+SKILL_STORE="${SKILL_STORE:-gs://${PROJECT_ID}-skills/skills}"
+SKILL_BUCKET="gs://$(echo "${SKILL_STORE#gs://}" | cut -d/ -f1)"
+if gcloud storage buckets describe "${SKILL_BUCKET}" --project="${PROJECT_ID}" &>/dev/null; then
+  python -m ontogate skills publish "${SKILL_STORE}"
+  echo "[+] Skills published to ${SKILL_STORE} (content-addressed, immutable)."
 else
-  echo "    [i] Skill Registry bucket '${SKILL_REGISTRY_BUCKET}' not yet provisioned; skills baked into image via dist/skills."
+  echo "    [i] Skill store bucket ${SKILL_BUCKET} not found; skills ship inside the image only."
 fi
 
 # ─── STEP 4: Build & Push Container ───────────────────────────────────────────
@@ -160,46 +163,15 @@ fi
 
 # ─── STEP 6: Deploy to Agent Platform (Vertex AI Agent Runtime) ───────────────
 echo "[6/8] Deploying to Google Cloud Agent Platform..."
-AGENT_ENGINE_ID=""
-
-if [[ "${USE_REASONING_ENGINE}" == "true" ]]; then
-  echo "    Attempting Vertex AI Agent Runtime deployment via native ADK app..."
-  PYTHON_SCRIPT=$(cat <<EOF
-import vertexai
-from vertexai.preview import reasoning_engines
-
-class ClinicalAdkAgentRuntime:
-    """Clinical Decision Support ADK Agent Runtime application."""
-    def __init__(self, model_id: str = "${MODEL_ID}"):
-        self.model_id = model_id
-
-    def set_up(self):
-        from src.workflow import run_clinical_workflow
-        self._workflow = run_clinical_workflow
-
-    def query(self, text: str, **kwargs):
-        import asyncio
-        from src.runner import execute_clinical_turn
-        return asyncio.run(execute_clinical_turn(text))
-
-vertexai.init(project='${PROJECT_ID}', location='${REGION}')
-try:
-    app = reasoning_engines.ReasoningEngine.create(
-        ClinicalAdkAgentRuntime(model_id='${MODEL_ID}'),
-        requirements=['google-cloud-aiplatform>=1.60.0', 'google-genai>=1.0.0', 'google-adk>=2.11.0', 'pydantic>=2.0.0', 'pyyaml>=6.0.0'],
-        extra_packages=['shared'],
-        display_name='${AGENT_DISPLAY_NAME}',
-        description='Clinical Decision Support - Google ADK on Agent Runtime',
-    )
-    print(f'Agent Runtime ID: {app.name}')
-except Exception as e:
-    print(f'ReasoningEngine error: {e}')
-EOF
-)
-  if python -c "${PYTHON_SCRIPT}" 2>/dev/null; then
-    echo "[+] Vertex AI Agent Runtime deployed!"
+if [[ "${USE_AGENT_RUNTIME}" == "true" ]]; then
+  echo "    Deploying the ADK workflow to Vertex AI Agent Runtime as an AdkApp..."
+  STAGING_BUCKET="${STAGING_BUCKET:-gs://${PROJECT_ID}-agent-staging}"
+  if python "${REPO_ROOT}/deployment/gcloud-scripts/agent_runtime.py" \
+      --project "${PROJECT_ID}" --location "${REGION}" \
+      --staging-bucket "${STAGING_BUCKET}" --display-name "${AGENT_DISPLAY_NAME}"; then
+    echo "[+] Agent Runtime deployment complete."
   else
-    echo "    [i] Agent Runtime SDK deployment skipped. Falling back to Cloud Run with Agent Platform environment."
+    echo "[!] Agent Runtime deployment failed (output above); continuing with Cloud Run." >&2
   fi
 fi
 
@@ -259,7 +231,7 @@ echo " Agent Docs:       ${SERVICE_URL}/docs"
 echo ""
 echo " Agent Platform Capabilities:"
 echo "   Vertex AI      -> Gemini ${MODEL_ID} foundation model"
-echo "   Agent Engine   -> Managed stateful reasoning engine"
+echo "   Agent Runtime  -> ADK AdkApp (--use-agent-runtime)"
 echo "   Secret Manager -> GEMINI_API_KEY secured"
 echo "   Observability  -> Cloud Trace + Cloud Logging"
 echo "   Scaling        -> 0-10 instances (scale to zero)"

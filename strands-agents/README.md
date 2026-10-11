@@ -1,6 +1,6 @@
 # AWS Strands Agents SDK + Amazon Bedrock AgentCore
 
-*Clinical Laboratory Decision Support with Deterministic Safety Gating, Managed Session Memory, and Claude Sonnet 4.5.*
+*Clinical Laboratory Decision Support with Deterministic Safety Gating, Managed Session Memory, and Claude Opus 5.5.*
 
 Part of the **Multi-Agent Retrieval-Gap Framework** ([Root Project README](../README.md)).
 
@@ -10,7 +10,7 @@ Part of the **Multi-Agent Retrieval-Gap Framework** ([Root Project README](../RE
 
 In acute and ambulatory clinical care, misinterpreting look-alike lab orders, ambiguous units, or tube collection sequences can result in severe clinical harm.
 
-This package implements the multi-agent clinical decision support architecture using the **AWS Strands Agents SDK** and **Amazon Bedrock AgentCore**, with **Anthropic Claude Sonnet 4.5** on Amazon Bedrock.
+This package implements the multi-agent clinical decision support architecture using the **AWS Strands Agents SDK** and **Amazon Bedrock AgentCore**, with **Anthropic Claude Opus 5.5** on Amazon Bedrock.
 
 The system addresses classical RAG retrieval gaps (Gaps 1–7) and multi-agent failure modes (Gaps 8–11) through:
 1. **Deterministic Safety Gating (`SafetyGateEngine`)**: Code-enforced rules that intercept ambiguous orders and unit mismatches without relying on generative prompt compliance.
@@ -44,7 +44,7 @@ flowchart TD
 
         SafetyGuard -.-> Gap_Detectors
         SafetyGuard -- "status == RESOLVED (PROCEED)" --> ProtocolAgent[Protocol Retriever Agent\nCanonical URI Grounding]
-        ProtocolAgent -->|A2A: Grounded Protocol| SynthesisAgent[Clinical Synthesizer Agent\nClaude Sonnet 4.5]
+        ProtocolAgent -->|A2A: Grounded Protocol| SynthesisAgent[Clinical Synthesizer Agent\nClaude Opus 5.5]
         SafetyGuard -- "Uncertain / Collision (CLARIFY)" --> ClarifyAgent[Clarification Coordinator Agent\nHITL RequestInput]
 
         subgraph AgentCore["Amazon Bedrock AgentCore"]
@@ -69,7 +69,7 @@ flowchart TD
 | **Safety Guard** | `src/agents/safety_guard_agent.py` | Executes the deterministic `SafetyGateEngine` across the 5 pluggable detectors. Fails closed to `CLARIFY` if any clinical safety rule fails. |
 | **Clarification Coordinator** | `src/agents/clarification_agent.py` | Generates structured clarification requests for human-in-the-loop (HITL) input without hallucinating or guessing. |
 | **Protocol Retriever** | `src/agents/protocol_agent.py` | Fetches grounded reference intervals, critical panic limits, and clinical guidelines from `config/domains/laboratory_medicine/protocols.yaml`. |
-| **Clinical Synthesizer** | `src/agents/synthesis_agent.py` | Single-turn grounded synthesis agent powered by Claude Sonnet 4.5; interprets patient values strictly within protocol bounds. |
+| **Clinical Synthesizer** | `src/agents/synthesis_agent.py` | Single-turn grounded synthesis agent powered by Claude Opus 5.5; interprets patient values strictly within protocol bounds. |
 
 ---
 
@@ -79,8 +79,8 @@ The runtime dynamically selects the appropriate model provider based on your env
 
 | Mode | Model Identifier | Trigger Condition |
 | :--- | :--- | :--- |
-| **AWS Bedrock** *(Production)* | `us.anthropic.claude-sonnet-4-5:0` | `AWS_REGION` + AWS credentials configured, `ANTHROPIC_API_KEY` unset |
-| **Direct Anthropic** | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` configured in `.env` |
+| **AWS Bedrock** *(Production)* | `global.anthropic.claude-opus-5-5` | `AWS_REGION` + AWS credentials configured, `ANTHROPIC_API_KEY` unset |
+| **Direct Anthropic** | `claude-opus-5-5` | `ANTHROPIC_API_KEY` configured in `.env` |
 | **Offline / Mock** *(Testing)* | `MockBedrockModel` | `STRANDS_OFFLINE_MODE=true` or missing cloud credentials |
 
 ---
@@ -112,7 +112,7 @@ strands-agents/
 │   │   ├── safety_guard_agent.py  # Deterministic safety gate node
 │   │   ├── protocol_agent.py      # Reference protocol retriever
 │   │   ├── clarification_agent.py # HITL clinical clarification coordinator
-│   │   └── synthesis_agent.py     # Grounded Claude Sonnet 4.5 synthesizer
+│   │   └── synthesis_agent.py     # Grounded Claude Opus 5.5 synthesizer
 │   ├── memory/
 │   │   └── session.py             # Bedrock AgentCore & Local memory managers
 │   ├── models/
@@ -160,7 +160,7 @@ Configure credentials according to your chosen mode:
 **Option A — AWS Bedrock (Recommended for Production)**:
 ```env
 AWS_REGION=us-east-1
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5:0
+BEDROCK_MODEL_ID=global.anthropic.claude-opus-5-5
 AGENTCORE_MEMORY_ID=mem-clinical-decision-support
 STRANDS_OFFLINE_MODE=false
 ```
@@ -207,7 +207,7 @@ python -m src.main --offline
 
 ## Test Suite & Verification
 
-The test suite contains **54 tests** running deterministically in pure code without live external API calls:
+The test suite contains **65 tests** running deterministically in pure code without live external API calls:
 
 ```bash
 python -m pytest tests/ -v
@@ -223,4 +223,5 @@ sh run-all-tests.sh
 | `tests/test_gate.py` | **12 tests** | Deterministic safety invariants for Gaps 2, 5, 8, and 11 without LLM dependencies. |
 | `tests/test_multiagent_extensible.py` | **16 tests** | Shared ontology registry loading, dynamic YAML scenario extensions (Troponin), and detector unit tests. |
 | `tests/test_strands_agents.py` | **26 tests** | Strands tools, agent factories, offline model selection, AgentCore memory fallbacks, and end-to-end multi-agent orchestration. |
-| **Total** | **54 tests** | **100% Passing** |
+| `tests/test_role_skills.py` | **11 tests** | Each role agent is built with an `AgentSkills` plugin holding exactly its skills (local, hash-verified `Skill` instances). |
+| **Total** | **65 tests** | **100% Passing** |

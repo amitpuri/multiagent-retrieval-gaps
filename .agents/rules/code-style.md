@@ -41,6 +41,6 @@ Applies to all Python files in this repository.
 
 ## MCP Tools
 
-- Tool functions are thin wrappers: delegate immediately to `src/tools.py` or `src/core/`.
+- Tool functions are thin wrappers: delegate immediately to the canonical `ontogate.tools` function.
 - Never put business logic directly in `mcp_server.py` tool bodies.
 - Tool names in `@mcp_server.tool(name=...)` must match the `CLINICAL_MCP_TOOLS` dict key exactly.

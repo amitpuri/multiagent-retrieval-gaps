@@ -1,21 +1,27 @@
 ---
 name: lab-term-resolution
-description: Resolve clinician laboratory terms and designations to canonical observables. Present all candidates without guessing when terms are ambiguous.
+description: Present the result of resolving a clinician's lab term to canonical LOINC observables. Use when reporting resolve_lab_term output, especially when a designation is ambiguous; list every candidate and never choose one.
+allowed-tools: resolve_lab_term
 license: Apache-2.0
 metadata:
   roles: ontology_resolver
   risk_class: clinical
-  bundle_sha256: pending
+  version: 1.0.0
+  references: designation-index
 ---
 
-# Laboratory Term Resolution
+# Lab term resolution
 
-This skill guides the ontology resolver on mapping colloquial designations and abbreviations to canonical LOINC observables.
+## Steps
 
-## Guidelines
+1. Call `resolve_lab_term` with the term, unit, qualifier and value you were given.
+2. Report the status and every candidate exactly as returned: label, URI,
+   department, admitted units and trust tier.
+3. If the status is AMBIGUOUS, look the designation up in
+   `references/designation-index.md` and state what tells the candidates apart.
 
-1. Call `resolve_lab_term` with the clinician query term.
-2. Review candidate observables and designations against `references/designation-index.md`.
-3. When multiple candidates share a designation without differentiating qualifiers, return all matching candidates.
-4. Never arbitrarily choose a single candidate when designations are ambiguous.
-5. Propagate canonical LOINC URIs and admitted UCUM dimensions.
+## Rules
+
+- Never choose between candidates, rank them, or say which is more common.
+- Never translate a unit or qualifier yourself; the tool already normalised it.
+- Deprecated concepts are never offered as candidates. Do not mention them.

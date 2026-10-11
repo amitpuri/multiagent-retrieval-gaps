@@ -53,9 +53,13 @@ relations:
 # ---------------------------------------------------------------------------
 population_facets:
   sex:
+    label: "Patient sex"
+    question: "Is the patient male or female? The reference interval differs by sex."
     values: [male, female]
     value_synonyms: { m: male, man: male, f: female, woman: female }
   age_band:
+    label: "Age band"
+    question: "Is the patient an adult, a pediatric patient or a neonate? The reference interval differs by age."
     values: [adult, pediatric, neonate]
     value_synonyms: { child: pediatric, paediatric: pediatric, newborn: neonate }
 
@@ -76,3 +80,11 @@ trust_policy:
   stale_protocol: clarify              # attestation refuses stale protocols
   deprecated_concept: exclude          # never offered as a candidate
   unverified_interval_critical: caveat # critical readings from unverified intervals must carry a caveat
+  # Mandated caveat wording per trust tier / lifecycle state. The grounded-synthesis
+  # skill reference (trust-caveats.md) is rendered from this table — never hand-written.
+  caveats:
+    unverified: "Unverified knowledge: no reviewer has confirmed this protocol. Human review is recommended before acting on it."
+    machine-confirmed: "Machine-confirmed knowledge: checked by an automated process, not yet reviewed by a clinician."
+    human-reviewed: "Reviewed knowledge: confirmed by a named human reviewer. Apply local laboratory policy."
+    stale: "This protocol is past its review date. Confirm it against the current local protocol before use."
+    clinically_unvalidated: "Demonstration values: these intervals are not clinically validated and must not guide care."

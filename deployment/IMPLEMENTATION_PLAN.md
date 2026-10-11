@@ -22,9 +22,9 @@ flowchart TD
 
 | Phase | Cloud Provider | Framework | Compute Runtime | Registry | Model Service |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Phase 1** | **AWS** | `strands-agents/` | **AWS App Runner** | Amazon ECR | Amazon Bedrock (Claude Sonnet 4.5) |
+| **Phase 1** | **AWS** | `strands-agents/` | **AWS App Runner** | Amazon ECR | Amazon Bedrock (Claude Opus 5.5) |
 | **Phase 2** | **Google Cloud** | `google-adk-agents/` | **Google Cloud Run** | Artifact Registry | Vertex AI / Gemini 3.5 Flash |
-| **Phase 3** | **Microsoft Azure** | `agent-framework/` | **Azure Container Apps** | Azure Container Registry (ACR) | Azure AI Foundry / OpenAI (`gpt-5`) |
+| **Phase 3** | **Microsoft Azure** | `agent-framework/` | **Azure Container Apps** | Azure Container Registry (ACR) | Azure AI Foundry / OpenAI (`gpt-6.1-sol`) |
 
 ---
 

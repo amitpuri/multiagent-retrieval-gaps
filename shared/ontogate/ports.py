@@ -209,12 +209,27 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+# Knowledge sources are text; hashing them with LF line endings keeps a content
+# hash identical on a Windows (autocrlf) checkout, Linux CI and a container.
+TEXT_SUFFIXES = frozenset({".md", ".yaml", ".yml", ".json", ".ttl", ".txt", ".j2", ".csv", ".xml"})
+_IGNORED_PARTS = frozenset({"__pycache__", ".pytest_cache"})
+
+
+def sha256_content(path: Path) -> str:
+    """SHA-256 of a file's content, with line endings normalised for text files."""
+    path = Path(path)
+    if path.suffix.lower() in TEXT_SUFFIXES:
+        return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    return sha256_file(path)
+
+
 def sha256_tree(root: Path) -> str:
-    """Deterministic hash of a directory tree (relative paths + contents)."""
+    """Deterministic hash of a directory tree (relative paths + normalised contents)."""
+    root = Path(root)
     h = hashlib.sha256()
-    for p in sorted(x for x in Path(root).rglob("*") if x.is_file()):
+    for p in sorted(x for x in root.rglob("*") if x.is_file() and not _IGNORED_PARTS & set(x.parts)):
         h.update(p.relative_to(root).as_posix().encode())
-        h.update(sha256_file(p).encode())
+        h.update(sha256_content(p).encode())
     return h.hexdigest()
 
 

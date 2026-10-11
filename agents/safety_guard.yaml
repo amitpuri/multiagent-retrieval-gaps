@@ -1,4 +1,3 @@
-# agents/safety_guard.yaml
 role: safety_guard
 description: Deterministic code safety gate enforcing clinical invariants and fail-closed routing.
 uses_model: false

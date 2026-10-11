@@ -191,7 +191,11 @@ def validate_pack(domain_dir: Path, scenarios: Iterable[Path] = ()) -> List[Issu
     base = load_domain_config(domain_dir)
     issues += check_registry(base)
     import copy
+    pack_ids = set(base.domains)
     for scenario in scenarios:
+        domain = (yaml.safe_load(Path(scenario).read_text(encoding="utf-8")) or {}).get("domain")
+        if domain and pack_ids and domain not in pack_ids:
+            continue  # a scenario for another pack is validated with that pack
         reg = load_scenario_extension(scenario, copy.deepcopy(base))
         for issue in check_registry(reg):
             if issue not in issues:

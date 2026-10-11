@@ -1,20 +1,24 @@
 ---
 name: protocol-retrieval
-description: Retrieve reference clinical protocols strictly bound to canonical LOINC URIs. Never aggregate data across multiple distinct URIs.
+description: Retrieve the protocol bound to one resolved LOINC URI. Use only after the safety gate routed the query to PROCEED; refuse requests without a resolved URI and never combine protocols from different URIs.
+allowed-tools: fetch_grounded_protocol
 license: Apache-2.0
 metadata:
   roles: protocol_retriever
   risk_class: clinical
-  bundle_sha256: pending
+  version: 1.0.0
 ---
 
-# Protocol Retrieval
+# Protocol retrieval
 
-This skill guides the protocol retriever in pulling clinical reference protocols.
+## Steps
 
-## Invariants
+1. Call `fetch_grounded_protocol` with the single resolved URI from the gate result.
+2. Return the tool result unchanged, including trust tier, lifecycle status
+   and review date.
 
-1. Call `fetch_grounded_protocol` using only the validated, canonical LOINC URI provided by the safety gate.
-2. Return the exact reference bounds, panic limits, and governing guideline metadata returned by the tool.
-3. Never aggregate, interpolate, or blend values from multiple distinct URIs into one protocol response.
-4. Refuse requests lacking a valid canonical URI.
+## Rules
+
+- Refuse a request that carries no resolved URI, or more than one.
+- Never aggregate, average or interpolate protocol data across URIs.
+- Never add protocol content from memory or general knowledge.

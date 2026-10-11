@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 from ontogate.catalog import model_for
+from src.skills_loader import skill_tools_for
 from google.adk import Agent, Event
 from src.a2a.contracts import A2AAction, A2AMessage, AgentRole
 from ontogate.config import OntologyRegistry, get_default_registry
@@ -193,6 +194,7 @@ def create_ontology_agent(model: Optional[str] = None) -> Agent:
     """Create an ADK Agent wrapping ontology resolution."""
     return Agent(
         name="ontology_resolver",
+        tools=skill_tools_for("ontology_resolver"),
         model=model or model_for("gcp")["id"],
         instruction=(
             "You are an ontology resolution specialist. Map incoming lab terms and reported "

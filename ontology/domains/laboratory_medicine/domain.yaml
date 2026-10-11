@@ -15,7 +15,7 @@ disclaimer: >
   (intervals carry clinically_unvalidated: true and verified_by: null).
   Do not use in production clinical systems without laboratory sign-off.
 terminology_releases:
-  loinc: "2026 release (codes and axes to be re-verified against the release in use — see docs/adr/0002)"
+  loinc: "2026 release (codes and axes to be re-verified against the release in use)"
   ucum: "2.2"
 files:
   - vocabulary.yaml

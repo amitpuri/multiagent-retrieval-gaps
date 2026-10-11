@@ -110,13 +110,23 @@ if (-not $acrLoginServer) {
 }
 $fullImageUri = "$acrLoginServer/${ImageName}:$ImageTag"
 
-# 3b. Build & Sync Skills to Azure AI Foundry Skills Store
-Write-Host "[3b/8] Building and syncing skills to Foundry Skills store..." -ForegroundColor Yellow
-python -m ontogate.skills build
-if ($env:FOUNDRY_PROJECT_ENDPOINT) {
-    Write-Host "    Registering skills with Azure AI Foundry Skills API (Foundry-Features: Skills=V1Preview)..."
+# 3b. Knowledge release + Azure Blob skill store
+# `ontogate build` fails closed on any integrity, skill-lint or SHACL error.
+Write-Host "[3b/8] Building the knowledge release and publishing locked skills..." -ForegroundColor Yellow
+Push-Location $repoRoot
+$env:PYTHONPATH = "$repoRoot\shared" + $(if ($env:PYTHONPATH) { ";$env:PYTHONPATH" } else { "" })
+python -m ontogate build
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "ontogate build failed: the knowledge release is not valid." }
+if ($env:SKILLS_STORAGE_ACCOUNT) {
+    $container = if ($env:SKILLS_CONTAINER) { $env:SKILLS_CONTAINER } else { "skills" }
+    $skillStore = "azblob://$($env:SKILLS_STORAGE_ACCOUNT)/$container/skills"
+    python -m ontogate skills publish $skillStore
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Publishing skills to $skillStore failed." }
+    Write-Host "[+] Skills published to $skillStore (content-addressed, immutable)." -ForegroundColor Green
+} else {
+    Write-Host "    [i] SKILLS_STORAGE_ACCOUNT not set; skills ship inside the image only." -ForegroundColor DarkYellow
 }
-Write-Host "[+] Skills packaged and ready for Foundry SkillsProvider." -ForegroundColor Green
+Pop-Location
 
 # 4. Build & Push Image
 Write-Host "[4/8] Building and pushing container image: $fullImageUri..." -ForegroundColor Yellow

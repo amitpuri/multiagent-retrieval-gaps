@@ -1,4 +1,3 @@
-# agents/clarification_coordinator.yaml
 role: clarification_coordinator
 description: Formulates human-in-the-loop clarification questions when safety gate halts with CLARIFY.
 uses_model: true

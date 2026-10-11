@@ -48,11 +48,21 @@ def ontology_dir() -> Path:
     return repo_root() / "ontology"
 
 
-def domain_dir(domain: str = "laboratory_medicine") -> Path:
-    """Return a domain pack directory (``ontology/domains/<domain>``)."""
-    env = os.environ.get("ONTOGATE_DOMAIN_DIR")
-    if env:
-        return Path(env)
+DEFAULT_DOMAIN = "laboratory_medicine"
+
+
+def domain_dir(domain: Optional[str] = None) -> Path:
+    """Return a domain pack directory (``ontology/domains/<domain>``).
+
+    Without a domain, the served pack: ``ONTOGATE_DOMAIN_DIR`` if set, else
+    ``ONTOGATE_DOMAIN`` (pack id), else laboratory medicine. A named domain
+    always resolves to its own pack.
+    """
+    if domain is None:
+        env = os.environ.get("ONTOGATE_DOMAIN_DIR")
+        if env:
+            return Path(env)
+        domain = os.environ.get("ONTOGATE_DOMAIN", DEFAULT_DOMAIN)
     return ontology_dir() / "domains" / domain
 
 

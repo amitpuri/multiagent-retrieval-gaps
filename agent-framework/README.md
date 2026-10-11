@@ -17,7 +17,7 @@ It is the third framework port alongside:
 | Framework | Directory | Model |
 |:---|:---|:---|
 | Google ADK | [`google-adk-agents/`](../google-adk-agents/) | Gemini 3.8 Flash |
-| AWS Strands | [`strands-agents/`](../strands-agents/) | Claude Sonnet 4.5 on Bedrock |
+| AWS Strands | [`strands-agents/`](../strands-agents/) | Claude Opus 5.5 on Bedrock |
 | **Microsoft MAF** | **`agent-framework/`** (this directory) | **`gpt-6.1-sol` via Azure AI Foundry / OpenAI** |
 
 All three frameworks share the same **deterministic `SafetyGateEngine`**, the same **A2A message
@@ -101,7 +101,7 @@ policies.
 
 | Capability | Behaviour in Clinical Harness |
 |:---|:---|
-| **Function invocation** | All 6 clinical tools auto-wired with approval policy |
+| **Function invocation** | The canonical clinical tools, auto-wired with approval policy |
 | **Per-turn history persistence** | `HarnessSession` persists each model call |
 | **Todo tracking** | `ClinicalTodoProvider` — 4-step diagnostic workflow checklist |
 | **Agent modes** | `ClinicalModeProvider` — `PLAN` (analysis only) and `EXECUTE` (full pipeline) |
@@ -278,13 +278,13 @@ agent-framework/
 ├── requirements.txt                     # MAF + openai + azure-identity + pydantic
 ├── load_env.sh                          # Source credentials from src/.env
 │
-├── declarative-agents/                  # ← 6 × kind:Prompt YAML agent definitions
-│   ├── triage_orchestrator.yaml         # Primary entrypoint — all 5 tools bound
+├── declarative-agents/                  # ← kind:Prompt YAML GENERATED from ../agents/<role>.yaml
+│   ├── triage_orchestrator.yaml         # parse → resolve → gate
 │   ├── ontology_resolver.yaml           # LOINC concept resolution
-│   ├── safety_guard.yaml                # Deterministic gate — fail-closed (Gap 9)
-│   ├── protocol_retriever.yaml          # Reference range + panic limits
-│   ├── clinical_synthesizer.yaml        # Grounded LLM synthesis (only after PROCEED)
-│   └── clarification_coordinator.yaml   # HITL pause — returns gap to clinician
+│   ├── protocol_retriever.yaml          # URI-bound protocol retrieval
+│   ├── clinical_synthesizer.yaml        # Grounded synthesis (only after PROCEED)
+│   ├── clarification_coordinator.yaml   # HITL clarification
+│   └── panel_coordinator.yaml           # Specimen sequencing
 │
 ├── declarative-workflows/
 │   └── clinical_decision_workflow.yaml  # InvokeAgent + If/Then/Else routing
@@ -293,9 +293,8 @@ agent-framework/
     ├── .env                             # Active credentials (gitignored)
     ├── env.example                      # Template — commit this, not .env
     ├── a2a/contracts.py                 # A2AMessage, AgentRole, A2AAction (parity with ADK/Strands)
-    ├── core/                            # Shim → google-adk-agents/src/core/ (shared)
-    │   ├── __init__.py                  # sys.modules pre-registration (namespace shim)
-    │   └── models.py                    # importlib.util loader for ADK models
+    ├── declarative.py                   # Role spec → declarative YAML (python -m src.declarative [--check])
+    ├── skills_loader.py                 # Role-scoped SkillsProvider, appended to agent.context_providers
     ├── harness/                         # ← MAF Agent Harness (src/harness/)
     │   ├── __init__.py                  # Public exports
     │   ├── agent.py                     # ClinicalHarnessAgent + create_clinical_harness_agent()
@@ -380,16 +379,16 @@ MAF binds functions via the `bindings:` key in the agent YAML — no decorator n
 This makes every tool reusable across multiple agents without framework coupling, and makes
 the tools testable as pure Python without any MAF dependency.
 
-**Why is the safety gate never in `instructions:`?**
-The `safety_guard.yaml` instructions only say *"call run_safety_gate"*. The gate logic itself
-is deterministic Python (`SafetyGateEngine`) — it cannot be overridden by prompt injection or
-LLM reasoning drift. This is the Gap 9 fix.
+**Why is there no safety-guard prompt agent?**
+The safety guard is a code node (`agents/safety_guard.yaml`: `uses_model: false`, no skills).
+`workflow_runner.py` calls `evaluate_safety_gate` directly before any agent runs, so no prompt,
+skill or model output can change a gate decision. This is the Gap 9 fix.
 
-**Why a `src/core/` shim instead of a copy?**
-Both `agent-framework/src/` and `google-adk-agents/src/` use the `src.*` Python namespace.
-A direct file copy would cause a namespace collision. The `importlib.util` shim pre-registers
-all ADK core modules in `sys.modules` under their canonical names, resolving the conflict cleanly
-without duplicating any clinical logic.
+**Why are the declarative agents generated?**
+`agents/<role>.yaml` is the one declaration of each role for all three frameworks: its
+instruction, tool grants and skills. `python -m src.declarative` renders the MAF YAML from it
+and `--check` fails CI on drift, so the Azure agents cannot diverge from the GCP and AWS ones.
+Each agent gets its role's runtime skills as a `SkillsProvider` (`src/skills_loader.py`).
 
 ---
 
@@ -405,6 +404,6 @@ without duplicating any clinical logic.
 
 ---
 
-> **Status**: ✅ Implementation complete — 44/44 tests passing.
+> **Status**: ✅ Implementation complete — 50/50 tests passing, and the cross-cloud conformance run matches.
 > Includes: WorkflowFactory declarative pipeline + MAF Agent Harness (session, todos, modes, approval policy, terminal UX).
 > Model: `gpt-6.1-sol` via `OPENAI_API_KEY` (local) or Azure AI Foundry (production).

@@ -78,7 +78,7 @@ python -m pytest shared/tests/ -v --tb=short
 **Blocking failures** (`test_gate.py`):
 - Any failure here means a deterministic safety invariant has regressed
 - Do NOT commit until these pass
-- Root cause: likely a change to `src/core/detectors/`, `src/workflow.py`, or `src/tools.py`
+- Root cause: likely a change to `shared/ontogate/detectors/`, the ontology pack, or a framework `src/workflow.py`
 
 **High-priority failures** (harness / multiagent):
 - Indicate broken MCP tool wiring, A2A message shapes, or harness loop logic

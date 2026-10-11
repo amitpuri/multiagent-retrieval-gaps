@@ -2,7 +2,7 @@
 
 > **The Framework-Agnostic Clinical Ontology, Deterministic Safety Gate & FastMCP Tool Server**
 
-`ontogate` is a pure-Python, zero-cloud-dependency shared library that centralizes the clinical knowledge models, deterministic safety gating, LOINC term resolution, UCUM unit conversions, and canonical FastMCP tools used by all three multi-agent frameworks in this repository:
+`ontogate` is a pure-Python shared library (cloud SDKs only in optional extras) that centralizes the clinical knowledge models, deterministic safety gating, LOINC term resolution, UCUM unit conversions, and canonical FastMCP tools used by all three multi-agent frameworks in this repository:
 - **Google ADK 2.0** (`google-adk-agents/`)
 - **AWS Strands Agents SDK** (`strands-agents/`)
 - **Microsoft Agent Framework** (`agent-framework/`)
@@ -14,7 +14,8 @@
 1. **Deterministic Safety Gate (Gap 9):**
    `SafetyGateEngine` and all 7 pluggable gap detectors run in pure deterministic Python. **No LLM calls**, no probabilistic branching, and fail-closed routing (`PROCEED` only on `RESOLVED`; `AMBIGUOUS`, `UNIT_MISMATCH`, `RANGE_COLLISION`, `NOT_FOUND` all route to `CLARIFY`).
 2. **Framework Independence:**
-   Zero vendor SDK dependencies (no Google GenAI, no AWS Boto3/Bedrock, no Azure/OpenAI SDKs).
+   No model SDKs. Cloud storage SDKs are optional extras (`[gcp]`, `[aws]`, `[azure]`) used only to publish
+   and fetch skill archives; RDF tooling is the build-time `[rdf]` extra.
 3. **Canonical Tool Contracts:**
    All clinical tools return typed `Dict[str, Any]` with an explicit `"status"` field matching `ResolutionStatus`.
 
@@ -40,10 +41,16 @@ shared/
 │   ├── attestation.py          # Deterministic numeric range attestation (OKF §5.4)
 │   ├── catalog.py              # Model catalog loader (config/models.yaml)
 │   ├── tools.py                # Canonical clinical tool contract implementations
-│   ├── mcp_server.py           # FastMCP server (6 clinical tools via MCP protocol)
+│   ├── mcp_server.py           # FastMCP server (the 7 canonical clinical tools)
 │   ├── validate.py             # Ontology integrity & schema validation rules
 │   ├── ports.py                # Runtime ports (audit, telemetry, stores)
-│   ├── release.py              # Knowledge release stamping & manifests
+│   ├── release.py              # Knowledge release build (`ontogate build`) & fail-closed verification
+│   ├── roles.py                # Role specs (agents/<role>.yaml)
+│   ├── skills.py               # Skills: render references, lint, role checks, lock, archives, per-role paths
+│   ├── skill_refs.py           # Skill references rendered from the ontology (templates/skills/*.md.j2)
+│   ├── cloud_stores.py         # Content-addressed skill stores: GCS, S3, Azure Blob, local
+│   ├── rdf_export.py           # SKOS/OWL/PROV export, SHACL validation, OWL 2 RL, ontology bundle
+│   ├── cli.py / __main__.py    # `python -m ontogate validate | skills | rdf | build | release verify`
 │   └── detectors/              # 7 pluggable deterministic gap detectors + SafetyGateEngine
 │       ├── engine.py           # SafetyGateEngine (deterministic gate, fail-closed)
 │       ├── ambiguity.py        # AmbiguityDetector (Gap 8)
@@ -53,7 +60,7 @@ shared/
 │       ├── range_collision.py  # RangeCollisionDetector (Look-Alikes)
 │       ├── specimen_sequence.py# SpecimenSequenceDetector (Gap 11)
 │       └── population_context.py# PopulationContextDetector
-└── tests/                      # 78 deterministic unit & invariant tests
+└── tests/                      # 207 tests: gate, CQs, validator, skills, RDF/SHACL, stores, packaging
 ```
 
 ---
@@ -77,5 +84,5 @@ RUN pip install --no-cache-dir "/tmp/shared[mcp]" && rm -rf /tmp/shared
 ```bash
 cd shared
 python -m pytest tests/ -v
-# 78 passed in ~0.6 s (pure Python, 0 LLM calls)
+# 207 passed (pure Python, 0 LLM calls; install the dev extra first: pip install -e ".[dev]")
 ```

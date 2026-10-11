@@ -1,21 +1,27 @@
 ---
 name: clarification-dialogue
-description: Generate human-in-the-loop clarification prompts for missing qualifiers, ambiguous terms, or unit mismatches. Ask only for missing facets with ontology-admitted values.
+description: Ask the clinician the clarification question the safety gate requires. Use when the gate route is CLARIFY (ambiguous term, unit mismatch, missing qualifier, range collision or missing population). Ask one question per missing facet and offer only the ontology's values.
+allowed-tools: build_clarification_prompt
 license: Apache-2.0
 metadata:
   roles: clarification_coordinator
   risk_class: clinical
-  bundle_sha256: pending
+  version: 1.0.0
+  references: facet-questions
 ---
 
-# Clarification Dialogue
+# Clarification dialogue
 
-This skill defines rules for generating clinician clarification dialogues when the deterministic safety gate returns `CLARIFY`.
+## Steps
 
-## Dialogue Invariants
+1. Call `build_clarification_prompt` with the gate result you were handed.
+2. State the reason the gate stopped, in one sentence, using the gate's status.
+3. Ask the question from the tool result. For a missing facet, use the
+   question and the allowed values in `references/facet-questions.md`.
 
-1. State the exact reason for the safety stop identified by `evaluate_safety_gate`.
-2. Use `build_clarification_prompt` to generate structured prompt text.
-3. Consult `references/facet-questions.md` for standard phrasing per missing facet.
-4. Limit offered choices strictly to allowed ontology facet values.
-5. Never guess, assume default clinical units, or nudge the user toward a particular selection.
+## Rules
+
+- One question per missing facet; never combine two facets into one question.
+- Offer exactly the allowed values, in the listed order.
+- Never suggest which value is likely and never fill in a unit or qualifier.
+- Never interpret the patient value while the query is unresolved.

@@ -125,19 +125,23 @@ if (-not $agentRoleArn -or $agentRoleArn -eq "None") {
     Write-Error "Could not retrieve role ARN. Check IAM permissions."; exit 1
 }
 
-# ─── STEP 4b: Build & Sync Skills to AWS S3 Store ─────────────────────────────
-Write-Host "[4b/9] Building and syncing skills to S3 skill store..." -ForegroundColor Yellow
-python -m ontogate.skills build
-$skillsBucket = if ($env:AWS_SKILLS_BUCKET) { $env:AWS_SKILLS_BUCKET } else { "${ProjectName}-${Environment}-skills" }
-$releaseVer = if ($env:ONTOGATE_RELEASE_VERSION) { $env:ONTOGATE_RELEASE_VERSION } else { "v1.0.0" }
-$s3Exists = aws s3 ls "s3://$skillsBucket" 2>$null
-if ($s3Exists) {
-    Write-Host "    Syncing dist/skills/ to s3://$skillsBucket/skills/$releaseVer/..."
-    aws s3 sync dist/skills/ "s3://$skillsBucket/skills/$releaseVer/" --delete
-    Write-Host "[+] Skills synced to S3 skill store." -ForegroundColor Green
+# ─── STEP 4b: Knowledge release + S3 skill store ──────────────────────────────
+# `ontogate build` fails closed on any integrity, skill-lint or SHACL error.
+Write-Host "[4b/9] Building the knowledge release and publishing locked skills..." -ForegroundColor Yellow
+Push-Location $repoRoot
+$env:PYTHONPATH = "$repoRoot\shared" + $(if ($env:PYTHONPATH) { ";$env:PYTHONPATH" } else { "" })
+python -m ontogate build
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "ontogate build failed: the knowledge release is not valid." }
+$skillsBucket = if ($env:SKILLS_BUCKET) { $env:SKILLS_BUCKET } else { "${ProjectName}-${Environment}-skills" }
+aws s3api head-bucket --bucket $skillsBucket 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    python -m ontogate skills publish "s3://$skillsBucket/skills"
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Publishing skills to s3://$skillsBucket/skills failed." }
+    Write-Host "[+] Skills published to s3://$skillsBucket/skills (content-addressed, immutable)." -ForegroundColor Green
 } else {
-    Write-Host "    [i] S3 skills bucket '$skillsBucket' not present; skills baked into image via dist/skills." -ForegroundColor DarkYellow
+    Write-Host "    [i] S3 bucket $skillsBucket not found; skills ship inside the image only." -ForegroundColor DarkYellow
 }
+Pop-Location
 
 # ─── STEP 5: Build & Push Container ───────────────────────────────────────────
 Write-Host "[5/9] Building and pushing container to ECR..." -ForegroundColor Yellow

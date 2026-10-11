@@ -22,7 +22,7 @@ is fully deterministic and that no step introduces LLM variance into gate decisi
 
 Open these files and trace the routing across frameworks:
 
-1. `shared/ontogate/parsing.py` — canonical `parse_clinician_query()`
+1. `shared/ontogate/parsing.py` — canonical `parse_clinician_text()`
 2. `google-adk-agents/src/workflow.py` — ADK routing graph
 3. `strands-agents/src/workflow.py` — Strands routing graph
 4. `agent-framework/src/workflow.py` — MAF routing graph
@@ -30,7 +30,7 @@ Open these files and trace the routing across frameworks:
 Pipeline:
 ```
 Input
-  └─ parse_clinician_query()
+  └─ parse_clinician_text()
        └─ ontology_resolver (domain resolution)
             └─ safety_guard  ← deterministic gate
                  ├─ PROCEED → protocol_retriever
@@ -42,15 +42,15 @@ Input
 ## Step 2 — Verify parse() Output Shape
 
 ```python
-from ontogate.parsing import parse_clinician_query
+from ontogate.parsing import parse_clinician_text
 
-parsed = parse_clinician_query("Hb | g/dL")
-assert parsed.term == "Hb"
-assert parsed.unit == "g/dL"
+parsed = parse_clinician_text("Hb | g/dL")
+assert parsed["term"] == "Hb"
+assert parsed["unit"] == "g/dL"
 
-parsed2 = parse_clinician_query("Hb")
-assert parsed2.term == "Hb"
-assert parsed2.unit is None
+parsed2 = parse_clinician_text("Hb")
+assert parsed2["term"] == "Hb"
+assert parsed2["unit"] == ""
 ```
 
 ---

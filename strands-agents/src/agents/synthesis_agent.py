@@ -5,12 +5,14 @@ Synthesizes calibrated, grounded clinical interpretations powered by Anthropic C
 from typing import Optional
 from strands import Agent
 from strands.models.model import Model
+from src.skills_loader import skill_plugins_for
 
 
 def create_synthesis_agent(model: Optional[Model] = None) -> Agent:
     """Create a Clinical Synthesis Agent."""
     return Agent(
         model=model,
+        plugins=skill_plugins_for("clinical_synthesizer"),
         system_prompt=(
             "You are a Clinical Laboratory Synthesis Specialist.\n"
             "Your task is to provide a grounded, rigorous clinical interpretation of the patient's lab result "

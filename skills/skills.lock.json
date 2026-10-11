@@ -1,70 +1,119 @@
 {
-  "version": "1.0.0",
-  "bundle_sha256": "core-bundle-v1",
+  "schema_version": "1.0.0",
+  "bundle_sha256": "624f93472c825cd654ce30dc0d8e90331f4be414517ca21354eeb0c26aa55380",
   "skills": {
-    "domain-cardiology": {
-      "name": "domain-cardiology",
-      "version": "1.0.0",
-      "risk_class": "clinical",
-      "path": "skills/domains/cardiology",
-      "sha256": "e86689c4ef9e9172558ddf36f7985f63e8dcfac56bd404c5c003bfbd3fe7c596",
-      "bundle_sha256": "core-bundle-v1"
-    },
-    "domain-laboratory-medicine": {
-      "name": "domain-laboratory-medicine",
-      "version": "1.0.0",
-      "risk_class": "clinical",
-      "path": "skills/domains/laboratory-medicine",
-      "sha256": "046b797b35ef00bbc91ac7b1bebc6a7e786ea74fad86d0e6f47d91e946132681",
-      "bundle_sha256": "core-bundle-v1"
-    },
     "clarification-dialogue": {
-      "name": "clarification-dialogue",
       "version": "1.0.0",
       "risk_class": "clinical",
-      "path": "skills/runtime/clarification-dialogue",
-      "sha256": "8122c179906a101a8ef709f3a10b766cfca89a7a8be767dea137b94626a4b02d",
-      "bundle_sha256": "core-bundle-v1"
+      "path": "runtime/clarification-dialogue",
+      "roles": [
+        "clarification_coordinator"
+      ],
+      "allowed_tools": [
+        "build_clarification_prompt"
+      ],
+      "domain": null,
+      "sha256": "4ee088befa47d8b63b773fda24d81d936a1a867f92f147a7a786a8e77397f0f5",
+      "archive_sha256": "f6e90279dba56e603f4ae7e622c917d9170e8c58309108c5e08e1fe488265e3f"
     },
     "clinical-triage": {
-      "name": "clinical-triage",
       "version": "1.0.0",
       "risk_class": "clinical",
-      "path": "skills/runtime/clinical-triage",
-      "sha256": "15a9da79811bf570a5243fdb05535a398fd135ebcff2782b3a61ddeea8eca8bb",
-      "bundle_sha256": "core-bundle-v1"
+      "path": "runtime/clinical-triage",
+      "roles": [
+        "triage_orchestrator"
+      ],
+      "allowed_tools": [
+        "parse_clinician_input",
+        "resolve_lab_term",
+        "evaluate_safety_gate"
+      ],
+      "domain": null,
+      "sha256": "bcc85afcfff2fd4b41d1ce484a6a3d9c1fda984d15c0ec1ccf60ba5684c22a6c",
+      "archive_sha256": "54969b466112752755744bc9af51bf94f3603d363b565be55b3cac292273967f"
+    },
+    "domain-cardiology": {
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "domains/domain-cardiology",
+      "roles": [
+        "ontology_resolver",
+        "clinical_synthesizer"
+      ],
+      "allowed_tools": [],
+      "domain": "cardiology",
+      "sha256": "43f214d08c0cf62c444fed5308b36e22cb7764a0d89564dbf3f26d81513355fe",
+      "archive_sha256": "13c8776811f529c73c9d7c9caedf9e79fea1368b93673e624b5fb390b58fc726"
+    },
+    "domain-laboratory-medicine": {
+      "version": "1.0.0",
+      "risk_class": "clinical",
+      "path": "domains/domain-laboratory-medicine",
+      "roles": [
+        "ontology_resolver",
+        "clinical_synthesizer"
+      ],
+      "allowed_tools": [],
+      "domain": "laboratory_medicine",
+      "sha256": "15652fea4952a9c74b7a4186ca71e45ee9062d3d233d17431928b1262ca70375",
+      "archive_sha256": "575075858365a445baab660be985406baf40c0ef5da3938acf8d2f2ae2ac8d4c"
     },
     "grounded-synthesis": {
-      "name": "grounded-synthesis",
       "version": "1.0.0",
       "risk_class": "clinical",
-      "path": "skills/runtime/grounded-synthesis",
-      "sha256": "19b99ca5239944b82087394b1aeb2869f01d1fa7fd71c63af21348e915778061",
-      "bundle_sha256": "core-bundle-v1"
+      "path": "runtime/grounded-synthesis",
+      "roles": [
+        "clinical_synthesizer"
+      ],
+      "allowed_tools": [
+        "fetch_grounded_protocol",
+        "attest_computation"
+      ],
+      "domain": null,
+      "sha256": "b553a52689e3f88b3b0476fdce68eb4bdc089cf00a4d2616d1b0035fb388bed6",
+      "archive_sha256": "2f0be9a5ef4393ee6f1586d25997f6b4bc2c4c9b51919e66980d5931cebab314"
     },
     "lab-term-resolution": {
-      "name": "lab-term-resolution",
       "version": "1.0.0",
       "risk_class": "clinical",
-      "path": "skills/runtime/lab-term-resolution",
-      "sha256": "8a427838bcb8b4e557a79008c57365263e2613f76a415c1e216a31406e89a86a",
-      "bundle_sha256": "core-bundle-v1"
+      "path": "runtime/lab-term-resolution",
+      "roles": [
+        "ontology_resolver"
+      ],
+      "allowed_tools": [
+        "resolve_lab_term"
+      ],
+      "domain": null,
+      "sha256": "b015921ca360dc3ebbfcfd297a2513bae01447a25b7767beb464af1964955ded",
+      "archive_sha256": "10740cf8d38827ae31fa6d8b01fbb4b321b514798ac39a06dc91664451b65553"
     },
     "protocol-retrieval": {
-      "name": "protocol-retrieval",
       "version": "1.0.0",
       "risk_class": "clinical",
-      "path": "skills/runtime/protocol-retrieval",
-      "sha256": "fb86c95caad95baf567fe4d576b397d38d3444512ea8f85a23ab452f445f1ec6",
-      "bundle_sha256": "core-bundle-v1"
+      "path": "runtime/protocol-retrieval",
+      "roles": [
+        "protocol_retriever"
+      ],
+      "allowed_tools": [
+        "fetch_grounded_protocol"
+      ],
+      "domain": null,
+      "sha256": "a3c136c7be13a213fad208e1e042d401704c960d9b60f84aaa1a3ebcdbe01d20",
+      "archive_sha256": "c469c321b431cb0f8a6a60d0e150ed63586f3931530caaed594bfd449426522b"
     },
     "specimen-sequencing": {
-      "name": "specimen-sequencing",
       "version": "1.0.0",
       "risk_class": "clinical",
-      "path": "skills/runtime/specimen-sequencing",
-      "sha256": "7b63e2349a9ef05f56884e71347dfb3bc9841fe11f3e238ec0d6472ab25a3b29",
-      "bundle_sha256": "core-bundle-v1"
+      "path": "runtime/specimen-sequencing",
+      "roles": [
+        "panel_coordinator"
+      ],
+      "allowed_tools": [
+        "panel_workup"
+      ],
+      "domain": null,
+      "sha256": "34146c35a3fe0063ee166b2603c7ee5b1bfdf2354771aaa23704e3f0c502dfe3",
+      "archive_sha256": "5548f4d877fe93c73a057e2f7ca49e1876610cbe3f31add3a3611465723f06e3"
     }
   }
 }

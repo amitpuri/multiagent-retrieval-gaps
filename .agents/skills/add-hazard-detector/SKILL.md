@@ -34,82 +34,90 @@ Key invariants:
 
 ## Step 2 — Create the Detector File
 
-Create `shared/ontogate/detectors/<hazard_name>_detector.py`:
+Create `shared/ontogate/detectors/<hazard_name>.py` (the example below is `negative_value.py`):
 
 ```python
 """
-<HazardName> Detector: <one-line description of the hazard>.
-Fails closed: returns CLARIFY route on detection.
+Negative Value Detector: a concentration below zero is a transcription error.
+Fails closed: a negative value routes to CLARIFY.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
 from ontogate.detectors.base import GapDetector
 from ontogate.models import EvaluationContext, GapEvaluationResult, ResolutionStatus
 
 
-class <HazardName>Detector(GapDetector):
-    """Detects <hazard description>."""
-    gap_name = "<GapName>"
+class NegativeValueDetector(GapDetector):
+    """Rejects negative patient values (no observable in the pack admits them)."""
+
+    @property
+    def gap_name(self) -> str:
+        return "Negative Value"
 
     def evaluate(self, context: EvaluationContext) -> GapEvaluationResult:
-        """
-        Check for <hazard> in the given evaluation context.
-        Returns a passing result if the hazard is not detected.
-        """
-        if <hazard_condition(context)>:
+        """Fail closed on a negative value; pass everything else through."""
+        if context.patient_value is not None and context.patient_value < 0:
             return GapEvaluationResult(
                 passed=False,
-                status=ResolutionStatus.<APPROPRIATE_STATUS>,
+                status=ResolutionStatus.UNIT_MISMATCH,  # the status whose clarification fits the hazard
                 gap_name=self.gap_name,
-                message="<Human-readable clarification prompt>",
-                candidates=context.candidates if hasattr(context, "candidates") else [],
-                details={},
+                message=f"A value of {context.patient_value} cannot be a concentration; please re-check it.",
+                details={"missing": ["patient_value"]},
             )
-
-        return GapEvaluationResult(
-            passed=True,
-            status=ResolutionStatus.RESOLVED,
-            gap_name=self.gap_name,
-            message="",
-            candidates=[],
-            details={},
-        )
+        return self._pass("Value is non-negative")
 ```
 
 ---
 
-## Step 3 — Register in SafetyGateEngine
+## Step 3 — Register the Detector
 
-Open `shared/ontogate/detectors/engine.py`:
-1. Import `<HazardName>Detector`.
-2. Append `<HazardName>Detector()` to `self.detectors`.
-3. Verify that `SafetyGateEngine.route_for(status)` returns `"CLARIFY"` for any non-`RESOLVED` status.
+Detectors plug in through the `ontogate.detectors` entry-point group; the engine
+code is not edited.
+
+- **Built-in detector** (part of the default suite): add the entry point to
+  `shared/pyproject.toml` and its name to `DEFAULT_ORDER` in
+  `shared/ontogate/detectors/engine.py` at the position where its clarification
+  is the most informative one.
+
+  ```toml
+  [project.entry-points."ontogate.detectors"]
+  negative_value = "ontogate.detectors.negative_value:NegativeValueDetector"
+  ```
+
+- **Plugin detector** (another package): declare the same entry point in that
+  package. Plugins run after the built-in suite and can never open the gate.
+
+`SafetyGateEngine.route_for(status)` stays fail-closed: only `RESOLVED` proceeds.
 
 ---
 
-## Step 4 — Write Tests in `shared/tests/test_gate.py`
+## Step 4 — Write Tests in `shared/tests/test_<hazard_name>.py`
 
-Add at least these test cases to `shared/tests/test_gate.py`:
+Add at least these cases (one failing fixture, one pass, one missing-field):
 
 ```python
-def test_<hazard>_triggers_clarify():
-    """<Hazard> condition must produce a CLARIFY route, never PROCEED."""
-    # Arrange: construct inputs that trigger the hazard
-    # Act: evaluate through engine or detector
-    # Assert: result.passed is False and route == "CLARIFY"
+from ontogate.config import get_default_registry
+from ontogate.detectors.engine import SafetyGateEngine
+from ontogate.models import EvaluationContext
 
 
-def test_<hazard>_with_qualifier_resolves():
-    """Explicitly qualified inputs must bypass the hazard detector."""
-    # Arrange: add the disambiguating qualifier
-    # Assert: status == ResolutionStatus.RESOLVED and route == "PROCEED"
+def test_negative_value_routes_to_clarify():
+    """A negative value never proceeds."""
+    reg = get_default_registry()
+    result = NegativeValueDetector(reg).evaluate(EvaluationContext(term="Hb", unit="g/dL", patient_value=-1.0))
+    assert not result.passed
+    assert SafetyGateEngine(reg).route_for(result.status) == "CLARIFY"
 
 
-def test_<hazard>_missing_value_does_not_crash():
-    """Detector must not raise if optional fields are None."""
-    # Arrange: omit patient_value or qualifier
-    # Assert: result is returned (no exception), status is safe default
+def test_non_negative_value_passes():
+    """A plausible value is left to the other detectors."""
+    reg = get_default_registry()
+    assert NegativeValueDetector(reg).evaluate(EvaluationContext(term="Hb", unit="g/dL", patient_value=13.5)).passed
+
+
+def test_missing_value_does_not_crash():
+    """Optional fields may be absent."""
+    assert NegativeValueDetector(get_default_registry()).evaluate(EvaluationContext(term="Hb")).passed
 ```
 
 ---
@@ -117,8 +125,8 @@ def test_<hazard>_missing_value_does_not_crash():
 ## Step 5 — Verify All Test Suites
 
 ```bash
-python -m pytest shared/tests/test_gate.py -v
-./run-all-tests.sh
+python -m pytest shared/tests/test_negative_value.py -v
+./run-all-tests.sh   # includes the competency questions and cross-cloud conformance
 ```
 
-All gate tests must pass with zero failures.
+Add a competency question to a scenario in `config/scenarios/` that exercises the hazard end to end.

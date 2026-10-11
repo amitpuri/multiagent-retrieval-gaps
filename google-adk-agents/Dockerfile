@@ -27,6 +27,7 @@ COPY google-adk-agents/src/ /app/src/
 COPY ontology/ /app/ontology/
 COPY config/ /app/config/
 COPY skills/ /app/skills/
+COPY agents/ /app/agents/
 ENV ONTOGATE_REPO_ROOT=/app
 COPY google-adk-agents/pytest.ini /app/
 COPY google-adk-agents/README.md /app/

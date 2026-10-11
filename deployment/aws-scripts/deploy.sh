@@ -149,17 +149,18 @@ fi
 AGENT_ROLE_ARN="$(aws iam get-role --role-name "${AGENT_ROLE_NAME}" --query "Role.Arn" --output text 2>/dev/null || true)"
 echo "[+] AgentCore Execution Role ARN: ${AGENT_ROLE_ARN}"
 
-# ─── STEP 4b: Build & Sync Skills to AWS S3 Store ─────────────────────────────
-echo "[4b/9] Building and syncing skills to S3 skill store..."
-python -m ontogate.skills build
+# ─── STEP 4b: Knowledge release + S3 skill store ──────────────────────────────
+# `ontogate build` fails closed on any integrity, skill-lint or SHACL error.
+echo "[4b/9] Building the knowledge release and publishing locked skills..."
+cd "${REPO_ROOT}"
+export PYTHONPATH="${REPO_ROOT}/shared${PYTHONPATH:+:${PYTHONPATH}}"
+python -m ontogate build
 SKILLS_BUCKET="${SKILLS_BUCKET:-${PROJECT_NAME}-${ENVIRONMENT}-skills}"
-RELEASE_VERSION="${RELEASE_VERSION:-v1.0.0}"
-if aws s3 ls "s3://${SKILLS_BUCKET}" &>/dev/null; then
-  echo "    Syncing dist/skills/ to s3://${SKILLS_BUCKET}/skills/${RELEASE_VERSION}/..."
-  aws s3 sync dist/skills/ "s3://${SKILLS_BUCKET}/skills/${RELEASE_VERSION}/" --delete
-  echo "[+] Skills synced to S3 skill store."
+if aws s3api head-bucket --bucket "${SKILLS_BUCKET}" &>/dev/null; then
+  python -m ontogate skills publish "s3://${SKILLS_BUCKET}/skills"
+  echo "[+] Skills published to s3://${SKILLS_BUCKET}/skills (content-addressed, immutable)."
 else
-  echo "    [i] S3 skills bucket '${SKILLS_BUCKET}' not present; skills baked into image via dist/skills."
+  echo "    [i] S3 bucket ${SKILLS_BUCKET} not found; skills ship inside the image only."
 fi
 
 # ─── STEP 5: Build & Push Container ──────────────────────────────────────────

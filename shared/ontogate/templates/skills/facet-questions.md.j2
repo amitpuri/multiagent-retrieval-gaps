@@ -1,0 +1,28 @@
+# Facet questions
+
+Ask one question per missing facet. Offer exactly the listed values, in this
+order, and never suggest which one is likely.
+
+{% for f in facets %}
+## {{ f.label }} (`{{ f.id }}`)
+
+- **Question:** {{ f.question }}
+- **Allowed values:** {{ f.allowed | map("tojson") | join(", ") }}
+{% if f.synonyms %}
+- **Clinician synonyms:** {% for k, v in f.synonyms %}`{{ k }}` → {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}
+
+{% endif %}
+
+{% endfor %}
+# Population facets
+
+Ask for a population facet only when the gate reports that the applicable
+reference interval depends on it.
+
+{% for f in population %}
+## {{ f.label }} (`{{ f.id }}`)
+
+- **Question:** {{ f.question }}
+- **Allowed values:** {{ f.allowed | map("tojson") | join(", ") }}
+
+{% endfor %}
