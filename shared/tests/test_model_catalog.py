@@ -22,6 +22,10 @@ PROVENANCE = re.compile(r"reference_agent/gemini-[\w.-]+")
 # docs/ holds dated research and the review plan (history by design); everything else —
 # code, scripts, templates, agent YAML and every README — must name catalog models only.
 SKIP_PREFIXES = ("docs/", "config/models.yaml")
+# Third-party models a file names as market-survey context, never as a model an agent runs.
+# Scoped per file so the same ID anywhere else (code, config, another README) still fails.
+SURVEYED = {"README.md": {"gpt-6-luna"}}
+SURVEYED["shared/tests/test_model_catalog.py"] = set().union(*SURVEYED.values())  # this list itself
 SCANNED_SUFFIXES = (".py", ".sh", ".ps1", ".yaml", ".yml", ".toml", ".example", ".env", "Dockerfile", ".md")
 
 
@@ -34,9 +38,10 @@ def _tracked_files():
 
 def test_every_model_id_in_the_repository_is_in_the_catalog():
     """Code, scripts, templates and agent YAML may only name catalog model IDs."""
-    allowed = set(model_ids())
+    catalog = set(model_ids())
     stray = []
     for rel in _tracked_files():
+        allowed = catalog | SURVEYED.get(rel, set())
         text = PROVENANCE.sub("", (repo_root() / rel).read_text(encoding="utf-8", errors="ignore"))
         for m in MODEL_ID.finditer(text):
             full = m.group(0)
