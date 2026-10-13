@@ -48,7 +48,7 @@ In under four weeks, "decision model" went from a modelling discipline to a mode
 | --- | --- | --- |
 | **Microsoft** | Shipping (Oct 9) | [Microsoft-Decision-1](https://commandline.microsoft.com/microsoft-decision-1-model-foundry/) on [Azure AI Foundry](https://ai.azure.com/catalog/models/Microsoft-Decision-1) and [OpenRouter](https://openrouter.ai/microsoft/microsoft-decision-1). Post-trained Qwen3.5-9B with plans to rebase on MAI and OpenAI models. Top accuracy across 36 blind benchmarks (83.5% vs Jev's 82.3% and Quyet's 81.9%), 85 ms p50 latency, 92.2 calibration score. Internal Xbox Research validation: >10 K items labeled across 3 datasets at 143–188 ms per review (14–18× faster and 200× cheaper than GPT-6 Sol). Safety screening tested on 5,250 requests across 11 benchmarks. Explicitly targets skill-based decisions and agent control flow. [Docs](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision); [deeper look below](#microsoft-decision-1). |
 | **OpenAI** | Public beta (Oct 6) | Decisions API on gpt-6-luna; a third-party test found it order-sensitive — answers changed for 30% of items across five reorderings of a 77-option task, vs 4% for Jev |
-| **Google DeepMind** | No first-party model | Ecosystem footprint: OpenJev is built on DiffusionGemma (accepts up to 8 images per request); a Google codelab walks developers through Jev or DiffusionGemma as the decision model inside a parallel Google ADK workflow |
+| **Google DeepMind / Google AI Edge** | First-party on-device decision stack (Oct 6) | **EmbeddingGemma 2** (740 M parameters, open-weight, multimodal) launched Oct 6, 2026 — maps text, images, video frames and audio into a unified vector space and acts as an ultra-low-latency zero-shot decision engine without fine-tuning. The **[MediaPipe Decision Task](https://developers.google.com/edge/mediapipe/solutions/decision/decision_maker)** wraps it (and EmbeddingGemma 1, Laya, GLINER2.5-Decide, Gemma 4 E2B/E4B) into a unified, zero-decoding decision API with `BooleanQuestion`, `ChoiceQuestion` and `ScoreQuestion` primitives, a prewarm/evaluate lifecycle, and built-in TypeSafe Jev JSON + OpenAI `json_schema` compatibility — shipping for Android (Kotlin), iOS (Swift), Python and Web (TypeScript). Chess-move demo: evaluates 500 options in under 100 ms on-device. Cloud-hosted or ADK-hosted decision models remain a gap; the strategy is edge-first with ML Kit NPU acceleration coming soon. OpenJev is still built on DiffusionGemma; a Google codelab walks through Jev or DiffusionGemma inside a parallel ADK workflow. ([deeper look below](#google-embeddinggemma-2-mediapipe-decision-task)) |
 | **Nvidia** | Framework support, no model | A NeMo agents pull request adds decision-model support, including agents that run without a chat model, with a fallback to the chat LLM when none is configured |
 | **Anthropic** | No product or announcement | A third-party emulation project wraps Haiku 5.5; in its tests a single Haiku call matched Jev and OpenAI on four of five datasets; Jev led on BoolQ (91.0% vs 87.2%); Haiku changed answers on 22% of reordered items vs 4% for Jev. A creative hybrid: one developer had Jev play Pokémon Red while Claude Opus 5 watched the log and adjusted the option wording as a coach |
 | **Meta / Meta Superintelligence Labs** | No decision model or API found | Nearest small-model release is Muse Spark (succeeds Llama 4, next generation in development), but it is not positioned for typed decisions. Open weights could be used via Nokia AnyJev (turns any causal LLM into a decision model without training). If Meta enters, expect an open-weight model release rather than a hosted API. |
@@ -123,6 +123,7 @@ The dominant design pattern is no longer "let the LLM decide everything." It spl
 - **LLM as interpreter, specialist as engine.** The LLM extracts facts and frames the problem; a rule engine, optimiser, forecaster or typed decision model computes the answer. Reported work on optimisation found LLMs writing a correct optimisation model only about a quarter to two-fifths of the time, which is why solvers stay in the loop.
 - **Evidence then decision.** An independent benchmark found the best setup was hybrid: use a decision model to extract structured evidence cheaply, then let a small trained classifier or application logic make the final call ([MindStudio](https://www.mindstudio.ai/blog/jev-vs-classic-classifiers-benchmark/)).
 - **Distillation path.** Start a workflow on a frontier LLM, log the traces, then distil the repetitive judgments into a small decision model, rules or a statistical model. Cloudflare already offers RL fine-tuning of Clef on a customer's own labelled decisions ([InfoQ summary](https://letsdatascience.com/news/cloudflare-releases-open-weight-clef-decision-models-c52886d6)).
+- **On-device / edge path.** EmbeddingGemma 2 shows a separate distillation direction: compress a multimodal embedding backbone to INT4/INT8 with Quantization-Aware Training, run it on the device's CPU/GPU/NPU, and skip the server round-trip entirely. This is latency-optimal for high-frequency agent decisions on mobile or IoT endpoints.
 
 ## Trend 5: Calibration, abstention and cascades become the real battleground
 
@@ -172,10 +173,69 @@ Microsoft's skill-based decisions use case — applying an agent skill's rules t
 - **Thin, mostly vendor evidence.** Most numbers are self-reported or from days-old preprints. Microsoft-Decision-1 has no independent evaluation as of October 11, 2026. Even independent evaluations disagree by more than 10 points on the same benchmark.
 - **Absorption risk.** Frontier labs can ship decision endpoints as a cheap tier, as OpenAI and now Microsoft have. Whether independent vendors keep an edge is open. The interface is easy to copy.
 - **Governance cost.** Decision catalogs, owners, versions and audit trails take real effort; over-specifying rules makes agents brittle. Encode the decisions that matter and leave the rest to judgment.
+- **On-device scope limits.** Edge decision models (EmbeddingGemma 2, MediaPipe Decision Task) require the option set to be known at prewarm time and stored locally; they cannot evaluate open-ended plans or options generated at runtime. They are best suited to classification, routing and condition-trigger tasks where options are stable.
+
+## Trend 6: On-device decision infrastructure — Google AI Edge
+
+While the cloud-hosted decision model market has been dominated by TypeSafe, Microsoft, OpenAI, Cloudflare and AWS (Trends 1–5), Google opened a parallel lane on October 6, 2026: a production-grade, on-device decision stack.
+
+### EmbeddingGemma 2 as a decision engine
+
+[EmbeddingGemma 2](https://developers.googleblog.com/google-ai-edge-with-embeddinggemma-2/) is a 740 M-parameter open-weight multimodal model (Google AI Edge Team and Android ML Team, October 6, 2026) that maps text, images, video frames and audio into a single unified vector space. It can act as an **ultra-low-latency on-device decision engine without any fine-tuning**: match user inputs directly against classification labels and descriptions for instant zero-shot intent routing in milliseconds.
+
+**Key numbers:**
+- **~191 MB** active RAM for text-only weights; **~567 MB** for the full multimodal model (Pixel 11 Pro)
+- Vision embeddings: **37.3 ms** (26.9 images/s) on MacBook M5 Pro GPU
+- Chess-move demo: evaluates **500 options in under 100 ms** on-device using the MediaPipe Decision Task
+- INT4/INT8 quantisation via Quantization-Aware Training (QAT); Matryoshka Representation Learning (MRL) cuts index footprint up to 8×
+- Runs via a single `.litertlm` file on CPU, GPU and NPU across Android, iOS, macOS, Windows, Linux and Web (WASM)
+
+**Architectural optimisations:**
+- **Modular encoders:** Load only the modalities needed (e.g. Text + Vision for photo search; add the audio encoder on demand)
+- **Adaptive graph selection:** Dynamically loads the optimal compute graph based on text length and vision token budget
+- **MRL output slicing:** On-the-fly dimension truncation (128d–768d) controls storage vs. precision
+
+<a id="google-embeddinggemma-2-mediapipe-decision-task"></a>
+### MediaPipe Decision Task — deeper look
+
+The [MediaPipe Decision Maker](https://developers.google.com/edge/mediapipe/solutions/decision/decision_maker) is Google AI Edge's typed decision API. It ships with multiple backends:
+
+| Backend | Type | Notes |
+| --- | --- | --- |
+| EmbeddingGemma 1 & 2 | Embedding | Zero-decoding, ultra-low latency |
+| Laya | Bidirectional cross-encoder | Accuracy-focused embedding |
+| GLINER2.5-Decide | Bidirectional cross-encoder | NER/entity decision tasks |
+| Gemma 4 E2B / E4B | Generative | Higher accuracy, more memory |
+
+**Three decision primitives match the Jev/TypeSafe interface:**
+- **`BooleanQuestion`** — returns `probability_true` (0.0–1.0) and `confidence`
+- **`ChoiceQuestion`** — selects 1 of K exclusive options, returns `selected_key` + full `probabilities` map
+- **`ScoreQuestion`** — evaluates an ordered K-level rubric, returns `expected_score` (continuous probability-weighted) + `selected_key`
+
+**Three-step execution lifecycle:**
+1. **Create** — initialise from file path, file descriptor or in-memory buffer; existing `UniversalEmbedder` providers can be shared for **0 MB extra RAM**
+2. **Prewarm** (`prewarm` / `prewarmJson`) — executed once at setup; computes candidate option embeddings, applies within-question centroid whitening, L2-normalises representations; for logit backends, pre-populates KV cache prefixes
+3. **Evaluate** (`evaluate` / `evaluateJson`) — scores query context against cached decision structures in a single pass
+
+**Platform reach:** Uniform API across Android (Kotlin), iOS (Swift), Python and Web (TypeScript/JavaScript).
+
+**JSON interoperability:** Built-in evaluation of unmodified TypeSafe Jev JSON payloads (`evaluateJson`) and automatic mapping of OpenAI `json_schema` property objects into `BooleanQuestion`, `ChoiceQuestion` and `ScoreQuestion`.
+
+**Configuration options:** `modelSource` (file path or in-memory), `maxNumTokens` (default 4096), `delegate` (`.cpu` or `.gpu`).
+
+### What this means for agent skills frameworks
+
+The MediaPipe Decision Task brings the typed-gate pattern down to the device:
+- Skill routing, intent classification and condition-trigger checks can run on the phone or laptop with no server round-trip
+- The prewarm/evaluate split maps directly to the "define a typed check once, use it both offline and as a runtime gate" principle (see §*What this means for an agent skills framework*, point 7)
+- `UniversalEmbedder` sharing means adding a decision gate costs zero extra RAM when the embedding model is already loaded
+- The Jev-compatible JSON interface means skill routing questions authored for cloud deployment can run on-device without code changes
+
+The limitation is scope: options must be fixed at prewarm time. Open-ended planning and dynamic option generation still require a cloud LLM or a generative Gemma 4 backend.
 
 ## Outlook and signals to watch
 
-My projection, not established fact: over the next 12 to 24 months the two traditions merge. Explicit models (DMN-style requirement graphs) supply structure, authority and audit; learned decision models fill individual judgment nodes; LLMs frame problems and handle the long tail. The competitive edge shifts from raw accuracy to trustworthy calibration on a customer's own data. With Microsoft now in the market and the interface easy to copy, **robustness and calibration on customer data** are becoming the primary differentiators — accuracy on shared benchmarks is already converging.
+My projection, not established fact: over the next 12 to 24 months the two traditions merge, and a **third axis** has now appeared — on-device. Explicit models (DMN-style requirement graphs) supply structure, authority and audit; learned decision models fill individual judgment nodes; LLMs frame problems and handle the long tail; on-device embedding engines handle high-frequency, privacy-sensitive routing without a server call. The competitive edge shifts from raw accuracy to trustworthy calibration on a customer's own data and to breadth of deployment surface (cloud vs. edge vs. device). With Microsoft now in the market and the interface easy to copy, **robustness and calibration on customer data** are becoming the primary differentiators — accuracy on shared benchmarks is already converging.
 
 Signals that would confirm or break this view:
 
@@ -183,7 +243,8 @@ Signals that would confirm or break this view:
 - Peer-reviewed, non-vendor benchmarks with per-domain calibration and robustness (order/wording invariance) results
 - OpenAI's Decisions API pricing and terms at general availability
 - Uptake of customer fine-tuning on own decisions (Cloudflare's offering is the first test)
-- Whether Google DeepMind ships a first-party decision model or deepens the DiffusionGemma/ADK ecosystem play
+- Google AI Edge: ML Kit NPU integration for EmbeddingGemma 2 reaching stable release; whether a cloud-hosted Google decision endpoint follows
+- Google ADK integrating the MediaPipe Decision Task as a native agent node
 - Nvidia NeMo decision-model support reaching a stable release
 - Anthropic product announcement or continued silence — the emulation-only gap is a meaningful signal either way
 - Meta: whether Muse Spark or a Llama variant ships with calibrated option-probability readout, or whether Meta remains absent from this tier
@@ -192,6 +253,7 @@ Signals that would confirm or break this view:
 - DMN 1.6 reaching formal status, or DMN tooling adding learned-judgment nodes
 - MCP skill distribution moving from experimental to stable in major frameworks
 - Whether frontier labs fold decision endpoints into their standard model tiers
+- Cross-deployment parity benchmarks: does a skill routing question behave the same on MediaPipe Decision Task (device), Clef-flash (edge server) and Microsoft-Decision-1 (cloud)?
 
 ## Sources
 
@@ -227,3 +289,5 @@ Signals that would confirm or break this view:
 - Meta Superintelligence Labs: Muse Spark announcement (no decision-model positioning found)
 - Nokia AnyJev: converts any open causal LLM to a decision model without training; backends for Hugging Face, vLLM, SGLang, llama.cpp
 - Open decision model backbone audit: documented open models use Qwen, ModernBERT and DeBERTa; Llama absent from major releases
+- [Google Developers Blog: EmbeddingGemma 2 launch post](https://developers.googleblog.com/google-ai-edge-with-embeddinggemma-2/) (Google AI Edge Team and Android ML Team, October 6, 2026): model architecture, latency benchmarks, MediaPipe integration details, Foresight and Gallery demos
+- [MediaPipe Decision Maker guide](https://developers.google.com/edge/mediapipe/solutions/decision/decision_maker) (Google AI Edge, accessed October 13, 2026): task overview, question primitives, execution lifecycle, supported backends, configuration options, JSON interoperability
