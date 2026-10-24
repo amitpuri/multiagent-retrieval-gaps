@@ -12,6 +12,6 @@ PyYAML==6.0.3
 pytest==9.1.1
 
 # Model Context Protocol (MCP) & HTTP Server
-mcp==1.28.1
+mcp==1.30.0
 fastapi==0.141.1
 uvicorn==0.48.0
